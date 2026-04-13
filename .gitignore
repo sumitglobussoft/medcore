@@ -5,6 +5,8 @@ dist/
 .env
 .env.local
 .env.*.local
+local.env
+deploy.py
 *.log
 coverage/
 .DS_Store

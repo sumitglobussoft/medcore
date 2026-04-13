@@ -63,7 +63,7 @@ async function main() {
       },
     });
 
-    await prisma.doctor.upsert({
+    const doctor = await prisma.doctor.upsert({
       where: { userId: user.id },
       update: {},
       create: {
@@ -75,41 +75,28 @@ async function main() {
 
     // Create default schedule: Mon-Fri, 10:00-13:00 and 16:00-19:00
     for (let day = 1; day <= 5; day++) {
-      await prisma.doctorSchedule.upsert({
-        where: {
-          doctorId_dayOfWeek_startTime: {
-            doctorId: user.id,
-            dayOfWeek: day,
-            startTime: "10:00",
+      for (const shift of [
+        { start: "10:00", end: "13:00" },
+        { start: "16:00", end: "19:00" },
+      ]) {
+        await prisma.doctorSchedule.upsert({
+          where: {
+            doctorId_dayOfWeek_startTime: {
+              doctorId: doctor.id,
+              dayOfWeek: day,
+              startTime: shift.start,
+            },
           },
-        },
-        update: {},
-        create: {
-          doctorId: user.id,
-          dayOfWeek: day,
-          startTime: "10:00",
-          endTime: "13:00",
-          slotDurationMinutes: 15,
-        },
-      });
-
-      await prisma.doctorSchedule.upsert({
-        where: {
-          doctorId_dayOfWeek_startTime: {
-            doctorId: user.id,
+          update: {},
+          create: {
+            doctorId: doctor.id,
             dayOfWeek: day,
-            startTime: "16:00",
+            startTime: shift.start,
+            endTime: shift.end,
+            slotDurationMinutes: 15,
           },
-        },
-        update: {},
-        create: {
-          doctorId: user.id,
-          dayOfWeek: day,
-          startTime: "16:00",
-          endTime: "19:00",
-          slotDurationMinutes: 15,
-        },
-      });
+        });
+      }
     }
 
     console.log("Created doctor:", doc.name);
