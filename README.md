@@ -525,12 +525,6 @@ For commercial licensing inquiries, please contact us directly.
 
 ---
 
-## 🙏 Acknowledgments
-
-Built with Claude Code using systematic parallel-agent orchestration. The entire system — 73+ pages, 350+ API endpoints, 110+ Prisma models — was architected and implemented iteratively with AI pair-programming.
-
-If you're curious about the development approach or want to discuss AI-assisted software engineering at this scale, we'd love to hear from you.
-
 ---
 
 <div align="center">
