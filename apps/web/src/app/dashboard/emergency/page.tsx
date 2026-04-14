@@ -67,7 +67,7 @@ interface EmergencyStats {
   availableBeds: number;
 }
 
-export const TRIAGE_COLORS: Record<string, string> = {
+const TRIAGE_COLORS: Record<string, string> = {
   RESUSCITATION: "bg-red-900 text-white",
   EMERGENT: "bg-red-500 text-white",
   URGENT: "bg-orange-500 text-white",
@@ -83,7 +83,7 @@ const TRIAGE_TARGET_MIN: Record<string, number> = {
   NON_URGENT: 120,
 };
 
-export function elapsedMin(dateStr: string): number {
+function elapsedMin(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
 }
 
