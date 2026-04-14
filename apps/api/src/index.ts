@@ -77,13 +77,13 @@ app.set("io", io);
 app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:3000" }));
 app.use(express.json());
 app.use(sanitize);
-app.use(rateLimit(100, 60_000));
+app.use(rateLimit(600, 60_000));
 
 // Public routes (no auth) — must be mounted BEFORE routers that require auth
 app.use("/api/v1/public", publicLabRouter);
 
 // Routes
-app.use("/api/v1/auth", rateLimit(10, 60_000), authRouter);
+app.use("/api/v1/auth", rateLimit(30, 60_000), authRouter);
 app.use("/api/v1/patients", patientRouter);
 app.use("/api/v1/appointments", appointmentRouter);
 app.use("/api/v1/doctors", doctorRouter);
