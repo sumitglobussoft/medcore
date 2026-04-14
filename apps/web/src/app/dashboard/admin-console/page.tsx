@@ -107,7 +107,7 @@ export default function AdminConsolePage() {
         safe<any>(`/wards`, { data: [] }),
         safe<any>(`/shifts/roster?date=${today}`, { data: [] }),
         safe<any>(`/surgery?from=${today}&to=${today}&limit=100`, { data: [] }),
-        safe<any>(`/auth/users?isActive=true&limit=1`, { meta: { total: 0 } }),
+        safe<any>(`/doctors`, { data: [] }),
       ]);
 
       setApiHealth(health?.status === "ok" ? "ok" : "down");
@@ -122,15 +122,23 @@ export default function AdminConsolePage() {
         : [];
       setBloodLow(lowUnits);
       setAuditCount(audit.meta?.total || 0);
-      setPendingLeaves(leaves.data || []);
-      setPendingExpenses(expenses.data || []);
-      setPendingPOs(pos.data || []);
-      setWards(wardRes.data || []);
-      setRosterToday(roster.data || []);
+      setPendingLeaves(Array.isArray(leaves.data) ? leaves.data : []);
+      setPendingExpenses(Array.isArray(expenses.data) ? expenses.data : []);
+      setPendingPOs(Array.isArray(pos.data) ? pos.data : []);
+      setWards(Array.isArray(wardRes.data) ? wardRes.data : []);
+      // /shifts/roster returns an OBJECT grouped by shift type — flatten to a single array
+      const rosterData = roster.data;
+      let rosterFlat: any[] = [];
+      if (Array.isArray(rosterData)) {
+        rosterFlat = rosterData;
+      } else if (rosterData && typeof rosterData === "object") {
+        rosterFlat = Object.values(rosterData).flat() as any[];
+      }
+      setRosterToday(rosterFlat);
       // OT utilization: surgeries today vs number of OTs * 8 hours
-      const surgs = surgeriesToday.data || [];
+      const surgs = Array.isArray(surgeriesToday.data) ? surgeriesToday.data : [];
       setOtUtil({ used: surgs.length, total: 10 });
-      setActiveSessions(users.meta?.total || 0);
+      setActiveSessions(Array.isArray(users.data) ? users.data.length : 0);
       setLoaded(true);
     })();
   }, [user]);
