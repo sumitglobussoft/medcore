@@ -10,4 +10,7 @@ export * from "./validation/patient";
 export * from "./validation/appointment";
 export * from "./validation/billing";
 export * from "./validation/prescription";
+export * from "./validation/pharmacy";
+export * from "./validation/lab";
+export * from "./validation/ipd";
 export * from "./constants";

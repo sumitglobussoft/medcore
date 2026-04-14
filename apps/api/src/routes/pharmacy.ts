@@ -1,0 +1,444 @@
+import { Router, Request, Response, NextFunction } from "express";
+import { prisma } from "@medcore/db";
+import {
+  Role,
+  createInventoryItemSchema,
+  updateInventoryItemSchema,
+  stockMovementSchema,
+  dispensePrescriptionSchema,
+} from "@medcore/shared";
+import { authenticate, authorize } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
+
+const router = Router();
+router.use(authenticate);
+
+// GET /api/v1/pharmacy/inventory?search=&lowStock=true
+router.get(
+  "/inventory",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        search,
+        lowStock,
+        page = "1",
+        limit = "50",
+      } = req.query as Record<string, string | undefined>;
+      const skip =
+        (parseInt(page || "1") - 1) * parseInt(limit || "50");
+      const take = Math.min(parseInt(limit || "50"), 200);
+
+      const where: Record<string, unknown> = {};
+      if (search) {
+        where.medicine = {
+          OR: [
+            { name: { contains: search, mode: "insensitive" } },
+            { genericName: { contains: search, mode: "insensitive" } },
+            { brand: { contains: search, mode: "insensitive" } },
+          ],
+        };
+      }
+
+      // Fetch items first
+      let items = await prisma.inventoryItem.findMany({
+        where,
+        include: { medicine: true },
+        orderBy: { updatedAt: "desc" },
+      });
+
+      // Filter low stock in memory (quantity <= reorderLevel)
+      if (lowStock === "true") {
+        items = items.filter((i) => i.quantity <= i.reorderLevel);
+      }
+
+      const total = items.length;
+      const paged = items.slice(skip, skip + take);
+
+      res.json({
+        success: true,
+        data: paged,
+        error: null,
+        meta: { page: parseInt(page || "1"), limit: take, total },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/pharmacy/inventory/expiring?days=30
+router.get(
+  "/inventory/expiring",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const days = parseInt((req.query.days as string) || "30");
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() + days);
+
+      const items = await prisma.inventoryItem.findMany({
+        where: {
+          expiryDate: { lte: cutoff },
+          quantity: { gt: 0 },
+        },
+        include: { medicine: true },
+        orderBy: { expiryDate: "asc" },
+      });
+
+      res.json({ success: true, data: items, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/pharmacy/inventory — add stock + create PURCHASE movement
+router.post(
+  "/inventory",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(createInventoryItemSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        medicineId,
+        batchNumber,
+        quantity,
+        unitCost,
+        sellingPrice,
+        expiryDate,
+        supplier,
+        reorderLevel,
+        location,
+      } = req.body;
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Upsert by (medicineId, batchNumber) — if exists, add quantity
+        const existing = await tx.inventoryItem.findUnique({
+          where: {
+            medicineId_batchNumber: { medicineId, batchNumber },
+          },
+        });
+
+        let item;
+        if (existing) {
+          item = await tx.inventoryItem.update({
+            where: { id: existing.id },
+            data: {
+              quantity: existing.quantity + quantity,
+              unitCost,
+              sellingPrice,
+              expiryDate: new Date(expiryDate),
+              supplier: supplier ?? existing.supplier,
+              reorderLevel: reorderLevel ?? existing.reorderLevel,
+              location: location ?? existing.location,
+            },
+            include: { medicine: true },
+          });
+        } else {
+          item = await tx.inventoryItem.create({
+            data: {
+              medicineId,
+              batchNumber,
+              quantity,
+              unitCost,
+              sellingPrice,
+              expiryDate: new Date(expiryDate),
+              supplier,
+              reorderLevel: reorderLevel ?? 10,
+              location,
+            },
+            include: { medicine: true },
+          });
+        }
+
+        await tx.stockMovement.create({
+          data: {
+            inventoryItemId: item.id,
+            type: "PURCHASE",
+            quantity,
+            performedBy: req.user!.userId,
+            reason: "Stock added",
+          },
+        });
+
+        return item;
+      });
+
+      auditLog(req, "ADD_INVENTORY", "inventory_item", result.id, {
+        medicineId,
+        batchNumber,
+        quantity,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/pharmacy/inventory/:id — update location/reorderLevel/sellingPrice
+router.patch(
+  "/inventory/:id",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(updateInventoryItemSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const item = await prisma.inventoryItem.update({
+        where: { id: req.params.id },
+        data: req.body,
+        include: { medicine: true },
+      });
+      auditLog(req, "UPDATE_INVENTORY", "inventory_item", item.id, req.body).catch(
+        console.error
+      );
+      res.json({ success: true, data: item, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/pharmacy/stock-movements — manual movement
+router.post(
+  "/stock-movements",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(stockMovementSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { inventoryItemId, type, quantity, reason } = req.body;
+
+      const movement = await prisma.$transaction(async (tx) => {
+        const item = await tx.inventoryItem.findUnique({
+          where: { id: inventoryItemId },
+        });
+        if (!item) throw new Error("Inventory item not found");
+
+        // Determine signed change: inbound types add, outbound subtract
+        const inbound = type === "PURCHASE" || type === "RETURNED";
+        const delta = inbound ? Math.abs(quantity) : -Math.abs(quantity);
+        const newQty = item.quantity + delta;
+
+        if (newQty < 0) throw new Error("Insufficient stock");
+
+        await tx.inventoryItem.update({
+          where: { id: item.id },
+          data: { quantity: newQty },
+        });
+
+        return tx.stockMovement.create({
+          data: {
+            inventoryItemId,
+            type,
+            quantity: delta,
+            performedBy: req.user!.userId,
+            reason,
+          },
+          include: { inventoryItem: { include: { medicine: true } } },
+        });
+      });
+
+      auditLog(
+        req,
+        "STOCK_MOVEMENT",
+        "stock_movement",
+        movement.id,
+        { type, quantity, reason }
+      ).catch(console.error);
+
+      res.status(201).json({ success: true, data: movement, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/pharmacy/dispense — dispense a prescription
+router.post(
+  "/dispense",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE),
+  validate(dispensePrescriptionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { prescriptionId } = req.body;
+
+      const prescription = await prisma.prescription.findUnique({
+        where: { id: prescriptionId },
+        include: { items: true },
+      });
+
+      if (!prescription) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Prescription not found",
+        });
+        return;
+      }
+
+      const dispensed: Array<{
+        medicineName: string;
+        inventoryItemId: string;
+        batchNumber: string;
+        quantity: number;
+      }> = [];
+      const warnings: string[] = [];
+
+      await prisma.$transaction(async (tx) => {
+        for (const item of prescription.items) {
+          // Parse numeric qty from duration/dosage — assume 1 unit per item if not derivable
+          const qtyMatch = item.duration.match(/(\d+)/);
+          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+
+          // Find matching medicine by name (case insensitive)
+          const medicine = await tx.medicine.findFirst({
+            where: {
+              OR: [
+                { name: { equals: item.medicineName, mode: "insensitive" } },
+                {
+                  genericName: {
+                    equals: item.medicineName,
+                    mode: "insensitive",
+                  },
+                },
+                {
+                  name: { contains: item.medicineName, mode: "insensitive" },
+                },
+              ],
+            },
+          });
+
+          if (!medicine) {
+            warnings.push(`Medicine not found: ${item.medicineName}`);
+            continue;
+          }
+
+          // Find an inventory batch with enough stock, earliest expiry first
+          const inv = await tx.inventoryItem.findFirst({
+            where: {
+              medicineId: medicine.id,
+              quantity: { gte: qty },
+              expiryDate: { gt: new Date() },
+            },
+            orderBy: { expiryDate: "asc" },
+          });
+
+          if (!inv) {
+            warnings.push(
+              `Insufficient stock for ${item.medicineName} (need ${qty})`
+            );
+            continue;
+          }
+
+          await tx.inventoryItem.update({
+            where: { id: inv.id },
+            data: { quantity: inv.quantity - qty },
+          });
+
+          await tx.stockMovement.create({
+            data: {
+              inventoryItemId: inv.id,
+              type: "DISPENSED",
+              quantity: -qty,
+              referenceId: prescriptionId,
+              performedBy: req.user!.userId,
+              reason: `Dispensed for prescription ${prescriptionId}`,
+            },
+          });
+
+          dispensed.push({
+            medicineName: item.medicineName,
+            inventoryItemId: inv.id,
+            batchNumber: inv.batchNumber,
+            quantity: qty,
+          });
+        }
+      });
+
+      auditLog(req, "DISPENSE_PRESCRIPTION", "prescription", prescriptionId, {
+        dispensedCount: dispensed.length,
+        warningCount: warnings.length,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { dispensed, warnings, prescriptionId },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/pharmacy/reports/stock-value
+router.get(
+  "/reports/stock-value",
+  authorize(Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const items = await prisma.inventoryItem.findMany({
+        select: { quantity: true, unitCost: true, sellingPrice: true },
+      });
+
+      const costValue = items.reduce(
+        (sum, i) => sum + i.quantity * i.unitCost,
+        0
+      );
+      const sellValue = items.reduce(
+        (sum, i) => sum + i.quantity * i.sellingPrice,
+        0
+      );
+      const totalUnits = items.reduce((sum, i) => sum + i.quantity, 0);
+
+      res.json({
+        success: true,
+        data: {
+          totalItems: items.length,
+          totalUnits,
+          costValue: Math.round(costValue * 100) / 100,
+          sellValue: Math.round(sellValue * 100) / 100,
+          potentialProfit: Math.round((sellValue - costValue) * 100) / 100,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/pharmacy/reports/movements?from=&to=
+router.get(
+  "/reports/movements",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to, type } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+
+      if (from || to) {
+        where.createdAt = {};
+        if (from) (where.createdAt as any).gte = new Date(from);
+        if (to) (where.createdAt as any).lte = new Date(to);
+      }
+      if (type) where.type = type;
+
+      const movements = await prisma.stockMovement.findMany({
+        where,
+        include: {
+          inventoryItem: { include: { medicine: true } },
+          user: { select: { id: true, name: true, role: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+
+      res.json({ success: true, data: movements, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+export { router as pharmacyRouter };

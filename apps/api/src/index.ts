@@ -11,6 +11,14 @@ import { prescriptionRouter } from "./routes/prescriptions";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
 import { auditRouter } from "./routes/audit";
+import { analyticsRouter } from "./routes/analytics";
+import { medicineRouter } from "./routes/medicines";
+import { pharmacyRouter } from "./routes/pharmacy";
+import { labRouter } from "./routes/lab";
+import { wardRouter, bedsRouter } from "./routes/wards";
+import { admissionRouter } from "./routes/admissions";
+import { medicationRouter } from "./routes/medication";
+import { nurseRoundRouter } from "./routes/nurse-rounds";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -44,6 +52,15 @@ app.use("/api/v1/prescriptions", prescriptionRouter);
 app.use("/api/v1/queue", queueRouter);
 app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/v1/audit", auditRouter);
+app.use("/api/v1/analytics", analyticsRouter);
+app.use("/api/v1/medicines", medicineRouter);
+app.use("/api/v1/pharmacy", pharmacyRouter);
+app.use("/api/v1/lab", labRouter);
+app.use("/api/v1/wards", wardRouter);
+app.use("/api/v1/beds", bedsRouter);
+app.use("/api/v1/admissions", admissionRouter);
+app.use("/api/v1/medication", medicationRouter);
+app.use("/api/v1/nurse-rounds", nurseRoundRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
