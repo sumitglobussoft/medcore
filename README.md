@@ -9,13 +9,17 @@
 
 ## Highlights
 
-- **45+ web pages** across 4 major phases of development
-- **100+ API endpoints** with role-based access control
-- **50+ Prisma models** covering every hospital workflow
+- **54 web pages** across 4 major phases + 5 deepening passes
+- **200+ API endpoints** with role-based access control
+- **80+ Prisma models** covering every hospital workflow
 - **Real-time WebSocket** for queue & chat updates
 - **Mobile app** (React Native + Expo) for patients
 - **Production-ready**: PM2 auto-restart, daily DB backups, health monitoring
 - **Full audit trail** + rate limiting + input sanitization
+- **Complete clinical system** — OPD, IPD, ER, Surgery, ICU, Maternity, Pediatric
+- **Complete operations** — Pharmacy, Lab, Blood Bank, Assets, Ambulance, Visitors
+- **Complete finance** — Billing, GST, Refunds, Packages, Expenses, Purchase Orders
+- **Complete HR** — Duty roster, leaves, shifts, payroll calculation
 
 ---
 
@@ -632,6 +636,20 @@ Development proceeded in 4 phases:
 - Patient detail: timeline, vitals trends, billing/lab tabs, quick actions
 - Billing: refunds, bulk payments, discounts, outstanding reports
 - Analytics: period comparison, drill-down, CSV exports, report builder
+
+### Deep Audit Pass (v1.0.0)
+
+Module-by-module deep analysis followed by feature enhancements and additional seed data.
+
+**Clinical cluster** — ICD-10 coding (44 codes), prescription templates (10 templates), copy-from-previous, refill tracking, patient merge, fuzzy search, vitals BMI+abnormal flags, pediatric immunization scheduler, appointment timing capture, no-show analytics, conflict detection.
+
+**Acute care cluster** — Admission types, structured discharge summaries, running bill endpoint, IPD intake/output charting, Medication Administration Record (MAR), surgery pre-op checklist, intra-op timing, complications tracking, OT utilization, ER MLC/police tracking, ER-to-admission conversion, mass-casualty mode, telemedicine waiting room/tech-issues/prescription, ANC trimester/risk-score/USG, pediatric immunization compliance, milestone checklist, growth velocity.
+
+**Ancillary cluster** — Lab reference ranges by age/gender, panic value alerts, TAT tracking, batch result entry, sample rejection, result trends, pharmacy barcode lookup, batch recall, reorder suggestions, narcotics ledger, medicine autocomplete, pediatric dose calculator, contraindication checker, blood screening (HIV/HCV/HBsAg/Syphilis/Malaria), donor eligibility, compatibility matrix, temperature logs, cross-match history, ambulance GPS, dispatch priority, equipment check, fuel logs, asset depreciation, AMC/warranty/calibration alerts, transfer history, disposal workflow, QR codes.
+
+**Operations cluster** — GST split (CGST+SGST), package auto-discount, advance deposits, credit notes, consolidated IPD bill, supplier contracts, performance metrics, payments, catalogs, GRN with partial receipts, recurring POs, expense approval workflow, budgets, leave balances, holiday calendar, attendance summary, payroll calculation, feedback sentiment, complaint SLA, chat reactions/pinning/mentions/channels, visitor blacklist, photo, limits, notification templates, quiet hours, admin broadcasts, delivery tracking.
+
+**Analytics cluster** — Period comparison (previous period/year), date range presets, patient growth/retention, no-show analysis, ER performance metrics, IPD trends, pharmacy expiry risk, feedback trends, CSV exports, Report Builder with saved configs, print-friendly dashboard.
 
 ---
 
