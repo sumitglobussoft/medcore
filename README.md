@@ -29,16 +29,127 @@
 
 ## Table of Contents
 
-1. [Feature Catalog](#feature-catalog)
-2. [Tech Stack](#tech-stack)
-3. [Architecture & Project Structure](#architecture--project-structure)
-4. [Roles & Permissions](#roles--permissions)
-5. [Module Reference](#module-reference)
-6. [Local Setup](#local-setup)
-7. [Deployment](#deployment)
-8. [Operations](#operations)
-9. [Demo Accounts](#demo-accounts)
-10. [Version History](#version-history)
+1. [Screenshots](#screenshots)
+2. [Feature Catalog](#feature-catalog)
+3. [Tech Stack](#tech-stack)
+4. [Architecture & Project Structure](#architecture--project-structure)
+5. [Roles & Permissions](#roles--permissions)
+6. [Module Reference](#module-reference)
+7. [Local Setup](#local-setup)
+8. [Deployment](#deployment)
+9. [Operations](#operations)
+10. [Demo Accounts](#demo-accounts)
+11. [Version History](#version-history)
+
+---
+
+## Screenshots
+
+68 screenshots covering every module, captured with Playwright against the live production deployment.
+
+### Authentication & Entry
+
+| Login | Register | Forgot Password |
+|---|---|---|
+| ![Login](docs/screenshots/00-login.png) | ![Register](docs/screenshots/01-register.png) | ![Forgot Password](docs/screenshots/02-forgot-password.png) |
+
+### Role-Specific Dashboards
+
+| Admin Dashboard | Doctor Dashboard | Nurse Dashboard |
+|---|---|---|
+| ![Admin](docs/screenshots/03-dashboard-admin.png) | ![Doctor](docs/screenshots/04-dashboard-doctor.png) | ![Nurse](docs/screenshots/05-dashboard-nurse.png) |
+
+| Admin Console | Unified Calendar | Doctor Workspace | Nurse Workstation |
+|---|---|---|---|
+| ![Admin Console](docs/screenshots/06-admin-console.png) | ![Calendar](docs/screenshots/07-calendar.png) | ![Workspace](docs/screenshots/08-workspace-doctor.png) | ![Workstation](docs/screenshots/09-workstation-nurse.png) |
+
+### OPD — Outpatient
+
+| Appointments | Walk-in | Live Queue | Token Display (TV) |
+|---|---|---|---|
+| ![Appointments](docs/screenshots/10-appointments.png) | ![Walk-in](docs/screenshots/11-walk-in.png) | ![Queue](docs/screenshots/12-queue.png) | ![Display](docs/screenshots/13-display-token.png) |
+
+### Patients & EHR
+
+| Patients List | Immunization Schedule | Vitals | Prescriptions |
+|---|---|---|---|
+| ![Patients](docs/screenshots/14-patients-list.png) | ![Immunizations](docs/screenshots/15-immunization-schedule.png) | ![Vitals](docs/screenshots/16-vitals.png) | ![Prescriptions](docs/screenshots/17-prescriptions.png) |
+
+| Controlled Substance Register |
+|---|
+| ![Controlled](docs/screenshots/18-controlled-substances.png) |
+
+### IPD — Inpatient
+
+| Wards & Beds | Admissions | Medication Dashboard (Nurse) | Daily Census |
+|---|---|---|---|
+| ![Wards](docs/screenshots/19-wards.png) | ![Admissions](docs/screenshots/20-admissions.png) | ![Medication](docs/screenshots/21-medication-dashboard.png) | ![Census](docs/screenshots/22-census.png) |
+
+### Emergency & Surgery
+
+| Emergency / Triage | Surgery | Operating Theaters |
+|---|---|---|
+| ![Emergency](docs/screenshots/23-emergency.png) | ![Surgery](docs/screenshots/24-surgery.png) | ![OT](docs/screenshots/25-ot.png) |
+
+### Specialty Care
+
+| Telemedicine | Antenatal (ANC) | Pediatric Growth | Referrals |
+|---|---|---|---|
+| ![Telemedicine](docs/screenshots/26-telemedicine.png) | ![Antenatal](docs/screenshots/27-antenatal.png) | ![Pediatric](docs/screenshots/28-pediatric.png) | ![Referrals](docs/screenshots/29-referrals.png) |
+
+### Diagnostics & Pharmacy
+
+| Medicines Database | Pharmacy Inventory | Lab Orders | Lab QC |
+|---|---|---|---|
+| ![Medicines](docs/screenshots/30-medicines.png) | ![Pharmacy](docs/screenshots/31-pharmacy.png) | ![Lab](docs/screenshots/32-lab.png) | ![Lab QC](docs/screenshots/33-lab-qc.png) |
+
+| Blood Bank | Ambulance | Assets |
+|---|---|---|
+| ![Blood Bank](docs/screenshots/34-bloodbank.png) | ![Ambulance](docs/screenshots/35-ambulance.png) | ![Assets](docs/screenshots/36-assets.png) |
+
+### Finance & Billing
+
+| Billing | Refunds | Payment Plans (EMI) | Pre-Authorization |
+|---|---|---|---|
+| ![Billing](docs/screenshots/37-billing.png) | ![Refunds](docs/screenshots/38-refunds.png) | ![Payment Plans](docs/screenshots/39-payment-plans.png) | ![Pre-auth](docs/screenshots/40-preauth.png) |
+
+| Discount Approvals | Health Packages | Suppliers | Purchase Orders |
+|---|---|---|---|
+| ![Discount Approvals](docs/screenshots/41-discount-approvals.png) | ![Packages](docs/screenshots/42-packages.png) | ![Suppliers](docs/screenshots/43-suppliers.png) | ![Purchase Orders](docs/screenshots/44-purchase-orders.png) |
+
+| Expenses | Budgets |
+|---|---|
+| ![Expenses](docs/screenshots/45-expenses.png) | ![Budgets](docs/screenshots/46-budgets.png) |
+
+### Staff & HR
+
+| Duty Roster | My Schedule | Leave Management | My Leaves |
+|---|---|---|---|
+| ![Duty Roster](docs/screenshots/47-duty-roster.png) | ![My Schedule](docs/screenshots/48-my-schedule.png) | ![Leave Management](docs/screenshots/49-leave-management.png) | ![My Leaves](docs/screenshots/50-my-leaves.png) |
+
+| Leave Calendar | Holidays | Payroll | Certifications |
+|---|---|---|---|
+| ![Leave Calendar](docs/screenshots/51-leave-calendar.png) | ![Holidays](docs/screenshots/52-holidays.png) | ![Payroll](docs/screenshots/53-payroll.png) | ![Certifications](docs/screenshots/54-certifications.png) |
+
+### Admin & Analytics
+
+| Users | Doctors | Schedule | Reports |
+|---|---|---|---|
+| ![Users](docs/screenshots/55-users.png) | ![Doctors](docs/screenshots/56-doctors.png) | ![Schedule](docs/screenshots/57-schedule.png) | ![Reports](docs/screenshots/58-reports.png) |
+
+| Analytics | Scheduled Reports | Audit Log |
+|---|---|---|
+| ![Analytics](docs/screenshots/59-analytics.png) | ![Scheduled Reports](docs/screenshots/60-scheduled-reports.png) | ![Audit](docs/screenshots/61-audit.png) |
+
+### Patient Engagement
+
+| Notifications | Broadcasts | Feedback | Complaints |
+|---|---|---|---|
+| ![Notifications](docs/screenshots/62-notifications.png) | ![Broadcasts](docs/screenshots/63-broadcasts.png) | ![Feedback](docs/screenshots/64-feedback.png) | ![Complaints](docs/screenshots/65-complaints.png) |
+
+| Internal Chat | Visitors |
+|---|---|
+| ![Chat](docs/screenshots/66-chat.png) | ![Visitors](docs/screenshots/67-visitors.png) |
 
 ---
 
