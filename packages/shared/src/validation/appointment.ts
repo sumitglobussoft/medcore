@@ -43,8 +43,25 @@ export const scheduleOverrideSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const rescheduleAppointmentSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+});
+
+export const recurringAppointmentSchema = z.object({
+  patientId: z.string().uuid(),
+  doctorId: z.string().uuid(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+  frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]),
+  occurrences: z.number().int().min(2).max(52),
+  notes: z.string().optional(),
+});
+
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 export type WalkInInput = z.infer<typeof walkInSchema>;
 export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
 export type DoctorScheduleInput = z.infer<typeof doctorScheduleSchema>;
 export type ScheduleOverrideInput = z.infer<typeof scheduleOverrideSchema>;
+export type RescheduleAppointmentInput = z.infer<typeof rescheduleAppointmentSchema>;
+export type RecurringAppointmentInput = z.infer<typeof recurringAppointmentSchema>;

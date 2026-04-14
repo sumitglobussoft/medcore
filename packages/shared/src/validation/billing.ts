@@ -36,7 +36,58 @@ export const updateClaimStatusSchema = z.object({
   approvedAmount: z.number().min(0).optional(),
 });
 
+// ─── Refunds ─────────────────────────────────────────────
+
+export const refundSchema = z.object({
+  invoiceId: z.string().uuid(),
+  amount: z.number().min(0.01, "Refund amount must be greater than 0"),
+  reason: z.string().min(1, "Reason is required").max(500),
+  mode: z.enum(["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"]),
+});
+
+// ─── Add line item to an existing invoice ─────────────────
+
+export const addInvoiceItemSchema = z.object({
+  description: z.string().min(1, "Description is required"),
+  category: z.string().min(1, "Category is required"),
+  quantity: z.number().int().min(1).default(1),
+  unitPrice: z.number().min(0),
+});
+
+// ─── Apply discount to an invoice ─────────────────────────
+
+export const applyDiscountSchema = z
+  .object({
+    percentage: z.number().min(0).max(100).optional(),
+    flatAmount: z.number().min(0).optional(),
+    reason: z.string().min(1, "Reason is required").max(500),
+  })
+  .refine(
+    (v) => v.percentage !== undefined || v.flatAmount !== undefined,
+    "Either percentage or flatAmount is required"
+  );
+
+// ─── Bulk payments across invoices ────────────────────────
+
+export const bulkPaymentSchema = z.object({
+  patientId: z.string().uuid(),
+  payments: z
+    .array(
+      z.object({
+        invoiceId: z.string().uuid(),
+        amount: z.number().min(0.01),
+        mode: z.enum(["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"]),
+        transactionId: z.string().optional(),
+      })
+    )
+    .min(1, "At least one payment is required"),
+});
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type RecordPaymentInput = z.infer<typeof recordPaymentSchema>;
 export type InsuranceClaimInput = z.infer<typeof insuranceClaimSchema>;
 export type UpdateClaimStatusInput = z.infer<typeof updateClaimStatusSchema>;
+export type RefundInput = z.infer<typeof refundSchema>;
+export type AddInvoiceItemInput = z.infer<typeof addInvoiceItemSchema>;
+export type ApplyDiscountInput = z.infer<typeof applyDiscountSchema>;
+export type BulkPaymentInput = z.infer<typeof bulkPaymentSchema>;

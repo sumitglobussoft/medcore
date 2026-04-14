@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -25,6 +25,17 @@ import {
   Download,
   Upload,
   X,
+  Calendar,
+  Stethoscope,
+  BedDouble,
+  FlaskConical,
+  Scissors,
+  Siren,
+  TrendingUp,
+  Receipt,
+  Pill,
+  ClipboardList,
+  AlertCircle,
 } from "lucide-react";
 
 // ───────────────────────────────────────────────────────
@@ -40,6 +51,8 @@ interface PatientDetail {
   address: string | null;
   insuranceProvider: string | null;
   insuranceId: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   user: { id: string; name: string; email: string; phone: string };
 }
 
@@ -118,6 +131,81 @@ interface PatientDoc {
   notes: string | null;
 }
 
+interface PatientStats {
+  totalVisits: number;
+  lastVisitDate: string | null;
+  totalSpent: number;
+  activeConditionsCount: number;
+  activeAllergiesCount: number;
+  upcomingAppointments: number;
+  pendingBills: number;
+  currentAdmissionId: string | null;
+  currentAdmissionNumber: string | null;
+}
+
+interface TimelineEntry {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  icon: string;
+  color: string;
+  link: string | null;
+}
+
+interface VitalsTrendPoint {
+  recordedAt: string;
+  bloodPressureSystolic: number | null;
+  bloodPressureDiastolic: number | null;
+  temperature: number | null;
+  pulseRate: number | null;
+  spO2: number | null;
+  weight: number | null;
+}
+
+interface InvoiceLine {
+  id: string;
+  invoiceNumber: string;
+  totalAmount: number;
+  subtotal: number;
+  taxAmount: number;
+  discountAmount: number;
+  paymentStatus: string;
+  createdAt: string;
+  items: Array<{ id: string; description?: string; amount?: number }>;
+  payments: Array<{ id: string; amount: number; method?: string; paidAt?: string }>;
+  appointment?: {
+    doctor?: { user?: { name?: string } };
+  };
+}
+
+interface LabOrderFull {
+  id: string;
+  orderNumber: string;
+  status: string;
+  orderedAt: string;
+  collectedAt: string | null;
+  completedAt: string | null;
+  notes: string | null;
+  doctor?: { user?: { name?: string } };
+  items: Array<{
+    id: string;
+    status: string;
+    test: { id: string; code: string; name: string; category: string | null; normalRange: string | null };
+    results: Array<{
+      id: string;
+      parameter: string;
+      value: string;
+      unit: string | null;
+      normalRange: string | null;
+      flag: "NORMAL" | "LOW" | "HIGH" | "CRITICAL";
+      notes: string | null;
+      reportedAt: string;
+    }>;
+  }>;
+}
+
 // ───────────────────────────────────────────────────────
 // Color helpers
 // ───────────────────────────────────────────────────────
@@ -147,9 +235,50 @@ const DOC_TYPES = [
   "OTHER",
 ] as const;
 
+const labFlagColors: Record<string, string> = {
+  NORMAL: "bg-green-100 text-green-700",
+  LOW: "bg-blue-100 text-blue-700",
+  HIGH: "bg-orange-100 text-orange-800",
+  CRITICAL: "bg-red-700 text-white",
+};
+
+const timelineColorMap: Record<string, { border: string; bg: string; icon: string }> = {
+  blue: { border: "border-blue-400", bg: "bg-blue-50", icon: "text-blue-600" },
+  indigo: { border: "border-indigo-400", bg: "bg-indigo-50", icon: "text-indigo-600" },
+  green: { border: "border-green-400", bg: "bg-green-50", icon: "text-green-600" },
+  cyan: { border: "border-cyan-400", bg: "bg-cyan-50", icon: "text-cyan-600" },
+  purple: { border: "border-purple-400", bg: "bg-purple-50", icon: "text-purple-600" },
+  gray: { border: "border-gray-300", bg: "bg-gray-50", icon: "text-gray-500" },
+  amber: { border: "border-amber-400", bg: "bg-amber-50", icon: "text-amber-600" },
+  rose: { border: "border-rose-400", bg: "bg-rose-50", icon: "text-rose-600" },
+  orange: { border: "border-orange-400", bg: "bg-orange-50", icon: "text-orange-600" },
+  red: { border: "border-red-500", bg: "bg-red-50", icon: "text-red-600" },
+};
+
+const timelineIconMap = {
+  Calendar,
+  Stethoscope,
+  FileText,
+  Activity,
+  BedDouble,
+  FlaskConical,
+  Scissors,
+  CreditCard,
+  Siren,
+} as const;
+
 // ───────────────────────────────────────────────────────
 // Page
 // ───────────────────────────────────────────────────────
+
+type TabKey =
+  | "overview"
+  | "timeline"
+  | "medical"
+  | "vitals"
+  | "billing"
+  | "labs"
+  | "documents";
 
 export default function PatientDetailPage() {
   const params = useParams();
@@ -157,11 +286,40 @@ export default function PatientDetailPage() {
   const { user } = useAuthStore();
   const [patient, setPatient] = useState<PatientDetail | null>(null);
   const [visits, setVisits] = useState<VisitRecord[]>([]);
+  const [stats, setStats] = useState<PatientStats | null>(null);
+  const [allergiesAlert, setAllergiesAlert] = useState<Allergy[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
-  const [tab, setTab] = useState<"overview" | "medical" | "documents">(
-    "overview"
-  );
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [quickModal, setQuickModal] = useState<
+    "vitals" | "book" | null
+  >(null);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const s = await api.get<{ data: PatientStats }>(
+        `/patients/${id}/stats`
+      );
+      setStats(s.data);
+    } catch {
+      // noop
+    }
+  }, [id]);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: Allergy[] }>(
+        `/ehr/patients/${id}/allergies`
+      );
+      setAllergiesAlert(
+        res.data.filter(
+          (a) => a.severity === "SEVERE" || a.severity === "LIFE_THREATENING"
+        )
+      );
+    } catch {
+      // noop
+    }
+  }, [id]);
 
   useEffect(() => {
     (async () => {
@@ -179,17 +337,24 @@ export default function PatientDetailPage() {
         // noop
       }
       setLoading(false);
+      loadStats();
+      loadAlerts();
     })();
-  }, [id]);
+  }, [id, loadStats, loadAlerts]);
+
+  // Default tab: Timeline if currently admitted, else Overview
+  useEffect(() => {
+    if (stats?.currentAdmissionId) {
+      setTab((t) => (t === "overview" ? "timeline" : t));
+    }
+  }, [stats?.currentAdmissionId]);
 
   function toggleVisit(visitId: string) {
     setExpandedVisit(expandedVisit === visitId ? null : visitId);
   }
 
   if (loading) {
-    return (
-      <div className="p-8 text-center text-gray-500">Loading...</div>
-    );
+    return <div className="p-8 text-center text-gray-500">Loading...</div>;
   }
 
   if (!patient) {
@@ -213,6 +378,7 @@ export default function PatientDetailPage() {
     SCHEDULED: "bg-gray-100 text-gray-600",
     CANCELLED: "bg-red-100 text-red-700",
     NO_SHOW: "bg-red-100 text-red-600",
+    BOOKED: "bg-blue-100 text-blue-700",
   };
 
   const canEdit =
@@ -220,6 +386,20 @@ export default function PatientDetailPage() {
     user?.role === "NURSE" ||
     user?.role === "ADMIN" ||
     user?.role === "RECEPTION";
+  const isDoctor = user?.role === "DOCTOR";
+  const isNurse = user?.role === "NURSE";
+  const isReception = user?.role === "RECEPTION";
+  const isAdmin = user?.role === "ADMIN";
+
+  const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
+    { key: "overview", label: "Overview", icon: <ClipboardList size={14} /> },
+    { key: "timeline", label: "Timeline", icon: <Activity size={14} /> },
+    { key: "medical", label: "Medical Records", icon: <Heart size={14} /> },
+    { key: "vitals", label: "Vitals Trends", icon: <TrendingUp size={14} /> },
+    { key: "billing", label: "Billing", icon: <Receipt size={14} /> },
+    { key: "labs", label: "Lab Results", icon: <FlaskConical size={14} /> },
+    { key: "documents", label: "Documents", icon: <FolderOpen size={14} /> },
+  ];
 
   return (
     <div>
@@ -231,8 +411,60 @@ export default function PatientDetailPage() {
         <ArrowLeft size={16} /> Back to Patients
       </Link>
 
+      {/* ALERT BANNER */}
+      {(allergiesAlert.length > 0 || stats?.currentAdmissionId) && (
+        <div className="mb-4 space-y-2">
+          {stats?.currentAdmissionId && (
+            <div className="flex items-center gap-3 rounded-xl border border-purple-300 bg-purple-50 p-4 text-purple-800">
+              <BedDouble size={20} className="text-purple-600" />
+              <div className="flex-1">
+                <p className="font-semibold">Patient is currently admitted</p>
+                <p className="text-sm">
+                  Admission #{stats.currentAdmissionNumber} — active IPD stay
+                </p>
+              </div>
+              <Link
+                href={`/dashboard/ipd/${stats.currentAdmissionId}`}
+                className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
+              >
+                View IPD
+              </Link>
+            </div>
+          )}
+          {allergiesAlert.length > 0 && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 p-4">
+              <AlertCircle size={20} className="mt-0.5 text-red-700" />
+              <div className="flex-1">
+                <p className="font-bold text-red-800">
+                  SEVERE ALLERGY WARNING
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {allergiesAlert.map((a) => (
+                    <span
+                      key={a.id}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${severityColors[a.severity]}`}
+                    >
+                      {a.allergen} ({a.severity.replace("_", " ")})
+                      {a.reaction ? ` — ${a.reaction}` : ""}
+                    </span>
+                  ))}
+                </div>
+                {patient.emergencyContactName && (
+                  <p className="mt-2 text-xs text-red-800">
+                    Emergency contact: {patient.emergencyContactName}
+                    {patient.emergencyContactPhone
+                      ? ` — ${patient.emergencyContactPhone}`
+                      : ""}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Patient Info Card */}
-      <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-4 rounded-xl bg-white p-6 shadow-sm">
         <div className="flex items-start gap-6">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
             <User size={28} className="text-primary" />
@@ -289,26 +521,117 @@ export default function PatientDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Stats strip */}
+        {stats && (
+          <div className="mt-5 grid grid-cols-2 gap-3 border-t pt-4 md:grid-cols-4 lg:grid-cols-6">
+            <StatCard
+              label="Total Visits"
+              value={String(stats.totalVisits)}
+              tone="blue"
+            />
+            <StatCard
+              label="Last Visit"
+              value={
+                stats.lastVisitDate
+                  ? new Date(stats.lastVisitDate).toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "—"
+              }
+              tone="gray"
+            />
+            <StatCard
+              label="Total Spent"
+              value={`Rs. ${stats.totalSpent.toFixed(0)}`}
+              tone="green"
+            />
+            <StatCard
+              label="Active Conditions"
+              value={String(stats.activeConditionsCount)}
+              tone={stats.activeConditionsCount > 0 ? "orange" : "gray"}
+            />
+            <StatCard
+              label="Upcoming"
+              value={String(stats.upcomingAppointments)}
+              tone="indigo"
+            />
+            <StatCard
+              label="Pending Bills"
+              value={String(stats.pendingBills)}
+              tone={stats.pendingBills > 0 ? "red" : "gray"}
+            />
+          </div>
+        )}
+
+        {/* Quick Actions */}
+        <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
+          {(isReception || isAdmin || isDoctor) && (
+            <button
+              onClick={() => setQuickModal("book")}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90"
+            >
+              <Calendar size={14} /> Book Appointment
+            </button>
+          )}
+          {(isNurse || isDoctor || isAdmin) && (
+            <button
+              onClick={() => setQuickModal("vitals")}
+              className="flex items-center gap-1.5 rounded-lg bg-cyan-600 px-3 py-1.5 text-sm text-white hover:bg-cyan-700"
+            >
+              <Activity size={14} /> Record Vitals
+            </button>
+          )}
+          {isDoctor && (
+            <Link
+              href={`/dashboard/consultations?patientId=${id}`}
+              className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
+            >
+              <Stethoscope size={14} /> Start Consultation
+            </Link>
+          )}
+          {isDoctor && (
+            <Link
+              href={`/dashboard/prescriptions/new?patientId=${id}`}
+              className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700"
+            >
+              <Pill size={14} /> Write Prescription
+            </Link>
+          )}
+          {(isReception || isAdmin) && (
+            <Link
+              href={`/dashboard/billing/new?patientId=${id}`}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700"
+            >
+              <Receipt size={14} /> Create Invoice
+            </Link>
+          )}
+          {(isDoctor || isAdmin) && !stats?.currentAdmissionId && (
+            <Link
+              href={`/dashboard/ipd/admit?patientId=${id}`}
+              className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
+            >
+              <BedDouble size={14} /> Admit
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 border-b">
-        {(
-          [
-            { key: "overview", label: "Overview" },
-            { key: "medical", label: "Medical Records" },
-            { key: "documents", label: "Documents" },
-          ] as const
-        ).map((t) => (
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b">
+        {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition ${
+            className={`flex items-center gap-1.5 whitespace-nowrap px-4 py-2 text-sm font-medium transition ${
               tab === t.key
                 ? "border-b-2 border-primary text-primary"
                 : "text-gray-500 hover:text-gray-800"
             }`}
           >
+            {t.icon}
             {t.label}
           </button>
         ))}
@@ -474,15 +797,63 @@ export default function PatientDetailPage() {
         </>
       )}
 
-      {/* Medical Records */}
-      {tab === "medical" && (
-        <MedicalRecordsTab patientId={id} canEdit={canEdit} />
-      )}
+      {tab === "timeline" && <TimelineTab patientId={id} />}
+      {tab === "medical" && <MedicalRecordsTab patientId={id} canEdit={canEdit} />}
+      {tab === "vitals" && <VitalsTrendsTab patientId={id} />}
+      {tab === "billing" && <BillingTab patientId={id} />}
+      {tab === "labs" && <LabResultsTab patientId={id} />}
+      {tab === "documents" && <DocumentsTab patientId={id} canEdit={canEdit} />}
 
-      {/* Documents */}
-      {tab === "documents" && (
-        <DocumentsTab patientId={id} canEdit={canEdit} />
+      {/* Quick action modals */}
+      {quickModal === "vitals" && (
+        <QuickVitalsModal
+          patientId={id}
+          onClose={() => setQuickModal(null)}
+          onSaved={() => {
+            setQuickModal(null);
+            loadStats();
+          }}
+        />
       )}
+      {quickModal === "book" && (
+        <QuickBookModal
+          patientId={id}
+          onClose={() => setQuickModal(null)}
+          onSaved={() => {
+            setQuickModal(null);
+            loadStats();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Stat card
+// ───────────────────────────────────────────────────────
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "blue" | "green" | "gray" | "orange" | "indigo" | "red";
+}) {
+  const tones: Record<string, string> = {
+    blue: "bg-blue-50 text-blue-700",
+    green: "bg-green-50 text-green-700",
+    gray: "bg-gray-50 text-gray-700",
+    orange: "bg-orange-50 text-orange-700",
+    indigo: "bg-indigo-50 text-indigo-700",
+    red: "bg-red-50 text-red-700",
+  };
+  return (
+    <div className={`rounded-lg p-3 ${tones[tone]}`}>
+      <p className="text-xs opacity-70">{label}</p>
+      <p className="text-lg font-bold">{value}</p>
     </div>
   );
 }
@@ -495,14 +866,17 @@ function Modal({
   title,
   onClose,
   children,
+  size = "md",
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  size?: "md" | "lg";
 }) {
+  const maxW = size === "lg" ? "max-w-2xl" : "max-w-md";
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-xl bg-white shadow-xl">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+      <div className={`w-full ${maxW} rounded-xl bg-white shadow-xl`}>
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h3 className="font-semibold">{title}</h3>
           <button
@@ -512,14 +886,1261 @@ function Modal({
             <X size={18} />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
 }
 
 // ───────────────────────────────────────────────────────
-// Medical Records Tab
+// Timeline Tab
+// ───────────────────────────────────────────────────────
+
+function TimelineTab({ patientId }: { patientId: string }) {
+  const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [visible, setVisible] = useState(50);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<{ data: TimelineEntry[] }>(
+          `/patients/${patientId}/timeline`
+        );
+        setEntries(res.data);
+      } catch {
+        // noop
+      }
+      setLoading(false);
+    })();
+  }, [patientId]);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading timeline...</div>;
+
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
+        <p className="text-gray-400">No timeline events yet</p>
+      </div>
+    );
+  }
+
+  const shown = entries.slice(0, visible);
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm">
+      <h2 className="mb-5 text-lg font-semibold">Patient Timeline</h2>
+      <div className="relative space-y-3 before:absolute before:left-5 before:top-2 before:h-full before:w-0.5 before:bg-gray-200">
+        {shown.map((e) => {
+          const colors =
+            timelineColorMap[e.color] || timelineColorMap.gray;
+          const Icon =
+            (timelineIconMap as any)[e.icon] || Activity;
+          return (
+            <div key={e.id} className="relative flex items-start gap-4 pl-0">
+              <div
+                className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-white bg-white shadow ${colors.icon}`}
+              >
+                <Icon size={18} />
+              </div>
+              <div
+                className={`flex-1 rounded-lg border-l-4 ${colors.border} ${colors.bg} p-3`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-gray-800">{e.title}</p>
+                  <p className="shrink-0 text-xs text-gray-500">
+                    {new Date(e.timestamp).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+                {e.description && (
+                  <p className="mt-1 text-sm text-gray-600">{e.description}</p>
+                )}
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-gray-400">
+                    {e.type}
+                  </span>
+                  {e.link && (
+                    <Link
+                      href={e.link}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      view
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {visible < entries.length && (
+        <div className="mt-5 text-center">
+          <button
+            onClick={() => setVisible((v) => v + 50)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Load more ({entries.length - visible} remaining)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Vitals Trends Tab
+// ───────────────────────────────────────────────────────
+
+function VitalsTrendsTab({ patientId }: { patientId: string }) {
+  const [data, setData] = useState<VitalsTrendPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<"30" | "90" | "365" | "all">("90");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        let url = `/patients/${patientId}/vitals-trend`;
+        if (range !== "all") {
+          const days = parseInt(range);
+          const from = new Date(Date.now() - days * 86400_000).toISOString();
+          url += `?from=${from}`;
+        }
+        const res = await api.get<{ data: VitalsTrendPoint[] }>(url);
+        setData(res.data);
+      } catch {
+        // noop
+      }
+      setLoading(false);
+    })();
+  }, [patientId, range]);
+
+  const latestWeight = useMemo(() => {
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (data[i].weight != null) return data[i].weight;
+    }
+    return null;
+  }, [data]);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading vitals...</div>;
+
+  if (data.length === 0) {
+    return (
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
+        <p className="text-gray-400">No vitals recorded yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-semibold">Vitals Trends</h2>
+        <div className="flex gap-1">
+          {(["30", "90", "365", "all"] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`rounded px-3 py-1 text-xs ${
+                range === r
+                  ? "bg-primary text-white"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              {r === "all" ? "All" : `${r}d`}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ChartCard title="Blood Pressure (mmHg)" subtitle="Normal: 90–140 / 60–90">
+          <BpChart data={data} />
+        </ChartCard>
+        <ChartCard title="Temperature & Pulse" subtitle="°F / bpm">
+          <TempPulseChart data={data} />
+        </ChartCard>
+        <ChartCard title="SpO2 & Weight" subtitle="% / kg">
+          <SpoWeightChart data={data} />
+        </ChartCard>
+      </div>
+
+      {latestWeight && (
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <h3 className="mb-2 text-sm font-semibold">Latest Measurements</h3>
+          <p className="text-sm text-gray-600">
+            Weight: <span className="font-medium">{latestWeight} kg</span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChartCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+      </div>
+      <div className="h-48 w-full">{children}</div>
+    </div>
+  );
+}
+
+// Generic SVG line chart helper
+interface Series {
+  name: string;
+  color: string;
+  points: Array<{ x: number; y: number | null }>;
+  dash?: string;
+}
+
+function LineChart({
+  series,
+  yMin,
+  yMax,
+  bands,
+  yLabel,
+}: {
+  series: Series[];
+  yMin?: number;
+  yMax?: number;
+  bands?: Array<{ min: number; max: number; color: string }>;
+  yLabel?: string;
+}) {
+  const w = 320;
+  const h = 180;
+  const padL = 32;
+  const padR = 8;
+  const padT = 10;
+  const padB = 24;
+
+  const allY = series
+    .flatMap((s) => s.points.map((p) => p.y))
+    .filter((y): y is number => y != null);
+  const allX = series.flatMap((s) => s.points.map((p) => p.x));
+  if (allY.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-xs text-gray-400">
+        No data
+      </div>
+    );
+  }
+
+  const minY = yMin ?? Math.min(...allY) * 0.95;
+  const maxY = yMax ?? Math.max(...allY) * 1.05;
+  const minX = Math.min(...allX);
+  const maxX = Math.max(...allX);
+  const xRange = Math.max(maxX - minX, 1);
+  const yRange = Math.max(maxY - minY, 1);
+
+  const xFor = (x: number) =>
+    padL + ((x - minX) / xRange) * (w - padL - padR);
+  const yFor = (y: number) =>
+    padT + (1 - (y - minY) / yRange) * (h - padT - padB);
+
+  const yTicks = 4;
+  const ticks: number[] = [];
+  for (let i = 0; i <= yTicks; i++) {
+    ticks.push(minY + (yRange * i) / yTicks);
+  }
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
+      {/* bands */}
+      {bands?.map((b, i) => {
+        const y1 = yFor(Math.min(b.max, maxY));
+        const y2 = yFor(Math.max(b.min, minY));
+        return (
+          <rect
+            key={i}
+            x={padL}
+            y={y1}
+            width={w - padL - padR}
+            height={Math.max(0, y2 - y1)}
+            fill={b.color}
+            opacity={0.15}
+          />
+        );
+      })}
+
+      {/* y gridlines */}
+      {ticks.map((t, i) => (
+        <g key={i}>
+          <line
+            x1={padL}
+            x2={w - padR}
+            y1={yFor(t)}
+            y2={yFor(t)}
+            stroke="#e5e7eb"
+            strokeWidth={0.5}
+          />
+          <text x={2} y={yFor(t) + 3} fontSize={9} fill="#9ca3af">
+            {t.toFixed(t > 10 ? 0 : 1)}
+          </text>
+        </g>
+      ))}
+
+      {/* x axis dates — show first and last */}
+      {allX.length > 0 && (
+        <>
+          <text x={padL} y={h - 6} fontSize={9} fill="#9ca3af">
+            {new Date(minX).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+            })}
+          </text>
+          <text
+            x={w - padR}
+            y={h - 6}
+            fontSize={9}
+            fill="#9ca3af"
+            textAnchor="end"
+          >
+            {new Date(maxX).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+            })}
+          </text>
+        </>
+      )}
+
+      {/* series lines */}
+      {series.map((s, si) => {
+        const segs: string[] = [];
+        let started = false;
+        for (const p of s.points) {
+          if (p.y == null) {
+            started = false;
+            continue;
+          }
+          const x = xFor(p.x);
+          const y = yFor(p.y);
+          segs.push(`${started ? "L" : "M"}${x},${y}`);
+          started = true;
+        }
+        return (
+          <g key={si}>
+            <path
+              d={segs.join(" ")}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={1.5}
+              strokeDasharray={s.dash}
+            />
+            {s.points.map((p, pi) =>
+              p.y != null ? (
+                <circle
+                  key={pi}
+                  cx={xFor(p.x)}
+                  cy={yFor(p.y)}
+                  r={2}
+                  fill={s.color}
+                />
+              ) : null
+            )}
+          </g>
+        );
+      })}
+
+      {/* legend */}
+      <g>
+        {series.map((s, si) => (
+          <g key={si} transform={`translate(${padL + si * 80}, ${padT})`}>
+            <line
+              x1={0}
+              y1={-2}
+              x2={10}
+              y2={-2}
+              stroke={s.color}
+              strokeWidth={1.5}
+              strokeDasharray={s.dash}
+            />
+            <text x={14} y={1} fontSize={9} fill="#374151">
+              {s.name}
+            </text>
+          </g>
+        ))}
+      </g>
+
+      {yLabel && (
+        <text
+          x={2}
+          y={padT - 2}
+          fontSize={9}
+          fill="#6b7280"
+          fontWeight="bold"
+        >
+          {yLabel}
+        </text>
+      )}
+    </svg>
+  );
+}
+
+function BpChart({ data }: { data: VitalsTrendPoint[] }) {
+  const sys = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.bloodPressureSystolic,
+  }));
+  const dia = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.bloodPressureDiastolic,
+  }));
+  return (
+    <LineChart
+      series={[
+        { name: "Systolic", color: "#dc2626", points: sys },
+        { name: "Diastolic", color: "#2563eb", points: dia },
+      ]}
+      yMin={40}
+      yMax={200}
+      bands={[
+        { min: 140, max: 200, color: "#ef4444" },
+        { min: 40, max: 60, color: "#f59e0b" },
+      ]}
+    />
+  );
+}
+
+function TempPulseChart({ data }: { data: VitalsTrendPoint[] }) {
+  // Display both on same chart with separate scales — we'll normalize pulse into a matching range
+  // But simpler: show temperature (96–104°F) on one line and pulse (40–160) separately using dual scale hack.
+  // For pure SVG simplicity, show as two series scaled into same 0-100 virtual space.
+  const tempPoints = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.temperature,
+  }));
+  const pulsePoints = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.pulseRate,
+  }));
+  const hasTemp = tempPoints.some((p) => p.y != null);
+  const hasPulse = pulsePoints.some((p) => p.y != null);
+  if (hasTemp && hasPulse) {
+    return (
+      <div className="flex h-full flex-col gap-1">
+        <div className="h-1/2">
+          <LineChart
+            series={[
+              { name: "Temp °F", color: "#ea580c", points: tempPoints },
+            ]}
+            yMin={95}
+            yMax={106}
+            bands={[{ min: 100.4, max: 106, color: "#ef4444" }]}
+          />
+        </div>
+        <div className="h-1/2">
+          <LineChart
+            series={[
+              { name: "Pulse bpm", color: "#7c3aed", points: pulsePoints },
+            ]}
+            yMin={40}
+            yMax={160}
+            bands={[
+              { min: 100, max: 160, color: "#f59e0b" },
+              { min: 40, max: 60, color: "#3b82f6" },
+            ]}
+          />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <LineChart
+      series={[
+        { name: "Temp °F", color: "#ea580c", points: tempPoints },
+        { name: "Pulse", color: "#7c3aed", points: pulsePoints, dash: "3,3" },
+      ]}
+    />
+  );
+}
+
+function SpoWeightChart({ data }: { data: VitalsTrendPoint[] }) {
+  const spo = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.spO2,
+  }));
+  const wt = data.map((d) => ({
+    x: new Date(d.recordedAt).getTime(),
+    y: d.weight,
+  }));
+  const hasSpo = spo.some((p) => p.y != null);
+  const hasWt = wt.some((p) => p.y != null);
+  if (hasSpo && hasWt) {
+    return (
+      <div className="flex h-full flex-col gap-1">
+        <div className="h-1/2">
+          <LineChart
+            series={[{ name: "SpO2 %", color: "#0891b2", points: spo }]}
+            yMin={85}
+            yMax={100}
+            bands={[{ min: 85, max: 94, color: "#ef4444" }]}
+          />
+        </div>
+        <div className="h-1/2">
+          <LineChart
+            series={[{ name: "Weight kg", color: "#16a34a", points: wt }]}
+          />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <LineChart
+      series={[
+        { name: "SpO2", color: "#0891b2", points: spo },
+        { name: "Weight kg", color: "#16a34a", points: wt, dash: "3,3" },
+      ]}
+    />
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Billing Tab
+// ───────────────────────────────────────────────────────
+
+function BillingTab({ patientId }: { patientId: string }) {
+  const [invoices, setInvoices] = useState<InvoiceLine[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showOlder, setShowOlder] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<{ data: InvoiceLine[] }>(
+          `/patients/${patientId}/invoices`
+        );
+        setInvoices(res.data);
+      } catch {
+        // noop
+      }
+      setLoading(false);
+    })();
+  }, [patientId]);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading billing...</div>;
+
+  const outstanding = invoices.reduce((sum, inv) => {
+    if (inv.paymentStatus === "PAID") return sum;
+    const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
+    return sum + (inv.totalAmount - paid);
+  }, 0);
+  const totalPaid = invoices
+    .filter((i) => i.paymentStatus === "PAID")
+    .reduce((s, i) => s + i.totalAmount, 0);
+
+  const ninetyDaysAgo = Date.now() - 90 * 86400_000;
+  const recent = invoices.filter(
+    (i) => new Date(i.createdAt).getTime() >= ninetyDaysAgo
+  );
+  const older = invoices.filter(
+    (i) => new Date(i.createdAt).getTime() < ninetyDaysAgo
+  );
+
+  if (invoices.length === 0) {
+    return (
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
+        <p className="text-gray-400">No invoices yet</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <p className="text-xs text-gray-500">Total Invoices</p>
+          <p className="text-2xl font-bold">{invoices.length}</p>
+        </div>
+        <div className="rounded-xl bg-green-50 p-4 shadow-sm">
+          <p className="text-xs text-green-700">Total Paid</p>
+          <p className="text-2xl font-bold text-green-700">
+            Rs. {totalPaid.toFixed(2)}
+          </p>
+        </div>
+        <div
+          className={`rounded-xl p-4 shadow-sm ${
+            outstanding > 0 ? "bg-red-50" : "bg-gray-50"
+          }`}
+        >
+          <p
+            className={`text-xs ${outstanding > 0 ? "text-red-700" : "text-gray-600"}`}
+          >
+            Outstanding Balance
+          </p>
+          <p
+            className={`text-2xl font-bold ${outstanding > 0 ? "text-red-700" : "text-gray-700"}`}
+          >
+            Rs. {outstanding.toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      {/* Recent invoices */}
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold">
+          Recent Invoices (last 90 days)
+        </h3>
+        {recent.length === 0 ? (
+          <p className="text-sm text-gray-400">No recent invoices</p>
+        ) : (
+          <InvoiceList invoices={recent} />
+        )}
+      </div>
+
+      {/* Older collapsible */}
+      {older.length > 0 && (
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <button
+            onClick={() => setShowOlder((v) => !v)}
+            className="flex w-full items-center justify-between text-sm font-semibold hover:text-primary"
+          >
+            <span>Older Invoices ({older.length})</span>
+            {showOlder ? (
+              <ChevronDown size={16} />
+            ) : (
+              <ChevronRight size={16} />
+            )}
+          </button>
+          {showOlder && (
+            <div className="mt-3">
+              <InvoiceList invoices={older} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InvoiceList({ invoices }: { invoices: InvoiceLine[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-xs text-gray-500">
+          <tr className="border-b">
+            <th className="py-2 text-left">Invoice</th>
+            <th className="py-2 text-left">Date</th>
+            <th className="py-2 text-left">Doctor</th>
+            <th className="py-2 text-right">Amount</th>
+            <th className="py-2 text-right">Paid</th>
+            <th className="py-2 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoices.map((inv) => {
+            const paid = inv.payments.reduce((s, p) => s + p.amount, 0);
+            const statusClass =
+              inv.paymentStatus === "PAID"
+                ? "bg-green-100 text-green-700"
+                : inv.paymentStatus === "PARTIAL"
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-red-100 text-red-700";
+            return (
+              <tr
+                key={inv.id}
+                className="border-b border-gray-50 hover:bg-gray-50"
+              >
+                <td className="py-2 font-mono text-xs">
+                  {inv.invoiceNumber}
+                </td>
+                <td className="py-2 text-gray-600">
+                  {new Date(inv.createdAt).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </td>
+                <td className="py-2 text-gray-600">
+                  {inv.appointment?.doctor?.user?.name
+                    ? `Dr. ${inv.appointment.doctor.user.name}`
+                    : "—"}
+                </td>
+                <td className="py-2 text-right font-medium">
+                  Rs. {inv.totalAmount.toFixed(2)}
+                </td>
+                <td className="py-2 text-right text-gray-600">
+                  Rs. {paid.toFixed(2)}
+                </td>
+                <td className="py-2 text-center">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass}`}
+                  >
+                    {inv.paymentStatus}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Lab Results Tab
+// ───────────────────────────────────────────────────────
+
+function LabResultsTab({ patientId }: { patientId: string }) {
+  const [orders, setOrders] = useState<LabOrderFull[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<{ data: LabOrderFull[] }>(
+          `/patients/${patientId}/lab-orders`
+        );
+        setOrders(res.data);
+      } catch {
+        // noop
+      }
+      setLoading(false);
+    })();
+  }, [patientId]);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading labs...</div>;
+
+  if (orders.length === 0) {
+    return (
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm">
+        <p className="text-gray-400">No lab orders yet</p>
+      </div>
+    );
+  }
+
+  function toggle(id: string) {
+    setExpanded((e) => ({ ...e, [id]: !e[id] }));
+  }
+
+  return (
+    <div className="space-y-3">
+      {orders.map((o) => {
+        const isOpen = expanded[o.id] ?? true;
+        const totalResults = o.items.reduce(
+          (s, i) => s + i.results.length,
+          0
+        );
+        const abnormal = o.items.reduce(
+          (s, i) => s + i.results.filter((r) => r.flag !== "NORMAL").length,
+          0
+        );
+        const critical = o.items.reduce(
+          (s, i) => s + i.results.filter((r) => r.flag === "CRITICAL").length,
+          0
+        );
+        return (
+          <div key={o.id} className="rounded-xl bg-white shadow-sm">
+            <button
+              onClick={() => toggle(o.id)}
+              className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-gray-50"
+            >
+              {isOpen ? (
+                <ChevronDown size={16} className="text-gray-400" />
+              ) : (
+                <ChevronRight size={16} className="text-gray-400" />
+              )}
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <p className="font-medium">{o.orderNumber}</p>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      o.status === "COMPLETED"
+                        ? "bg-green-100 text-green-700"
+                        : o.status === "IN_PROGRESS"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {o.status.replace(/_/g, " ")}
+                  </span>
+                  {critical > 0 && (
+                    <span className="rounded-full bg-red-700 px-2 py-0.5 text-xs font-bold text-white">
+                      {critical} CRITICAL
+                    </span>
+                  )}
+                  {abnormal > 0 && critical === 0 && (
+                    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                      {abnormal} abnormal
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-sm text-gray-500">
+                  Ordered {new Date(o.orderedAt).toLocaleDateString()}
+                  {o.doctor?.user?.name
+                    ? ` · Dr. ${o.doctor.user.name}`
+                    : ""}
+                  {totalResults > 0
+                    ? ` · ${totalResults} result(s)`
+                    : ""}
+                </p>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t px-5 py-4">
+                {o.items.map((item) => (
+                  <div key={item.id} className="mb-4 last:mb-0">
+                    <div className="mb-2 flex items-center gap-2">
+                      <FlaskConical size={14} className="text-amber-600" />
+                      <p className="font-medium">{item.test.name}</p>
+                      <span className="font-mono text-xs text-gray-500">
+                        {item.test.code}
+                      </span>
+                      {item.test.category && (
+                        <span className="text-xs text-gray-400">
+                          · {item.test.category}
+                        </span>
+                      )}
+                    </div>
+                    {item.results.length === 0 ? (
+                      <p className="pl-6 text-sm italic text-gray-400">
+                        Awaiting results
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto pl-6">
+                        <table className="w-full text-sm">
+                          <thead className="text-xs text-gray-500">
+                            <tr className="border-b">
+                              <th className="py-1.5 text-left">Parameter</th>
+                              <th className="py-1.5 text-left">Value</th>
+                              <th className="py-1.5 text-left">Unit</th>
+                              <th className="py-1.5 text-left">Normal Range</th>
+                              <th className="py-1.5 text-center">Flag</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {item.results.map((r) => (
+                              <tr
+                                key={r.id}
+                                className="border-b border-gray-50"
+                              >
+                                <td className="py-1.5 font-medium">
+                                  {r.parameter}
+                                </td>
+                                <td
+                                  className={`py-1.5 font-semibold ${
+                                    r.flag === "CRITICAL"
+                                      ? "text-red-700"
+                                      : r.flag === "HIGH"
+                                        ? "text-orange-700"
+                                        : r.flag === "LOW"
+                                          ? "text-blue-700"
+                                          : "text-gray-800"
+                                  }`}
+                                >
+                                  {r.value}
+                                </td>
+                                <td className="py-1.5 text-gray-500">
+                                  {r.unit || "—"}
+                                </td>
+                                <td className="py-1.5 text-xs text-gray-500">
+                                  {r.normalRange || "—"}
+                                </td>
+                                <td className="py-1.5 text-center">
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${labFlagColors[r.flag]}`}
+                                  >
+                                    {r.flag}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Quick Vitals Modal
+// ───────────────────────────────────────────────────────
+
+function QuickVitalsModal({
+  patientId,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [sys, setSys] = useState("");
+  const [dia, setDia] = useState("");
+  const [temp, setTemp] = useState("");
+  const [pulse, setPulse] = useState("");
+  const [spo2, setSpo2] = useState("");
+  const [weight, setWeight] = useState("");
+  const [height, setHeight] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const bmi = useMemo(() => {
+    const w = parseFloat(weight);
+    const h = parseFloat(height);
+    if (w > 0 && h > 0) {
+      const hm = h / 100;
+      return w / (hm * hm);
+    }
+    return null;
+  }, [weight, height]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      // Find latest open appointment to attach vitals
+      const appts = await api.get<{
+        data: Array<{ id: string; status: string; date: string }>;
+      }>(`/patients/${patientId}/history`);
+      const openAppt = appts.data.find(
+        (a) => a.status === "BOOKED" || a.status === "CHECKED_IN"
+      );
+      if (!openAppt) {
+        throw new Error(
+          "No active appointment found. Please book an appointment first."
+        );
+      }
+      await api.post(`/patients/${patientId}/vitals`, {
+        appointmentId: openAppt.id,
+        patientId,
+        bloodPressureSystolic: sys ? parseInt(sys) : undefined,
+        bloodPressureDiastolic: dia ? parseInt(dia) : undefined,
+        temperature: temp ? parseFloat(temp) : undefined,
+        pulseRate: pulse ? parseInt(pulse) : undefined,
+        spO2: spo2 ? parseInt(spo2) : undefined,
+        weight: weight ? parseFloat(weight) : undefined,
+        height: height ? parseFloat(height) : undefined,
+        notes: notes || undefined,
+      });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal title="Record Vitals" onClose={onClose} size="lg">
+      <form onSubmit={submit} className="space-y-3">
+        {error && (
+          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-600">BP Systolic</label>
+            <input
+              type="number"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={sys}
+              onChange={(e) => setSys(e.target.value)}
+              placeholder="120"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">BP Diastolic</label>
+            <input
+              type="number"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={dia}
+              onChange={(e) => setDia(e.target.value)}
+              placeholder="80"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Temperature (°F)</label>
+            <input
+              type="number"
+              step="0.1"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={temp}
+              onChange={(e) => setTemp(e.target.value)}
+              placeholder="98.6"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Pulse (bpm)</label>
+            <input
+              type="number"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={pulse}
+              onChange={(e) => setPulse(e.target.value)}
+              placeholder="72"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">SpO2 (%)</label>
+            <input
+              type="number"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={spo2}
+              onChange={(e) => setSpo2(e.target.value)}
+              placeholder="98"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Weight (kg)</label>
+            <input
+              type="number"
+              step="0.1"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Height (cm)</label>
+            <input
+              type="number"
+              step="0.1"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={height}
+              onChange={(e) => setHeight(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">BMI</label>
+            <div className="rounded-md bg-gray-50 px-3 py-2 text-sm">
+              {bmi ? (
+                <>
+                  <span className="font-semibold">{bmi.toFixed(1)}</span>{" "}
+                  <span
+                    className={`text-xs ${
+                      bmi < 18.5
+                        ? "text-blue-600"
+                        : bmi < 25
+                          ? "text-green-600"
+                          : bmi < 30
+                            ? "text-orange-600"
+                            : "text-red-600"
+                    }`}
+                  >
+                    (
+                    {bmi < 18.5
+                      ? "Underweight"
+                      : bmi < 25
+                        ? "Normal"
+                        : bmi < 30
+                          ? "Overweight"
+                          : "Obese"}
+                    )
+                  </span>
+                </>
+              ) : (
+                <span className="text-gray-400">—</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-gray-600">Notes</label>
+          <textarea
+            rows={2}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Vitals"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Quick Book Appointment Modal
+// ───────────────────────────────────────────────────────
+
+interface DoctorLite {
+  id: string;
+  user: { name: string };
+  specialization?: string | null;
+}
+
+interface Slot {
+  startTime: string;
+  endTime: string;
+  available: boolean;
+}
+
+function QuickBookModal({
+  patientId,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [doctors, setDoctors] = useState<DoctorLite[]>([]);
+  const [doctorId, setDoctorId] = useState("");
+  const [date, setDate] = useState(() =>
+    new Date().toISOString().split("T")[0]
+  );
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: DoctorLite[] }>("/doctors");
+        setDoctors(res.data);
+        if (res.data.length > 0) setDoctorId(res.data[0].id);
+      } catch {
+        // noop
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!doctorId || !date) return;
+    (async () => {
+      try {
+        const res = await api.get<{ data: { slots: Slot[] } }>(
+          `/doctors/${doctorId}/slots?date=${date}`
+        );
+        setSlots(res.data.slots);
+      } catch {
+        setSlots([]);
+      }
+    })();
+  }, [doctorId, date]);
+
+  async function book(slotStart: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post("/appointments/book", {
+        patientId,
+        doctorId,
+        date,
+        slotId: slotStart,
+      });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal title="Book Appointment" onClose={onClose} size="lg">
+      <div className="space-y-3">
+        {error && (
+          <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-600">Doctor</label>
+            <select
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={doctorId}
+              onChange={(e) => setDoctorId(e.target.value)}
+            >
+              {doctors.map((d) => (
+                <option key={d.id} value={d.id}>
+                  Dr. {d.user.name}
+                  {d.specialization ? ` — ${d.specialization}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Date</label>
+            <input
+              type="date"
+              className="w-full rounded-md border px-3 py-2 text-sm"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+        </div>
+        <div>
+          <p className="mb-2 text-xs font-semibold text-gray-600">
+            Available Slots
+          </p>
+          {slots.length === 0 ? (
+            <p className="text-sm text-gray-400">No slots available</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-2">
+              {slots.map((s) => (
+                <button
+                  key={s.startTime}
+                  type="button"
+                  disabled={!s.available || saving}
+                  onClick={() => book(s.startTime)}
+                  className={`rounded-md px-2 py-2 text-xs ${
+                    s.available
+                      ? "border border-primary text-primary hover:bg-primary hover:text-white"
+                      : "cursor-not-allowed bg-gray-100 text-gray-400"
+                  }`}
+                >
+                  {s.startTime}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Medical Records Tab (preserved from original)
 // ───────────────────────────────────────────────────────
 
 function MedicalRecordsTab({
@@ -1352,7 +2973,6 @@ function DocumentsTab({
       if (url) {
         const base =
           process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
-        // downloadUrl already starts with /api/v1 — strip to avoid duplication
         const origin = base.replace(/\/api\/v1$/, "");
         window.open(origin + url, "_blank");
       }

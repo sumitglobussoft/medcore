@@ -1,0 +1,168 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { api } from "@/lib/api";
+
+interface RefundRow {
+  id: string;
+  paidAt: string;
+  amount: number;
+  mode: string;
+  reason: string;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    totalAmount: number;
+    patient: {
+      user: { name: string; phone: string };
+    };
+  };
+}
+
+function fmtMoney(n: number) {
+  return `Rs. ${n.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function defaultFrom() {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().slice(0, 10);
+}
+
+function defaultTo() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export default function RefundsPage() {
+  const [from, setFrom] = useState(defaultFrom());
+  const [to, setTo] = useState(defaultTo());
+  const [rows, setRows] = useState<RefundRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{
+        data: { refunds: RefundRow[]; totalRefunded: number; count: number };
+      }>(
+        `/billing/reports/refunds?from=${new Date(from).toISOString()}&to=${new Date(
+          to + "T23:59:59.999Z"
+        ).toISOString()}`
+      );
+      setRows(res.data.refunds);
+      setTotal(res.data.totalRefunded);
+    } catch {
+      // ignore
+    }
+    setLoading(false);
+  }, [from, to]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Refunds</h1>
+      </div>
+
+      {/* Filter */}
+      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm">
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">From</label>
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">To</label>
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        <button
+          onClick={load}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+        >
+          Apply
+        </button>
+        <div className="ml-auto text-right">
+          <p className="text-xs uppercase tracking-wider text-gray-400">
+            Total Refunded (period)
+          </p>
+          <p className="mt-1 text-xl font-bold text-orange-600">
+            {fmtMoney(total)}
+          </p>
+          <p className="text-xs text-gray-500">
+            {rows.length} refund{rows.length === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-white shadow-sm">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500">Loading...</div>
+        ) : rows.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            No refunds in this period.
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b text-left text-sm text-gray-500">
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Invoice #</th>
+                <th className="px-4 py-3">Patient</th>
+                <th className="px-4 py-3">Amount</th>
+                <th className="px-4 py-3">Mode</th>
+                <th className="px-4 py-3">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-b last:border-0">
+                  <td className="px-4 py-3 text-sm">
+                    {new Date(r.paidAt).toLocaleString("en-IN")}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-sm">
+                    <Link
+                      href={`/dashboard/billing/${r.invoice.id}`}
+                      className="text-primary hover:underline"
+                    >
+                      {r.invoice.invoiceNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium">{r.invoice.patient.user.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {r.invoice.patient.user.phone}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-orange-600">
+                    {fmtMoney(r.amount)}
+                  </td>
+                  <td className="px-4 py-3 text-sm">{r.mode}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {r.reason || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -48,6 +48,7 @@ import {
   AlertTriangle,
   MessageCircle,
   UserCheck,
+  Undo2,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -67,6 +68,7 @@ const navByRole: Record<
     { href: "/dashboard/lab", label: "Lab", icon: FlaskConical },
     { href: "/dashboard/immunization-schedule", label: "Immunizations", icon: Syringe },
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+    { href: "/dashboard/refunds", label: "Refunds", icon: Undo2 },
     { href: "/dashboard/packages", label: "Packages", icon: Gift },
     { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
@@ -129,6 +131,7 @@ const navByRole: Record<
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
     { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+    { href: "/dashboard/refunds", label: "Refunds", icon: Undo2 },
     { href: "/dashboard/packages", label: "Packages", icon: Gift },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
     { href: "/dashboard/expenses", label: "Expenses", icon: Wallet },

@@ -253,4 +253,487 @@ router.get(
   }
 );
 
+// GET /api/v1/patients/:id/timeline — unified chronological timeline
+router.get(
+  "/:id/timeline",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.id;
+      const [
+        appointments,
+        consultations,
+        prescriptions,
+        vitals,
+        admissions,
+        labOrders,
+        surgeries,
+        invoices,
+        emergencies,
+      ] = await Promise.all([
+        prisma.appointment.findMany({
+          where: { patientId },
+          include: {
+            doctor: { include: { user: { select: { name: true } } } },
+          },
+          orderBy: { date: "desc" },
+          take: 200,
+        }),
+        prisma.consultation.findMany({
+          where: { appointment: { patientId } },
+          include: {
+            appointment: true,
+            doctor: { include: { user: { select: { name: true } } } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
+        prisma.prescription.findMany({
+          where: { patientId },
+          include: {
+            doctor: { include: { user: { select: { name: true } } } },
+            items: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
+        prisma.vitals.findMany({
+          where: { patientId },
+          orderBy: { recordedAt: "desc" },
+          take: 200,
+        }),
+        prisma.admission.findMany({
+          where: { patientId },
+          include: {
+            doctor: { include: { user: { select: { name: true } } } },
+            bed: { include: { ward: true } },
+          },
+          orderBy: { admittedAt: "desc" },
+          take: 200,
+        }),
+        prisma.labOrder.findMany({
+          where: { patientId },
+          include: {
+            items: { include: { test: true, results: true } },
+          },
+          orderBy: { orderedAt: "desc" },
+          take: 200,
+        }),
+        prisma.surgery.findMany({
+          where: { patientId },
+          include: {
+            surgeon: { include: { user: { select: { name: true } } } },
+          },
+          orderBy: { scheduledAt: "desc" },
+          take: 200,
+        }),
+        prisma.invoice.findMany({
+          where: { patientId },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
+        prisma.emergencyCase.findMany({
+          where: { patientId },
+          orderBy: { arrivedAt: "desc" },
+          take: 200,
+        }),
+      ]);
+
+      type Entry = {
+        id: string;
+        type: string;
+        title: string;
+        description: string;
+        timestamp: string;
+        icon: string;
+        color: string;
+        link: string | null;
+      };
+      const entries: Entry[] = [];
+
+      for (const a of appointments) {
+        entries.push({
+          id: `appt-${a.id}`,
+          type: "appointment",
+          title: `Appointment with Dr. ${a.doctor?.user?.name || "—"}`,
+          description: `${a.type} · ${a.status.replace(/_/g, " ")}${
+            a.notes ? ` · ${a.notes}` : ""
+          }`,
+          timestamp: new Date(a.date).toISOString(),
+          icon: "Calendar",
+          color: "blue",
+          link: `/dashboard/appointments`,
+        });
+      }
+
+      for (const c of consultations) {
+        entries.push({
+          id: `cons-${c.id}`,
+          type: "consultation",
+          title: `Consultation with Dr. ${c.doctor?.user?.name || "—"}`,
+          description:
+            (c.findings ? `Findings: ${c.findings}` : "") +
+            (c.notes ? (c.findings ? " · " : "") + `Notes: ${c.notes}` : ""),
+          timestamp: c.createdAt.toISOString(),
+          icon: "Stethoscope",
+          color: "indigo",
+          link: null,
+        });
+      }
+
+      for (const p of prescriptions) {
+        entries.push({
+          id: `rx-${p.id}`,
+          type: "prescription",
+          title: `Prescription — ${p.diagnosis}`,
+          description: `${p.items.length} medication(s)${
+            p.followUpDate
+              ? ` · Follow up: ${new Date(p.followUpDate).toLocaleDateString()}`
+              : ""
+          }`,
+          timestamp: p.createdAt.toISOString(),
+          icon: "FileText",
+          color: "green",
+          link: null,
+        });
+      }
+
+      for (const v of vitals) {
+        const parts: string[] = [];
+        if (v.bloodPressureSystolic && v.bloodPressureDiastolic) {
+          parts.push(`BP ${v.bloodPressureSystolic}/${v.bloodPressureDiastolic}`);
+        }
+        if (v.pulseRate) parts.push(`HR ${v.pulseRate}`);
+        if (v.temperature) parts.push(`Temp ${v.temperature}`);
+        if (v.spO2) parts.push(`SpO2 ${v.spO2}%`);
+        if (v.weight) parts.push(`Wt ${v.weight}kg`);
+        entries.push({
+          id: `vit-${v.id}`,
+          type: "vitals",
+          title: "Vitals Recorded",
+          description: parts.join(" · ") || "—",
+          timestamp: v.recordedAt.toISOString(),
+          icon: "Activity",
+          color: "cyan",
+          link: null,
+        });
+      }
+
+      for (const a of admissions) {
+        entries.push({
+          id: `adm-in-${a.id}`,
+          type: "admission",
+          title: `Admitted — ${a.admissionNumber}`,
+          description: `${a.reason} · Dr. ${a.doctor?.user?.name || "—"} · Ward ${
+            a.bed?.ward?.name || ""
+          } Bed ${a.bed?.bedNumber || ""}`.trim(),
+          timestamp: a.admittedAt.toISOString(),
+          icon: "BedDouble",
+          color: "purple",
+          link: `/dashboard/ipd/${a.id}`,
+        });
+        if (a.dischargedAt) {
+          entries.push({
+            id: `adm-out-${a.id}`,
+            type: "admission",
+            title: `Discharged — ${a.admissionNumber}`,
+            description: a.dischargeSummary || a.dischargeNotes || "Discharged",
+            timestamp: a.dischargedAt.toISOString(),
+            icon: "BedDouble",
+            color: "gray",
+            link: `/dashboard/ipd/${a.id}`,
+          });
+        }
+      }
+
+      for (const lo of labOrders) {
+        const testNames = lo.items.map((i) => i.test.name).join(", ");
+        entries.push({
+          id: `lab-${lo.id}`,
+          type: "lab",
+          title: `Lab Order ${lo.orderNumber}`,
+          description: `${testNames || "—"} · ${lo.status.replace(/_/g, " ")}`,
+          timestamp: lo.orderedAt.toISOString(),
+          icon: "FlaskConical",
+          color: "amber",
+          link: null,
+        });
+        if (lo.completedAt) {
+          const totalResults = lo.items.reduce(
+            (s, i) => s + i.results.length,
+            0
+          );
+          const abnormal = lo.items.reduce(
+            (s, i) =>
+              s + i.results.filter((r) => r.flag !== "NORMAL").length,
+            0
+          );
+          entries.push({
+            id: `lab-result-${lo.id}`,
+            type: "lab",
+            title: `Lab Results — ${lo.orderNumber}`,
+            description: `${totalResults} result(s)${
+              abnormal > 0 ? ` · ${abnormal} abnormal` : ""
+            }`,
+            timestamp: lo.completedAt.toISOString(),
+            icon: "FlaskConical",
+            color: abnormal > 0 ? "red" : "green",
+            link: null,
+          });
+        }
+      }
+
+      for (const s of surgeries) {
+        entries.push({
+          id: `surg-${s.id}`,
+          type: "surgery",
+          title: `Surgery — ${s.procedure}`,
+          description: `${s.caseNumber} · Dr. ${s.surgeon?.user?.name || "—"} · ${s.status.replace(
+            /_/g,
+            " "
+          )}`,
+          timestamp: s.scheduledAt.toISOString(),
+          icon: "Scissors",
+          color: "rose",
+          link: null,
+        });
+      }
+
+      for (const inv of invoices) {
+        entries.push({
+          id: `inv-${inv.id}`,
+          type: "invoice",
+          title: `Invoice ${inv.invoiceNumber}`,
+          description: `Rs. ${inv.totalAmount.toFixed(2)} · ${inv.paymentStatus}`,
+          timestamp: inv.createdAt.toISOString(),
+          icon: "CreditCard",
+          color: inv.paymentStatus === "PAID" ? "green" : "orange",
+          link: null,
+        });
+      }
+
+      for (const ec of emergencies) {
+        entries.push({
+          id: `er-${ec.id}`,
+          type: "emergency",
+          title: `ER Visit — ${ec.caseNumber}`,
+          description: `${ec.chiefComplaint} · ${ec.status.replace(/_/g, " ")}${
+            ec.triageLevel ? ` · Triage ${ec.triageLevel}` : ""
+          }`,
+          timestamp: ec.arrivedAt.toISOString(),
+          icon: "Siren",
+          color: "red",
+          link: null,
+        });
+      }
+
+      entries.sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      res.json({ success: true, data: entries, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/vitals-trend?from=&to=
+router.get(
+  "/:id/vitals-trend",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = req.query;
+      const where: any = { patientId: req.params.id };
+      if (from || to) {
+        where.recordedAt = {};
+        if (from) where.recordedAt.gte = new Date(from as string);
+        if (to) where.recordedAt.lte = new Date(to as string);
+      }
+
+      const [opdVitals, ipdVitals] = await Promise.all([
+        prisma.vitals.findMany({
+          where,
+          orderBy: { recordedAt: "asc" },
+          select: {
+            recordedAt: true,
+            bloodPressureSystolic: true,
+            bloodPressureDiastolic: true,
+            temperature: true,
+            pulseRate: true,
+            spO2: true,
+            weight: true,
+          },
+        }),
+        prisma.ipdVitals.findMany({
+          where: {
+            admission: { patientId: req.params.id },
+            ...(from || to
+              ? {
+                  recordedAt: {
+                    ...(from ? { gte: new Date(from as string) } : {}),
+                    ...(to ? { lte: new Date(to as string) } : {}),
+                  },
+                }
+              : {}),
+          },
+          orderBy: { recordedAt: "asc" },
+          select: {
+            recordedAt: true,
+            bloodPressureSystolic: true,
+            bloodPressureDiastolic: true,
+            temperature: true,
+            pulseRate: true,
+            spO2: true,
+          },
+        }),
+      ]);
+
+      const combined = [
+        ...opdVitals.map((v) => ({ ...v, weight: v.weight ?? null })),
+        ...ipdVitals.map((v) => ({ ...v, weight: null })),
+      ].sort(
+        (a, b) =>
+          new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
+      );
+
+      res.json({ success: true, data: combined, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/stats
+router.get(
+  "/:id/stats",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.id;
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0];
+
+      const [
+        totalVisits,
+        lastVisit,
+        paidInvoices,
+        activeConditions,
+        activeAllergies,
+        upcomingAppointments,
+        pendingBills,
+        currentAdmission,
+      ] = await Promise.all([
+        prisma.appointment.count({
+          where: { patientId, status: { in: ["COMPLETED", "IN_CONSULTATION"] } },
+        }),
+        prisma.appointment.findFirst({
+          where: { patientId, status: "COMPLETED" },
+          orderBy: { date: "desc" },
+          select: { date: true },
+        }),
+        prisma.invoice.aggregate({
+          where: { patientId, paymentStatus: "PAID" },
+          _sum: { totalAmount: true },
+        }),
+        prisma.chronicCondition.count({
+          where: {
+            patientId,
+            status: { in: ["ACTIVE", "RELAPSED"] },
+          },
+        }),
+        prisma.patientAllergy.count({
+          where: { patientId },
+        }),
+        prisma.appointment.count({
+          where: {
+            patientId,
+            status: { in: ["BOOKED", "CHECKED_IN"] },
+            date: { gte: new Date(todayStr) },
+          },
+        }),
+        prisma.invoice.count({
+          where: {
+            patientId,
+            paymentStatus: { in: ["PENDING", "PARTIAL"] },
+          },
+        }),
+        prisma.admission.findFirst({
+          where: { patientId, status: "ADMITTED" },
+          select: { id: true, admissionNumber: true },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          totalVisits,
+          lastVisitDate: lastVisit?.date || null,
+          totalSpent: paidInvoices._sum.totalAmount || 0,
+          activeConditionsCount: activeConditions,
+          activeAllergiesCount: activeAllergies,
+          upcomingAppointments,
+          pendingBills,
+          currentAdmissionId: currentAdmission?.id || null,
+          currentAdmissionNumber: currentAdmission?.admissionNumber || null,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/invoices
+router.get(
+  "/:id/invoices",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const invoices = await prisma.invoice.findMany({
+        where: { patientId: req.params.id },
+        include: {
+          items: true,
+          payments: true,
+          appointment: {
+            include: {
+              doctor: { include: { user: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      res.json({ success: true, data: invoices, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/lab-orders
+router.get(
+  "/:id/lab-orders",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const orders = await prisma.labOrder.findMany({
+        where: { patientId: req.params.id },
+        include: {
+          doctor: { include: { user: { select: { name: true } } } },
+          items: {
+            include: {
+              test: true,
+              results: true,
+            },
+          },
+        },
+        orderBy: { orderedAt: "desc" },
+      });
+
+      res.json({ success: true, data: orders, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as patientRouter };
