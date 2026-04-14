@@ -17,4 +17,8 @@ export * from "./validation/ehr";
 export * from "./validation/clinical";
 export * from "./validation/hr";
 export * from "./validation/finance";
+export * from "./validation/phase4-clinical";
+export * from "./validation/phase4-ops";
+export * from "./validation/phase4-specialty";
+export * from "./validation/phase4-engagement";
 export * from "./constants";

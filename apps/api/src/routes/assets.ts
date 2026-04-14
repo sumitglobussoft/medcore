@@ -1,0 +1,364 @@
+import { Router, Request, Response, NextFunction } from "express";
+import { prisma } from "@medcore/db";
+import {
+  Role,
+  createAssetSchema,
+  updateAssetSchema,
+  assignAssetSchema,
+  returnAssetSchema,
+  maintenanceLogSchema,
+} from "@medcore/shared";
+import { authenticate, authorize } from "../middleware/auth";
+import { validate } from "../middleware/validate";
+import { auditLog } from "../middleware/audit";
+
+const router = Router();
+router.use(authenticate);
+
+// ───────────────────────────────────────────────────────
+// MAINTENANCE & WARRANTY (specific routes first)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/maintenance/due",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const now = new Date();
+      const soon = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      const assets = await prisma.asset.findMany({
+        where: {
+          maintenance: {
+            some: { nextDueDate: { lte: soon } },
+          },
+        },
+        include: {
+          maintenance: {
+            orderBy: { performedAt: "desc" },
+            take: 1,
+          },
+        },
+        orderBy: { name: "asc" },
+      });
+
+      // Filter to those whose latest nextDueDate <= soon
+      const due = assets.filter((a) => {
+        const latest = a.maintenance[0];
+        return latest?.nextDueDate && latest.nextDueDate <= soon;
+      });
+
+      res.json({ success: true, data: due, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/warranty/expiring",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { days = "30" } = req.query as Record<string, string | undefined>;
+      const n = parseInt(days || "30");
+      const now = new Date();
+      const soon = new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
+
+      const assets = await prisma.asset.findMany({
+        where: {
+          warrantyExpiry: { lte: soon, gte: now },
+        },
+        orderBy: { warrantyExpiry: "asc" },
+      });
+
+      res.json({ success: true, data: assets, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/maintenance",
+  authorize(Role.ADMIN),
+  validate(maintenanceLogSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { assetId, nextDueDate, ...rest } = req.body;
+
+      const log = await prisma.$transaction(async (tx) => {
+        const m = await tx.assetMaintenance.create({
+          data: {
+            assetId,
+            ...rest,
+            performedBy: req.user!.userId,
+            nextDueDate: nextDueDate ? new Date(nextDueDate) : null,
+          },
+        });
+
+        // Maintenance just logged — asset goes back to IDLE (or stays IN_USE if assigned)
+        const activeAssignment = await tx.assetAssignment.findFirst({
+          where: { assetId, returnedAt: null },
+        });
+        await tx.asset.update({
+          where: { id: assetId },
+          data: { status: activeAssignment ? "IN_USE" : "IDLE" },
+        });
+
+        return m;
+      });
+
+      auditLog(req, "LOG_ASSET_MAINTENANCE", "asset_maintenance", log.id, {
+        assetId,
+        type: rest.type,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: log, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// ASSETS
+// ───────────────────────────────────────────────────────
+
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      search,
+      category,
+      status,
+      page = "1",
+      limit = "20",
+    } = req.query as Record<string, string | undefined>;
+    const skip = (parseInt(page || "1") - 1) * parseInt(limit || "20");
+    const take = Math.min(parseInt(limit || "20"), 100);
+
+    const where: Record<string, unknown> = {};
+    if (category) where.category = category;
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { assetTag: { contains: search, mode: "insensitive" } },
+        { serialNumber: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    const [assets, total] = await Promise.all([
+      prisma.asset.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          assignments: {
+            where: { returnedAt: null },
+            take: 1,
+            include: {
+              assignee: { select: { id: true, name: true, role: true } },
+            },
+          },
+        },
+      }),
+      prisma.asset.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: assets,
+      error: null,
+      meta: { page: parseInt(page || "1"), limit: take, total },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/",
+  authorize(Role.ADMIN),
+  validate(createAssetSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { purchaseDate, warrantyExpiry, amcExpiryDate, ...rest } = req.body;
+      const asset = await prisma.asset.create({
+        data: {
+          ...rest,
+          purchaseDate: purchaseDate ? new Date(purchaseDate) : null,
+          warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null,
+          amcExpiryDate: amcExpiryDate ? new Date(amcExpiryDate) : null,
+        },
+      });
+
+      auditLog(req, "CREATE_ASSET", "asset", asset.id, {
+        assetTag: asset.assetTag,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: asset, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const asset = await prisma.asset.findUnique({
+      where: { id: req.params.id },
+      include: {
+        assignments: {
+          orderBy: { assignedAt: "desc" },
+          include: {
+            assignee: { select: { id: true, name: true, role: true } },
+          },
+        },
+        maintenance: {
+          orderBy: { performedAt: "desc" },
+          include: {
+            technician: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!asset) {
+      res
+        .status(404)
+        .json({ success: false, data: null, error: "Asset not found" });
+      return;
+    }
+    res.json({ success: true, data: asset, error: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch(
+  "/:id",
+  authorize(Role.ADMIN),
+  validate(updateAssetSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { purchaseDate, warrantyExpiry, amcExpiryDate, ...rest } = req.body;
+      const asset = await prisma.asset.update({
+        where: { id: req.params.id },
+        data: {
+          ...rest,
+          ...(purchaseDate !== undefined
+            ? { purchaseDate: purchaseDate ? new Date(purchaseDate) : null }
+            : {}),
+          ...(warrantyExpiry !== undefined
+            ? { warrantyExpiry: warrantyExpiry ? new Date(warrantyExpiry) : null }
+            : {}),
+          ...(amcExpiryDate !== undefined
+            ? { amcExpiryDate: amcExpiryDate ? new Date(amcExpiryDate) : null }
+            : {}),
+        },
+      });
+
+      auditLog(req, "UPDATE_ASSET", "asset", asset.id, req.body).catch(
+        console.error
+      );
+
+      res.json({ success: true, data: asset, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/:id/assign",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const assetId = req.params.id;
+      const parsed = assignAssetSchema.parse({ ...req.body, assetId });
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Close any active assignment
+        await tx.assetAssignment.updateMany({
+          where: { assetId, returnedAt: null },
+          data: { returnedAt: new Date() },
+        });
+
+        const assignment = await tx.assetAssignment.create({
+          data: {
+            assetId,
+            assignedTo: parsed.assignedTo,
+            location: parsed.location,
+            notes: parsed.notes,
+          },
+          include: {
+            assignee: { select: { id: true, name: true, role: true } },
+          },
+        });
+
+        await tx.asset.update({
+          where: { id: assetId },
+          data: {
+            status: "IN_USE",
+            ...(parsed.location ? { location: parsed.location } : {}),
+          },
+        });
+
+        return assignment;
+      });
+
+      auditLog(req, "ASSIGN_ASSET", "asset", assetId, {
+        assignedTo: parsed.assignedTo,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/:id/return",
+  authorize(Role.ADMIN),
+  validate(returnAssetSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const assetId = req.params.id;
+
+      const active = await prisma.assetAssignment.findFirst({
+        where: { assetId, returnedAt: null },
+      });
+      if (!active) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "No active assignment to return",
+        });
+        return;
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const a = await tx.assetAssignment.update({
+          where: { id: active.id },
+          data: {
+            returnedAt: new Date(),
+            notes: req.body.notes ?? active.notes,
+          },
+        });
+        await tx.asset.update({
+          where: { id: assetId },
+          data: { status: "IDLE" },
+        });
+        return a;
+      });
+
+      auditLog(req, "RETURN_ASSET", "asset", assetId).catch(console.error);
+
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+export { router as assetsRouter };

@@ -1,0 +1,891 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
+import { Droplet, Plus, Search, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+
+const BLOOD_GROUPS = [
+  "A_POS",
+  "A_NEG",
+  "B_POS",
+  "B_NEG",
+  "AB_POS",
+  "AB_NEG",
+  "O_POS",
+  "O_NEG",
+] as const;
+
+const COMPONENTS = [
+  "WHOLE_BLOOD",
+  "PACKED_RED_CELLS",
+  "PLATELETS",
+  "FRESH_FROZEN_PLASMA",
+  "CRYOPRECIPITATE",
+] as const;
+
+const URGENCIES = ["ROUTINE", "URGENT", "EMERGENCY"] as const;
+
+function prettyGroup(g: string) {
+  return g.replace("_POS", "+").replace("_NEG", "-").replace("_", " ");
+}
+function prettyComponent(c: string) {
+  return c.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (l) => l.toUpperCase());
+}
+
+interface Donor {
+  id: string;
+  donorNumber: string;
+  name: string;
+  phone: string;
+  bloodGroup: string;
+  gender: string;
+  totalDonations: number;
+  lastDonation?: string | null;
+  isEligible: boolean;
+}
+
+interface Donation {
+  id: string;
+  unitNumber: string;
+  donatedAt: string;
+  volumeMl: number;
+  approved: boolean;
+  donor: Donor;
+}
+
+interface BloodUnit {
+  id: string;
+  unitNumber: string;
+  bloodGroup: string;
+  component: string;
+  volumeMl: number;
+  expiresAt: string;
+  status: string;
+  storageLocation?: string | null;
+}
+
+interface InventorySummary {
+  totalAvailable: number;
+  byBloodGroup: Record<string, Record<string, number>>;
+  byComponent: Record<string, number>;
+  expiringSoon: number;
+}
+
+interface BloodRequest {
+  id: string;
+  requestNumber: string;
+  patient: { id: string; user: { name: string } };
+  bloodGroup: string;
+  component: string;
+  unitsRequested: number;
+  reason: string;
+  urgency: string;
+  fulfilled: boolean;
+  createdAt: string;
+  units: BloodUnit[];
+}
+
+interface Patient {
+  id: string;
+  mrNumber: string;
+  user: { name: string; phone: string };
+}
+
+type Tab = "inventory" | "donors" | "donations" | "requests";
+
+export default function BloodBankPage() {
+  const { user } = useAuthStore();
+  const [tab, setTab] = useState<Tab>("inventory");
+  const [loading, setLoading] = useState(true);
+
+  const [summary, setSummary] = useState<InventorySummary | null>(null);
+  const [units, setUnits] = useState<BloodUnit[]>([]);
+  const [donors, setDonors] = useState<Donor[]>([]);
+  const [donations, setDonations] = useState<Donation[]>([]);
+  const [requests, setRequests] = useState<BloodRequest[]>([]);
+  const [donorSearch, setDonorSearch] = useState("");
+
+  const [showDonorModal, setShowDonorModal] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [matchingRequest, setMatchingRequest] = useState<BloodRequest | null>(null);
+  const [matchUnits, setMatchUnits] = useState<BloodUnit[]>([]);
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
+
+  const canCreateRequest = user?.role === "DOCTOR" || user?.role === "ADMIN" || user?.role === "NURSE";
+  const canApprove = user?.role === "DOCTOR" || user?.role === "ADMIN";
+  const canRegisterDonor = user?.role === "NURSE" || user?.role === "DOCTOR" || user?.role === "ADMIN";
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [s, invRes, donorsRes, donationsRes, reqRes] = await Promise.all([
+        api.get<{ data: InventorySummary }>("/bloodbank/inventory/summary"),
+        api.get<{ data: BloodUnit[] }>("/bloodbank/inventory?limit=200"),
+        api.get<{ data: Donor[] }>(`/bloodbank/donors?limit=100${donorSearch ? `&search=${encodeURIComponent(donorSearch)}` : ""}`),
+        api.get<{ data: Donation[] }>("/bloodbank/donations?limit=50"),
+        api.get<{ data: BloodRequest[] }>("/bloodbank/requests?limit=50"),
+      ]);
+      setSummary(s.data);
+      setUnits(invRes.data);
+      setDonors(donorsRes.data);
+      setDonations(donationsRes.data);
+      setRequests(reqRes.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function approveDonation(id: string, approved: boolean) {
+    try {
+      await api.patch(`/bloodbank/donations/${id}/approve`, { approved });
+      load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  async function openMatch(request: BloodRequest) {
+    setMatchingRequest(request);
+    setSelectedMatchIds(new Set());
+    try {
+      const res = await api.post<{ data: BloodUnit[] }>(`/bloodbank/requests/${request.id}/match`);
+      setMatchUnits(res.data);
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  async function issueUnits() {
+    if (!matchingRequest) return;
+    try {
+      await api.post(`/bloodbank/requests/${matchingRequest.id}/issue`, {
+        unitIds: Array.from(selectedMatchIds),
+      });
+      setMatchingRequest(null);
+      setMatchUnits([]);
+      setSelectedMatchIds(new Set());
+      load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  const now = new Date();
+  const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center gap-3">
+        <Droplet className="text-red-600" size={28} />
+        <h1 className="text-2xl font-bold">Blood Bank</h1>
+      </div>
+
+      {/* Summary strip */}
+      {summary && (
+        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-lg bg-white p-4 shadow">
+            <p className="text-xs text-gray-500">Available Units</p>
+            <p className="text-2xl font-bold">{summary.totalAvailable}</p>
+          </div>
+          <div className="rounded-lg bg-white p-4 shadow">
+            <p className="text-xs text-gray-500">Expiring in 7 days</p>
+            <p className="text-2xl font-bold text-red-600">{summary.expiringSoon}</p>
+          </div>
+          <div className="rounded-lg bg-white p-4 shadow">
+            <p className="text-xs text-gray-500">Open Requests</p>
+            <p className="text-2xl font-bold">
+              {requests.filter((r) => !r.fulfilled).length}
+            </p>
+          </div>
+          <div className="rounded-lg bg-white p-4 shadow">
+            <p className="text-xs text-gray-500">Total Donors</p>
+            <p className="text-2xl font-bold">{donors.length}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="mb-4 flex gap-2 border-b">
+        {(["inventory", "donors", "donations", "requests"] as Tab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 text-sm font-medium capitalize ${
+              tab === t
+                ? "border-b-2 border-red-600 text-red-600"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : (
+        <>
+          {tab === "inventory" && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {BLOOD_GROUPS.map((g) => {
+                const counts = summary?.byBloodGroup[g] || {};
+                const total = Object.values(counts).reduce((a, b) => a + b, 0);
+                const groupUnits = units.filter(
+                  (u) => u.bloodGroup === g && u.status === "AVAILABLE"
+                );
+                const expiring = groupUnits.filter(
+                  (u) => new Date(u.expiresAt) <= soon
+                ).length;
+                return (
+                  <div
+                    key={g}
+                    className="rounded-lg bg-white p-4 shadow border"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold text-red-600">
+                        {prettyGroup(g)}
+                      </div>
+                      <div className="text-3xl font-bold">{total}</div>
+                    </div>
+                    <div className="mt-3 space-y-1">
+                      {COMPONENTS.map((c) => (
+                        <div
+                          key={c}
+                          className="flex justify-between text-sm text-gray-700"
+                        >
+                          <span>{prettyComponent(c)}</span>
+                          <span className="font-medium">{counts[c] || 0}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {expiring > 0 && (
+                      <div className="mt-3 flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs text-red-700">
+                        <AlertTriangle size={14} />
+                        {expiring} expiring in 7 days
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === "donors" && (
+            <div>
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex flex-1 items-center gap-2 rounded border bg-white px-3 py-2">
+                  <Search size={16} className="text-gray-400" />
+                  <input
+                    type="text"
+                    value={donorSearch}
+                    onChange={(e) => setDonorSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && load()}
+                    placeholder="Search by name, phone, donor number"
+                    className="flex-1 outline-none"
+                  />
+                </div>
+                {canRegisterDonor && (
+                  <button
+                    onClick={() => setShowDonorModal(true)}
+                    className="flex items-center gap-2 rounded bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
+                  >
+                    <Plus size={16} /> Register Donor
+                  </button>
+                )}
+              </div>
+              <div className="rounded-lg bg-white shadow">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="p-3">Donor #</th>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Phone</th>
+                      <th className="p-3">Group</th>
+                      <th className="p-3">Donations</th>
+                      <th className="p-3">Last</th>
+                      <th className="p-3">Eligible</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {donors.map((d) => (
+                      <tr key={d.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-mono text-xs">{d.donorNumber}</td>
+                        <td className="p-3 font-medium">{d.name}</td>
+                        <td className="p-3">{d.phone}</td>
+                        <td className="p-3 font-bold text-red-600">
+                          {prettyGroup(d.bloodGroup)}
+                        </td>
+                        <td className="p-3">{d.totalDonations}</td>
+                        <td className="p-3 text-xs text-gray-500">
+                          {d.lastDonation
+                            ? new Date(d.lastDonation).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="p-3">
+                          {d.isEligible ? (
+                            <span className="text-green-600">Yes</span>
+                          ) : (
+                            <span className="text-gray-400">No</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {donors.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="p-6 text-center text-gray-400">
+                          No donors found
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === "donations" && (
+            <div className="rounded-lg bg-white shadow">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="p-3">Unit #</th>
+                    <th className="p-3">Donor</th>
+                    <th className="p-3">Group</th>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Volume</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {donations.map((d) => (
+                    <tr key={d.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-mono text-xs">{d.unitNumber}</td>
+                      <td className="p-3">{d.donor.name}</td>
+                      <td className="p-3 font-bold text-red-600">
+                        {prettyGroup(d.donor.bloodGroup)}
+                      </td>
+                      <td className="p-3 text-xs text-gray-500">
+                        {new Date(d.donatedAt).toLocaleDateString()}
+                      </td>
+                      <td className="p-3">{d.volumeMl} ml</td>
+                      <td className="p-3">
+                        {d.approved ? (
+                          <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                            Approved
+                          </span>
+                        ) : (
+                          <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700">
+                            Pending
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {!d.approved && canApprove && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => approveDonation(d.id, true)}
+                              className="flex items-center gap-1 rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
+                            >
+                              <CheckCircle2 size={12} /> Approve
+                            </button>
+                            <button
+                              onClick={() => approveDonation(d.id, false)}
+                              className="flex items-center gap-1 rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
+                            >
+                              <XCircle size={12} /> Reject
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {donations.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-gray-400">
+                        No donations recorded
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === "requests" && (
+            <div>
+              <div className="mb-3 flex justify-end">
+                {canCreateRequest && (
+                  <button
+                    onClick={() => setShowRequestModal(true)}
+                    className="flex items-center gap-2 rounded bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
+                  >
+                    <Plus size={16} /> New Request
+                  </button>
+                )}
+              </div>
+              <div className="rounded-lg bg-white shadow">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="p-3">Request #</th>
+                      <th className="p-3">Patient</th>
+                      <th className="p-3">Need</th>
+                      <th className="p-3">Urgency</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {requests.map((r) => (
+                      <tr key={r.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-mono text-xs">{r.requestNumber}</td>
+                        <td className="p-3">{r.patient.user.name}</td>
+                        <td className="p-3">
+                          <span className="font-bold text-red-600">
+                            {prettyGroup(r.bloodGroup)}
+                          </span>{" "}
+                          {prettyComponent(r.component)} × {r.unitsRequested}
+                        </td>
+                        <td className="p-3">
+                          <span
+                            className={`rounded px-2 py-0.5 text-xs ${
+                              r.urgency === "EMERGENCY"
+                                ? "bg-red-100 text-red-700"
+                                : r.urgency === "URGENT"
+                                ? "bg-orange-100 text-orange-700"
+                                : "bg-gray-100 text-gray-700"
+                            }`}
+                          >
+                            {r.urgency}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {r.fulfilled ? (
+                            <span className="rounded bg-green-100 px-2 py-0.5 text-xs text-green-700">
+                              Fulfilled
+                            </span>
+                          ) : (
+                            <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs text-yellow-700">
+                              Open
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {!r.fulfilled && (
+                            <button
+                              onClick={() => openMatch(r)}
+                              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+                            >
+                              Match Units
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {requests.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-gray-400">
+                          No requests
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {showDonorModal && (
+        <DonorModal
+          onClose={() => setShowDonorModal(false)}
+          onSaved={() => {
+            setShowDonorModal(false);
+            load();
+          }}
+        />
+      )}
+
+      {showRequestModal && (
+        <RequestModal
+          onClose={() => setShowRequestModal(false)}
+          onSaved={() => {
+            setShowRequestModal(false);
+            load();
+          }}
+        />
+      )}
+
+      {matchingRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-lg bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                Match Units for {matchingRequest.requestNumber}
+              </h2>
+              <button
+                onClick={() => setMatchingRequest(null)}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-3 text-sm text-gray-600">
+              Patient: {matchingRequest.patient.user.name} • Need:{" "}
+              <span className="font-bold text-red-600">
+                {prettyGroup(matchingRequest.bloodGroup)}
+              </span>{" "}
+              {prettyComponent(matchingRequest.component)} ×{" "}
+              {matchingRequest.unitsRequested}
+            </p>
+            <div className="space-y-2">
+              {matchUnits.length === 0 && (
+                <p className="text-sm text-gray-400">No compatible units available.</p>
+              )}
+              {matchUnits.map((u) => {
+                const checked = selectedMatchIds.has(u.id);
+                return (
+                  <label
+                    key={u.id}
+                    className="flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = new Set(selectedMatchIds);
+                        if (e.target.checked) next.add(u.id);
+                        else next.delete(u.id);
+                        setSelectedMatchIds(next);
+                      }}
+                    />
+                    <div className="flex-1">
+                      <div className="font-mono text-xs">{u.unitNumber}</div>
+                      <div className="text-xs text-gray-500">
+                        {prettyGroup(u.bloodGroup)} • {prettyComponent(u.component)} •{" "}
+                        {u.volumeMl}ml • exp{" "}
+                        {new Date(u.expiresAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setMatchingRequest(null)}
+                className="rounded border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={selectedMatchIds.size === 0}
+                onClick={issueUnits}
+                className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Issue {selectedMatchIds.size} Unit(s)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DonorModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    bloodGroup: "O_POS",
+    gender: "MALE",
+    dateOfBirth: "",
+    weight: "",
+    address: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.post("/bloodbank/donors", {
+        name: form.name,
+        phone: form.phone,
+        email: form.email || undefined,
+        bloodGroup: form.bloodGroup,
+        gender: form.gender,
+        dateOfBirth: form.dateOfBirth || undefined,
+        weight: form.weight ? Number(form.weight) : undefined,
+        address: form.address || undefined,
+      });
+      onSaved();
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Register Donor</h2>
+          <button onClick={onClose} className="text-gray-400">✕</button>
+        </div>
+        <div className="space-y-3">
+          <input
+            placeholder="Full name"
+            className="w-full rounded border p-2"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <input
+            placeholder="Phone"
+            className="w-full rounded border p-2"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          />
+          <input
+            placeholder="Email"
+            className="w-full rounded border p-2"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <select
+              className="rounded border p-2"
+              value={form.bloodGroup}
+              onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
+            >
+              {BLOOD_GROUPS.map((g) => (
+                <option key={g} value={g}>{prettyGroup(g)}</option>
+              ))}
+            </select>
+            <select
+              className="rounded border p-2"
+              value={form.gender}
+              onChange={(e) => setForm({ ...form, gender: e.target.value })}
+            >
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="date"
+              className="rounded border p-2"
+              value={form.dateOfBirth}
+              onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
+            />
+            <input
+              type="number"
+              placeholder="Weight (kg)"
+              className="rounded border p-2"
+              value={form.weight}
+              onChange={(e) => setForm({ ...form, weight: e.target.value })}
+            />
+          </div>
+          <textarea
+            placeholder="Address"
+            className="w-full rounded border p-2"
+            rows={2}
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || !form.name || !form.phone}
+            className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Register"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RequestModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patientId, setPatientId] = useState<string>("");
+  const [form, setForm] = useState({
+    bloodGroup: "O_POS",
+    component: "PACKED_RED_CELLS",
+    unitsRequested: 1,
+    urgency: "ROUTINE",
+    reason: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function searchPatients() {
+    try {
+      const res = await api.get<{ data: Patient[] }>(
+        `/patients?search=${encodeURIComponent(patientSearch)}&limit=10`
+      );
+      setPatients(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function save() {
+    if (!patientId) {
+      alert("Select a patient");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/bloodbank/requests", {
+        patientId,
+        bloodGroup: form.bloodGroup,
+        component: form.component,
+        unitsRequested: Number(form.unitsRequested),
+        urgency: form.urgency,
+        reason: form.reason,
+      });
+      onSaved();
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">New Blood Request</h2>
+          <button onClick={onClose} className="text-gray-400">✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-600">Patient</label>
+            <div className="flex gap-2">
+              <input
+                placeholder="Search patient by name / MR"
+                className="flex-1 rounded border p-2"
+                value={patientSearch}
+                onChange={(e) => setPatientSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && searchPatients()}
+              />
+              <button
+                onClick={searchPatients}
+                className="rounded border px-3 text-sm"
+              >
+                Search
+              </button>
+            </div>
+            {patients.length > 0 && (
+              <select
+                className="mt-2 w-full rounded border p-2"
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+              >
+                <option value="">Select...</option>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.user.name} ({p.mrNumber})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <select
+              className="rounded border p-2"
+              value={form.bloodGroup}
+              onChange={(e) => setForm({ ...form, bloodGroup: e.target.value })}
+            >
+              {BLOOD_GROUPS.map((g) => (
+                <option key={g} value={g}>{prettyGroup(g)}</option>
+              ))}
+            </select>
+            <select
+              className="rounded border p-2"
+              value={form.component}
+              onChange={(e) => setForm({ ...form, component: e.target.value })}
+            >
+              {COMPONENTS.map((c) => (
+                <option key={c} value={c}>{prettyComponent(c)}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="number"
+              min={1}
+              placeholder="Units"
+              className="rounded border p-2"
+              value={form.unitsRequested}
+              onChange={(e) =>
+                setForm({ ...form, unitsRequested: Number(e.target.value) })
+              }
+            />
+            <select
+              className="rounded border p-2"
+              value={form.urgency}
+              onChange={(e) => setForm({ ...form, urgency: e.target.value })}
+            >
+              {URGENCIES.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            placeholder="Clinical reason"
+            className="w-full rounded border p-2"
+            rows={2}
+            value={form.reason}
+            onChange={(e) => setForm({ ...form, reason: e.target.value })}
+          />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || !form.reason || !patientId}
+            className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Submit Request"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

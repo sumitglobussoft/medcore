@@ -1,0 +1,580 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
+import { Plus, Video, Star, XCircle, Play, Square } from "lucide-react";
+
+interface PatientLite {
+  id: string;
+  mrNumber?: string;
+  user: { name: string; phone?: string };
+}
+
+interface DoctorLite {
+  id: string;
+  specialization?: string;
+  user: { name: string };
+}
+
+interface TelemedicineSession {
+  id: string;
+  sessionNumber: string;
+  scheduledAt: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  durationMin?: number | null;
+  meetingUrl?: string | null;
+  meetingId?: string | null;
+  status:
+    | "SCHEDULED"
+    | "WAITING"
+    | "IN_PROGRESS"
+    | "COMPLETED"
+    | "MISSED"
+    | "CANCELLED";
+  chiefComplaint?: string | null;
+  doctorNotes?: string | null;
+  patientRating?: number | null;
+  fee: number;
+  patient: PatientLite;
+  doctor: DoctorLite;
+}
+
+type Tab = "upcoming" | "completed" | "cancelled";
+
+const STATUS_COLORS: Record<string, string> = {
+  SCHEDULED: "bg-blue-100 text-blue-700",
+  WAITING: "bg-purple-100 text-purple-700",
+  IN_PROGRESS: "bg-green-100 text-green-700",
+  COMPLETED: "bg-gray-100 text-gray-700",
+  MISSED: "bg-yellow-100 text-yellow-700",
+  CANCELLED: "bg-red-100 text-red-700",
+};
+
+function joinActive(session: TelemedicineSession): boolean {
+  if (session.status === "IN_PROGRESS") return true;
+  if (session.status !== "SCHEDULED" && session.status !== "WAITING") return false;
+  const diffMs = new Date(session.scheduledAt).getTime() - Date.now();
+  // active within 15 minutes before and anytime after the scheduled start
+  return diffMs <= 15 * 60 * 1000;
+}
+
+export default function TelemedicinePage() {
+  const { user } = useAuthStore();
+  const [sessions, setSessions] = useState<TelemedicineSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>("upcoming");
+  const [showModal, setShowModal] = useState(false);
+
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientResults, setPatientResults] = useState<PatientLite[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientLite | null>(null);
+  const [doctors, setDoctors] = useState<DoctorLite[]>([]);
+  const [form, setForm] = useState({
+    doctorId: "",
+    date: "",
+    time: "",
+    chiefComplaint: "",
+    fee: 500,
+  });
+
+  const [ratingSession, setRatingSession] = useState<TelemedicineSession | null>(
+    null
+  );
+  const [rating, setRating] = useState(5);
+
+  const canSchedule =
+    user?.role === "ADMIN" || user?.role === "DOCTOR" || user?.role === "RECEPTION";
+  const canStartEnd = user?.role === "ADMIN" || user?.role === "DOCTOR";
+  const canRate = user?.role === "PATIENT";
+
+  useEffect(() => {
+    loadSessions();
+  }, [tab]);
+
+  useEffect(() => {
+    if (showModal) loadDoctors();
+  }, [showModal]);
+
+  useEffect(() => {
+    if (patientSearch.length < 2) {
+      setPatientResults([]);
+      return;
+    }
+    const t = setTimeout(() => searchPatients(patientSearch), 300);
+    return () => clearTimeout(t);
+  }, [patientSearch]);
+
+  async function loadSessions() {
+    setLoading(true);
+    try {
+      let query = "";
+      if (tab === "upcoming")
+        query = "?status=SCHEDULED";
+      else if (tab === "completed")
+        query = "?status=COMPLETED";
+      else if (tab === "cancelled")
+        query = "?status=CANCELLED";
+      const res = await api.get<{ data: TelemedicineSession[] }>(
+        `/telemedicine${query}&limit=50`.replace("?&", "?")
+      );
+      // also merge WAITING/IN_PROGRESS into upcoming
+      if (tab === "upcoming") {
+        const [waitRes, progRes] = await Promise.all([
+          api
+            .get<{ data: TelemedicineSession[] }>(`/telemedicine?status=WAITING&limit=50`)
+            .catch(() => ({ data: [] })),
+          api
+            .get<{ data: TelemedicineSession[] }>(`/telemedicine?status=IN_PROGRESS&limit=50`)
+            .catch(() => ({ data: [] })),
+        ]);
+        const merged = [...res.data, ...waitRes.data, ...progRes.data];
+        merged.sort(
+          (a, b) =>
+            new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+        );
+        setSessions(merged);
+      } else {
+        setSessions(res.data);
+      }
+    } catch {
+      setSessions([]);
+    }
+    setLoading(false);
+  }
+
+  async function searchPatients(q: string) {
+    try {
+      const res = await api.get<{ data: PatientLite[] }>(
+        `/patients?search=${encodeURIComponent(q)}&limit=10`
+      );
+      setPatientResults(res.data);
+    } catch {
+      setPatientResults([]);
+    }
+  }
+
+  async function loadDoctors() {
+    try {
+      const res = await api.get<{ data: DoctorLite[] }>("/doctors");
+      setDoctors(res.data);
+    } catch {
+      // empty
+    }
+  }
+
+  async function submitSchedule(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedPatient) {
+      alert("Select a patient");
+      return;
+    }
+    if (!form.date || !form.time) {
+      alert("Select date and time");
+      return;
+    }
+    const scheduledAt = new Date(`${form.date}T${form.time}:00`).toISOString();
+    try {
+      await api.post("/telemedicine", {
+        patientId: selectedPatient.id,
+        doctorId: form.doctorId,
+        scheduledAt,
+        chiefComplaint: form.chiefComplaint || undefined,
+        fee: Number(form.fee) || 500,
+      });
+      setShowModal(false);
+      setSelectedPatient(null);
+      setPatientSearch("");
+      setForm({ doctorId: "", date: "", time: "", chiefComplaint: "", fee: 500 });
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Schedule failed");
+    }
+  }
+
+  async function startSession(id: string) {
+    try {
+      await api.patch(`/telemedicine/${id}/start`);
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not start");
+    }
+  }
+
+  async function endSession(id: string) {
+    const notes = window.prompt("Doctor notes (optional):") || undefined;
+    try {
+      await api.patch(`/telemedicine/${id}/end`, { doctorNotes: notes });
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not end");
+    }
+  }
+
+  async function cancelSession(id: string) {
+    if (!confirm("Cancel this session?")) return;
+    try {
+      await api.patch(`/telemedicine/${id}/cancel`);
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Cancel failed");
+    }
+  }
+
+  async function submitRating() {
+    if (!ratingSession) return;
+    try {
+      await api.patch(`/telemedicine/${ratingSession.id}/rating`, {
+        patientRating: rating,
+      });
+      setRatingSession(null);
+      loadSessions();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Rating failed");
+    }
+  }
+
+  const tabClasses = (t: Tab) =>
+    `px-4 py-2 text-sm font-medium rounded-lg transition ${
+      tab === t
+        ? "bg-primary text-white"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+    }`;
+
+  const filtered = useMemo(() => sessions, [sessions]);
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Telemedicine</h1>
+          <p className="text-sm text-gray-500">
+            Virtual video consultations with patients
+          </p>
+        </div>
+        {canSchedule && (
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            <Plus size={16} /> Schedule Session
+          </button>
+        )}
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        <button onClick={() => setTab("upcoming")} className={tabClasses("upcoming")}>
+          Upcoming
+        </button>
+        <button
+          onClick={() => setTab("completed")}
+          className={tabClasses("completed")}
+        >
+          Completed
+        </button>
+        <button
+          onClick={() => setTab("cancelled")}
+          className={tabClasses("cancelled")}
+        >
+          Cancelled
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+          Loading...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+          No sessions found.
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filtered.map((s) => {
+            const canJoin = joinActive(s);
+            return (
+              <div
+                key={s.id}
+                className="rounded-xl bg-white p-5 shadow-sm"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-400">
+                    {s.sessionNumber}
+                  </span>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[s.status] || ""}`}
+                  >
+                    {s.status.replace("_", " ")}
+                  </span>
+                </div>
+
+                <h3 className="text-base font-semibold">{s.patient.user.name}</h3>
+                <p className="text-sm text-gray-500">
+                  Dr. {s.doctor.user.name}
+                  {s.doctor.specialization && ` · ${s.doctor.specialization}`}
+                </p>
+
+                <div className="mt-3 text-sm">
+                  <p className="text-gray-600">
+                    {new Date(s.scheduledAt).toLocaleString()}
+                  </p>
+                  {s.chiefComplaint && (
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-500">
+                      {s.chiefComplaint}
+                    </p>
+                  )}
+                  {s.durationMin != null && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Duration: {s.durationMin} min
+                    </p>
+                  )}
+                  {s.patientRating && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-yellow-500">
+                      {Array.from({ length: s.patientRating }).map((_, i) => (
+                        <Star key={i} size={12} fill="currentColor" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {canJoin && s.meetingUrl && (
+                    <a
+                      href={s.meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                    >
+                      <Video size={14} /> Join Call
+                    </a>
+                  )}
+                  {canStartEnd && s.status === "SCHEDULED" && (
+                    <button
+                      onClick={() => startSession(s.id)}
+                      className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark"
+                    >
+                      <Play size={14} /> Start
+                    </button>
+                  )}
+                  {canStartEnd && s.status === "IN_PROGRESS" && (
+                    <button
+                      onClick={() => endSession(s.id)}
+                      className="flex items-center gap-1 rounded-lg bg-gray-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800"
+                    >
+                      <Square size={14} /> End
+                    </button>
+                  )}
+                  {(s.status === "SCHEDULED" || s.status === "WAITING") && (
+                    <button
+                      onClick={() => cancelSession(s.id)}
+                      className="flex items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                    >
+                      <XCircle size={14} /> Cancel
+                    </button>
+                  )}
+                  {canRate && s.status === "COMPLETED" && !s.patientRating && (
+                    <button
+                      onClick={() => {
+                        setRatingSession(s);
+                        setRating(5);
+                      }}
+                      className="flex items-center gap-1 rounded-lg border border-yellow-300 px-3 py-1.5 text-xs font-medium text-yellow-700 hover:bg-yellow-50"
+                    >
+                      <Star size={14} /> Rate
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Schedule modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <form
+            onSubmit={submitSchedule}
+            className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <h2 className="mb-4 text-lg font-semibold">Schedule Telemedicine Session</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Patient</label>
+                {selectedPatient ? (
+                  <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+                    <span>
+                      <strong>{selectedPatient.user.name}</strong>
+                      {selectedPatient.mrNumber && ` — ${selectedPatient.mrNumber}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPatient(null);
+                        setPatientSearch("");
+                      }}
+                      className="text-xs text-red-600"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      placeholder="Search by name or MR number"
+                      value={patientSearch}
+                      onChange={(e) => setPatientSearch(e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                    {patientResults.length > 0 && (
+                      <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                        {patientResults.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPatient(p);
+                              setPatientResults([]);
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                          >
+                            <strong>{p.user.name}</strong>
+                            {p.mrNumber && ` · ${p.mrNumber}`}
+                            {p.user.phone && ` · ${p.user.phone}`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">Doctor</label>
+                <select
+                  required
+                  value={form.doctorId}
+                  onChange={(e) => setForm({ ...form, doctorId: e.target.value })}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                >
+                  <option value="">Select Doctor</option>
+                  {doctors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.user.name}
+                      {d.specialization && ` — ${d.specialization}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={form.date}
+                    onChange={(e) => setForm({ ...form, date: e.target.value })}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Time</label>
+                  <input
+                    type="time"
+                    required
+                    value={form.time}
+                    onChange={(e) => setForm({ ...form, time: e.target.value })}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">Chief Complaint</label>
+                <textarea
+                  rows={2}
+                  value={form.chiefComplaint}
+                  onChange={(e) =>
+                    setForm({ ...form, chiefComplaint: e.target.value })
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">Fee</label>
+                <input
+                  type="number"
+                  value={form.fee}
+                  onChange={(e) =>
+                    setForm({ ...form, fee: Number(e.target.value) })
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="rounded-lg border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+              >
+                Schedule
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Rating modal */}
+      {ratingSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-lg font-semibold">Rate Your Session</h2>
+            <p className="mb-3 text-sm text-gray-600">
+              Session with Dr. {ratingSession.doctor.user.name}
+            </p>
+            <div className="mb-6 flex justify-center gap-2">
+              {[1, 2, 3, 4, 5].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setRating(v)}
+                  className={`text-3xl transition ${
+                    v <= rating ? "text-yellow-500" : "text-gray-300"
+                  }`}
+                >
+                  <Star fill={v <= rating ? "currentColor" : "none"} />
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setRatingSession(null)}
+                className="rounded-lg border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRating}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

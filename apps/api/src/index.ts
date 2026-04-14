@@ -31,6 +31,16 @@ import { packageRouter } from "./routes/packages";
 import { supplierRouter } from "./routes/suppliers";
 import { purchaseOrderRouter } from "./routes/purchase-orders";
 import { expenseRouter } from "./routes/expenses";
+import { telemedicineRouter } from "./routes/telemedicine";
+import { emergencyRouter } from "./routes/emergency";
+import { antenatalRouter } from "./routes/antenatal";
+import { growthRouter } from "./routes/growth";
+import { bloodbankRouter } from "./routes/bloodbank";
+import { ambulanceRouter } from "./routes/ambulance";
+import { assetsRouter } from "./routes/assets";
+import { feedbackRouter, complaintsRouter } from "./routes/feedback";
+import { chatRouter } from "./routes/chat";
+import { visitorsRouter } from "./routes/visitors";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -87,6 +97,17 @@ app.use("/api/v1/packages", packageRouter);
 app.use("/api/v1/suppliers", supplierRouter);
 app.use("/api/v1/purchase-orders", purchaseOrderRouter);
 app.use("/api/v1/expenses", expenseRouter);
+app.use("/api/v1/telemedicine", telemedicineRouter);
+app.use("/api/v1/emergency", emergencyRouter);
+app.use("/api/v1/antenatal", antenatalRouter);
+app.use("/api/v1/growth", growthRouter);
+app.use("/api/v1/bloodbank", bloodbankRouter);
+app.use("/api/v1/ambulance", ambulanceRouter);
+app.use("/api/v1/assets", assetsRouter);
+app.use("/api/v1/feedback", feedbackRouter);
+app.use("/api/v1/complaints", complaintsRouter);
+app.use("/api/v1/chat", chatRouter);
+app.use("/api/v1/visitors", visitorsRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -106,6 +127,14 @@ io.on("connection", (socket) => {
 
   socket.on("join-display", () => {
     socket.join("token-display");
+  });
+
+  socket.on("chat:join", (roomId: string) => {
+    socket.join(`chat:${roomId}`);
+  });
+
+  socket.on("chat:leave", (roomId: string) => {
+    socket.leave(`chat:${roomId}`);
   });
 
   socket.on("disconnect", () => {

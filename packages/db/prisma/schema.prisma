@@ -240,6 +240,138 @@ enum ExpenseCategory {
   OTHER
 }
 
+// ─── PHASE 4 ENUMS ──────────────────────────────────────
+
+enum TelemedicineStatus {
+  SCHEDULED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum TriageLevel {
+  RESUSCITATION // Level 1 - immediate
+  EMERGENT // Level 2 - <10 min
+  URGENT // Level 3 - <30 min
+  LESS_URGENT // Level 4 - <60 min
+  NON_URGENT // Level 5 - routine
+}
+
+enum EmergencyStatus {
+  WAITING
+  TRIAGED
+  IN_TREATMENT
+  ADMITTED
+  DISCHARGED
+  TRANSFERRED
+  LEFT_WITHOUT_BEING_SEEN
+  DECEASED
+}
+
+enum BloodGroupType {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+}
+
+enum BloodComponent {
+  WHOLE_BLOOD
+  PACKED_RED_CELLS
+  PLATELETS
+  FRESH_FROZEN_PLASMA
+  CRYOPRECIPITATE
+}
+
+enum BloodUnitStatus {
+  AVAILABLE
+  RESERVED
+  ISSUED
+  EXPIRED
+  DISCARDED
+  IN_TESTING
+}
+
+enum AmbulanceStatus {
+  AVAILABLE
+  ON_TRIP
+  MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum AmbulanceTripStatus {
+  REQUESTED
+  DISPATCHED
+  ARRIVED_SCENE
+  EN_ROUTE_HOSPITAL
+  COMPLETED
+  CANCELLED
+}
+
+enum AssetStatus {
+  IN_USE
+  IDLE
+  UNDER_MAINTENANCE
+  RETIRED
+  LOST
+}
+
+enum MaintenanceType {
+  SCHEDULED
+  BREAKDOWN
+  CALIBRATION
+  INSPECTION
+}
+
+enum AncVisitType {
+  FIRST_VISIT
+  ROUTINE
+  HIGH_RISK_FOLLOWUP
+  SCAN_REVIEW
+  DELIVERY
+  POSTNATAL
+}
+
+enum FeedbackCategory {
+  DOCTOR
+  NURSE
+  RECEPTION
+  CLEANLINESS
+  FOOD
+  WAITING_TIME
+  BILLING
+  OVERALL
+}
+
+enum ComplaintStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  ESCALATED
+  CLOSED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  SYSTEM
+}
+
+enum VisitorPurpose {
+  PATIENT_VISIT
+  DELIVERY
+  APPOINTMENT
+  MEETING
+  OTHER
+}
+
 // ─── USERS & AUTH ───────────────────────────────────────
 
 model User {
@@ -266,6 +398,10 @@ model User {
   leaveRequests             LeaveRequest[]             @relation("LeaveOwner")
   approvedLeaves            LeaveRequest[]             @relation("LeaveApprover")
   recordedExpenses          Expense[]
+  sentMessages              ChatMessage[]              @relation("MessageSender")
+  chatParticipants          ChatParticipant[]
+  assetAssignments          AssetAssignment[]
+  maintenanceLogs           AssetMaintenance[]
 
   @@index([email])
   @@index([phone])
@@ -295,18 +431,21 @@ model Doctor {
   qualification  String?
   signatureUrl   String?
 
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  schedules         DoctorSchedule[]
-  scheduleOverrides ScheduleOverride[]
-  appointments      Appointment[]
-  prescriptions     Prescription[]
-  consultations     Consultation[]
-  admissions        Admission[]
-  medicationOrders  MedicationOrder[]
-  labOrders         LabOrder[]
-  referralsFrom     Referral[]         @relation("ReferrerDoctor")
-  referralsTo       Referral[]         @relation("RefereeDoctor")
-  surgeriesLead     Surgery[]          @relation("LeadSurgeon")
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schedules            DoctorSchedule[]
+  scheduleOverrides    ScheduleOverride[]
+  appointments         Appointment[]
+  prescriptions        Prescription[]
+  consultations        Consultation[]
+  admissions           Admission[]
+  medicationOrders     MedicationOrder[]
+  labOrders            LabOrder[]
+  referralsFrom        Referral[]            @relation("ReferrerDoctor")
+  referralsTo          Referral[]            @relation("RefereeDoctor")
+  surgeriesLead        Surgery[]             @relation("LeadSurgeon")
+  telemedicineSessions TelemedicineSession[]
+  emergencyCases       EmergencyCase[]       @relation("EmergencyAttendingDoctor")
+  ancCases             AntenatalCase[]
 
   @@map("doctors")
 }
@@ -356,22 +495,31 @@ model Patient {
   insuranceProvider     String?
   insurancePolicyNumber String?
 
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointments      Appointment[]
-  vitals            Vitals[]
-  prescriptions     Prescription[]
-  invoices          Invoice[]
-  insuranceClaims   InsuranceClaim[]
-  admissions        Admission[]
-  labOrders         LabOrder[]
-  allergies         PatientAllergy[]
-  chronicConditions ChronicCondition[]
-  familyHistory     FamilyHistory[]
-  immunizations     Immunization[]
-  documents         PatientDocument[]
-  referralsFrom     Referral[]         @relation("PatientReferrals")
-  surgeries         Surgery[]
-  packagePurchases  PackagePurchase[]
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments         Appointment[]
+  vitals               Vitals[]
+  prescriptions        Prescription[]
+  invoices             Invoice[]
+  insuranceClaims      InsuranceClaim[]
+  admissions           Admission[]
+  labOrders            LabOrder[]
+  allergies            PatientAllergy[]
+  chronicConditions    ChronicCondition[]
+  familyHistory        FamilyHistory[]
+  immunizations        Immunization[]
+  documents            PatientDocument[]
+  referralsFrom        Referral[]            @relation("PatientReferrals")
+  surgeries            Surgery[]
+  packagePurchases     PackagePurchase[]
+  telemedicineSessions TelemedicineSession[]
+  emergencyCases       EmergencyCase[]
+  bloodRequests        BloodRequest[]
+  ambulanceTrips       AmbulanceTrip[]
+  ancCase              AntenatalCase?
+  growthRecords        GrowthRecord[]
+  feedbacks            PatientFeedback[]
+  complaints           Complaint[]
+  visitors             Visitor[]
 
   @@index([mrNumber])
   @@map("patients")
@@ -1255,4 +1403,503 @@ model Expense {
   @@index([date])
   @@index([category])
   @@map("expenses")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: TELEMEDICINE
+// ═══════════════════════════════════════════════════════
+
+model TelemedicineSession {
+  id             String             @id @default(uuid())
+  sessionNumber  String             @unique
+  patientId      String
+  doctorId       String
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
+  durationMin    Int?
+  meetingUrl     String?
+  meetingId      String?
+  status         TelemedicineStatus @default(SCHEDULED)
+  chiefComplaint String?
+  doctorNotes    String?
+  patientRating  Int? // 1-5
+  prescriptionId String?
+  fee            Float              @default(500)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@map("telemedicine_sessions")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: EMERGENCY / TRIAGE
+// ═══════════════════════════════════════════════════════
+
+model EmergencyCase {
+  id                String          @id @default(uuid())
+  caseNumber        String          @unique
+  patientId         String? // null if unknown/unregistered
+  unknownName       String? // for Jane/John Does
+  unknownAge        Int?
+  unknownGender     String?
+  arrivedAt         DateTime        @default(now())
+  arrivalMode       String? // Walk-in, Ambulance, Police, Referred
+  triageLevel       TriageLevel?
+  triagedAt         DateTime?
+  triagedBy         String? // user id
+  chiefComplaint    String
+  mewsScore         Int? // Modified Early Warning Score (0-14)
+  vitalsBP          String?
+  vitalsPulse       Int?
+  vitalsResp        Int?
+  vitalsSpO2        Int?
+  vitalsTemp        Float?
+  glasgowComa       Int? // GCS 3-15
+  attendingDoctorId String?
+  seenAt            DateTime?
+  status            EmergencyStatus @default(WAITING)
+  disposition       String? // admit, discharge, transfer, dama
+  outcomeNotes      String?
+  closedAt          DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  patient         Patient? @relation(fields: [patientId], references: [id])
+  attendingDoctor Doctor?  @relation("EmergencyAttendingDoctor", fields: [attendingDoctorId], references: [id])
+
+  @@index([status])
+  @@index([triageLevel])
+  @@index([arrivedAt])
+  @@map("emergency_cases")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: BLOOD BANK
+// ═══════════════════════════════════════════════════════
+
+model BloodDonor {
+  id             String         @id @default(uuid())
+  donorNumber    String         @unique
+  name           String
+  phone          String
+  email          String?
+  bloodGroup     BloodGroupType
+  dateOfBirth    DateTime?      @db.Date
+  gender         Gender
+  weight         Float?
+  address        String?
+  lastDonation   DateTime?      @db.Date
+  totalDonations Int            @default(0)
+  isEligible     Boolean        @default(true)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  donations BloodDonation[]
+
+  @@index([bloodGroup])
+  @@index([phone])
+  @@map("blood_donors")
+}
+
+model BloodDonation {
+  id             String   @id @default(uuid())
+  donorId        String
+  donatedAt      DateTime @default(now())
+  volumeMl       Int      @default(450)
+  unitNumber     String   @unique
+  screeningNotes String?
+  approved       Boolean  @default(false)
+  approvedBy     String?
+  createdAt      DateTime @default(now())
+
+  donor BloodDonor  @relation(fields: [donorId], references: [id])
+  units BloodUnit[]
+
+  @@index([donorId])
+  @@map("blood_donations")
+}
+
+model BloodUnit {
+  id              String          @id @default(uuid())
+  unitNumber      String          @unique
+  donationId      String?
+  bloodGroup      BloodGroupType
+  component       BloodComponent
+  volumeMl        Int
+  collectedAt     DateTime
+  expiresAt       DateTime
+  status          BloodUnitStatus @default(AVAILABLE)
+  storageLocation String?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  donation BloodDonation? @relation(fields: [donationId], references: [id])
+  requests BloodRequest[]
+
+  @@index([bloodGroup, component, status])
+  @@index([expiresAt])
+  @@map("blood_units")
+}
+
+model BloodRequest {
+  id             String         @id @default(uuid())
+  requestNumber  String         @unique
+  patientId      String
+  bloodGroup     BloodGroupType
+  component      BloodComponent
+  unitsRequested Int
+  reason         String
+  urgency        String // ROUTINE, URGENT, EMERGENCY
+  requestedBy    String // user id
+  issuedAt       DateTime?
+  issuedBy       String?
+  fulfilled      Boolean        @default(false)
+  notes          String?
+  createdAt      DateTime       @default(now())
+
+  patient Patient     @relation(fields: [patientId], references: [id])
+  units   BloodUnit[]
+
+  @@index([patientId])
+  @@index([fulfilled])
+  @@map("blood_requests")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: AMBULANCE MANAGEMENT
+// ═══════════════════════════════════════════════════════
+
+model Ambulance {
+  id              String          @id @default(uuid())
+  vehicleNumber   String          @unique
+  make            String?
+  model           String?
+  type            String // BLS (Basic Life Support), ALS (Advanced), ICU, Patient Transport
+  status          AmbulanceStatus @default(AVAILABLE)
+  driverName      String?
+  driverPhone     String?
+  paramedicName   String?
+  lastServiceDate DateTime?       @db.Date
+  nextServiceDate DateTime?       @db.Date
+  notes           String?
+  createdAt       DateTime        @default(now())
+
+  trips AmbulanceTrip[]
+
+  @@map("ambulances")
+}
+
+model AmbulanceTrip {
+  id             String              @id @default(uuid())
+  tripNumber     String              @unique
+  ambulanceId    String
+  patientId      String?
+  callerName     String?
+  callerPhone    String?
+  pickupAddress  String
+  dropAddress    String?
+  distanceKm     Float?
+  chiefComplaint String?
+  requestedAt    DateTime            @default(now())
+  dispatchedAt   DateTime?
+  arrivedAt      DateTime?
+  completedAt    DateTime?
+  status         AmbulanceTripStatus @default(REQUESTED)
+  cost           Float?
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  ambulance Ambulance @relation(fields: [ambulanceId], references: [id])
+  patient   Patient?  @relation(fields: [patientId], references: [id])
+
+  @@index([ambulanceId])
+  @@index([status])
+  @@index([requestedAt])
+  @@map("ambulance_trips")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: ASSET MANAGEMENT
+// ═══════════════════════════════════════════════════════
+
+model Asset {
+  id             String      @id @default(uuid())
+  assetTag       String      @unique
+  name           String
+  category       String // Medical Equipment, IT, Furniture, Vehicle
+  manufacturer   String?
+  modelNumber    String?
+  serialNumber   String?
+  purchaseDate   DateTime?   @db.Date
+  purchaseCost   Float?
+  warrantyExpiry DateTime?   @db.Date
+  location       String?
+  department     String?
+  status         AssetStatus @default(IDLE)
+  amcProvider    String?
+  amcExpiryDate  DateTime?   @db.Date
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  assignments AssetAssignment[]
+  maintenance AssetMaintenance[]
+
+  @@index([category])
+  @@index([status])
+  @@map("assets")
+}
+
+model AssetAssignment {
+  id         String    @id @default(uuid())
+  assetId    String
+  assignedTo String // user id
+  assignedAt DateTime  @default(now())
+  returnedAt DateTime?
+  location   String?
+  notes      String?
+
+  asset    Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignee User  @relation(fields: [assignedTo], references: [id])
+
+  @@index([assetId])
+  @@index([assignedTo])
+  @@map("asset_assignments")
+}
+
+model AssetMaintenance {
+  id          String          @id @default(uuid())
+  assetId     String
+  type        MaintenanceType
+  performedAt DateTime        @default(now())
+  performedBy String // user id
+  vendor      String?
+  cost        Float?          @default(0)
+  description String
+  nextDueDate DateTime?       @db.Date
+  createdAt   DateTime        @default(now())
+
+  asset      Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  technician User  @relation(fields: [performedBy], references: [id])
+
+  @@index([assetId])
+  @@index([nextDueDate])
+  @@map("asset_maintenance")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: MATERNITY / ANTENATAL CARE
+// ═══════════════════════════════════════════════════════
+
+model AntenatalCase {
+  id           String    @id @default(uuid())
+  caseNumber   String    @unique
+  patientId    String    @unique // one active ANC case per patient
+  doctorId     String
+  lmpDate      DateTime  @db.Date // Last Menstrual Period
+  eddDate      DateTime  @db.Date // Expected Delivery Date
+  gravida      Int       @default(1)
+  parity       Int       @default(0)
+  bloodGroup   String?
+  isHighRisk   Boolean   @default(false)
+  riskFactors  String?
+  deliveredAt  DateTime?
+  deliveryType String? // NORMAL, C_SECTION, INSTRUMENTAL
+  babyGender   String?
+  babyWeight   Float?
+  outcomeNotes String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  patient Patient    @relation(fields: [patientId], references: [id])
+  doctor  Doctor     @relation(fields: [doctorId], references: [id])
+  visits  AncVisit[]
+
+  @@map("antenatal_cases")
+}
+
+model AncVisit {
+  id               String       @id @default(uuid())
+  ancCaseId        String
+  type             AncVisitType
+  visitDate        DateTime     @default(now())
+  weeksOfGestation Int?
+  weight           Float?
+  bloodPressure    String?
+  fundalHeight     String? // cm
+  fetalHeartRate   Int?
+  presentation     String?
+  hemoglobin       Float?
+  urineProtein     String?
+  urineSugar       String?
+  notes            String?
+  prescribedMeds   String?
+  nextVisitDate    DateTime?    @db.Date
+  createdAt        DateTime     @default(now())
+
+  ancCase AntenatalCase @relation(fields: [ancCaseId], references: [id], onDelete: Cascade)
+
+  @@index([ancCaseId])
+  @@map("anc_visits")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: PEDIATRIC GROWTH
+// ═══════════════════════════════════════════════════════
+
+model GrowthRecord {
+  id                 String   @id @default(uuid())
+  patientId          String
+  measurementDate    DateTime @default(now()) @db.Date
+  ageMonths          Int
+  weightKg           Float?
+  heightCm           Float?
+  headCircumference  Float? // cm
+  bmi                Float?
+  weightPercentile   Float? // 0-100
+  heightPercentile   Float?
+  milestoneNotes     String?
+  developmentalNotes String?
+  recordedBy         String
+  createdAt          DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, measurementDate])
+  @@map("growth_records")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: PATIENT FEEDBACK & COMPLAINTS
+// ═══════════════════════════════════════════════════════
+
+model PatientFeedback {
+  id          String           @id @default(uuid())
+  patientId   String
+  category    FeedbackCategory
+  rating      Int // 1-5
+  nps         Int? // 0-10 Net Promoter Score
+  comment     String?
+  submittedAt DateTime         @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([category])
+  @@index([submittedAt])
+  @@map("patient_feedback")
+}
+
+model Complaint {
+  id           String          @id @default(uuid())
+  ticketNumber String          @unique
+  patientId    String?
+  name         String? // for anonymous
+  phone        String?
+  category     String
+  description  String
+  status       ComplaintStatus @default(OPEN)
+  assignedTo   String? // user id
+  resolution   String?
+  resolvedAt   DateTime?
+  priority     String          @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  patient Patient? @relation(fields: [patientId], references: [id])
+
+  @@index([status])
+  @@index([assignedTo])
+  @@map("complaints")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: INTERNAL CHAT / MESSAGING
+// ═══════════════════════════════════════════════════════
+
+model ChatRoom {
+  id            String    @id @default(uuid())
+  name          String?
+  isGroup       Boolean   @default(false)
+  createdBy     String
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatParticipant {
+  id         String    @id @default(uuid())
+  roomId     String
+  userId     String
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  lastReadAt DateTime?
+
+  room ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("chat_participants")
+}
+
+model ChatMessage {
+  id            String      @id @default(uuid())
+  roomId        String
+  senderId      String
+  type          MessageType @default(TEXT)
+  content       String
+  attachmentUrl String?
+  editedAt      DateTime?
+  deletedAt     DateTime?
+  createdAt     DateTime    @default(now())
+
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender User     @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([roomId, createdAt])
+  @@index([senderId])
+  @@map("chat_messages")
+}
+
+// ═══════════════════════════════════════════════════════
+// PHASE 4: VISITOR MANAGEMENT
+// ═══════════════════════════════════════════════════════
+
+model Visitor {
+  id            String         @id @default(uuid())
+  passNumber    String         @unique
+  name          String
+  phone         String?
+  idProofType   String?
+  idProofNumber String?
+  patientId     String?
+  purpose       VisitorPurpose
+  department    String?
+  checkInAt     DateTime       @default(now())
+  checkOutAt    DateTime?
+  notes         String?
+  createdAt     DateTime       @default(now())
+
+  patient Patient? @relation(fields: [patientId], references: [id])
+
+  @@index([checkInAt])
+  @@index([patientId])
+  @@map("visitors")
 }
