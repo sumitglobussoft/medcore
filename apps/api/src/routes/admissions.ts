@@ -7,6 +7,9 @@ import {
   transferBedSchema,
   recordIpdVitalsSchema,
   intakeOutputSchema,
+  isolationStatusSchema,
+  belongingsSchema,
+  updateBelongingsSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -737,6 +740,507 @@ router.get(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// BED OCCUPANCY FORECAST
+// ═══════════════════════════════════════════════════════
+
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// GET /api/v1/admissions/forecast?days=7
+router.get(
+  "/forecast",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const days = Math.max(1, Math.min(30, parseInt((req.query.days as string) || "7", 10)));
+      const today = startOfDay(new Date());
+      const horizon = addDays(today, days);
+
+      const [totalBeds, activeAdmissions, scheduledSurgeries, admissionAppts] = await Promise.all([
+        prisma.bed.count(),
+        prisma.admission.findMany({
+          where: { status: "ADMITTED" },
+          select: { id: true, admittedAt: true, expectedLosDays: true },
+        }),
+        prisma.surgery.findMany({
+          where: {
+            scheduledAt: { gte: today, lt: horizon },
+            status: { in: ["SCHEDULED", "IN_PROGRESS"] },
+          },
+          select: { id: true, scheduledAt: true },
+        }),
+        prisma.appointment.findMany({
+          where: {
+            date: { gte: today, lt: horizon },
+            notes: { contains: "admission", mode: "insensitive" },
+          },
+          select: { id: true, date: true },
+        }),
+      ]);
+
+      const result: Array<{
+        date: string;
+        predictedOccupancy: number;
+        totalBeds: number;
+        occupancyPercent: number;
+        incomingAdmissions: number;
+        expectedDischarges: number;
+      }> = [];
+
+      for (let i = 0; i < days; i++) {
+        const day = addDays(today, i);
+        const nextDay = addDays(day, 1);
+
+        // Current admitted still present = their admit date <= day AND expected discharge > day
+        const stillAdmitted = activeAdmissions.filter((a) => {
+          const admit = startOfDay(a.admittedAt);
+          const los = a.expectedLosDays ?? 3;
+          const expectedDC = addDays(admit, los);
+          return admit <= day && expectedDC > day;
+        }).length;
+
+        const expectedDischarges = activeAdmissions.filter((a) => {
+          const admit = startOfDay(a.admittedAt);
+          const los = a.expectedLosDays ?? 3;
+          const expectedDC = startOfDay(addDays(admit, los));
+          return expectedDC.getTime() === day.getTime();
+        }).length;
+
+        const incomingFromSurgery = scheduledSurgeries.filter((s) => {
+          const d = startOfDay(s.scheduledAt);
+          return d.getTime() === day.getTime();
+        }).length;
+
+        const incomingFromAppt = admissionAppts.filter((a) => {
+          const d = startOfDay(a.date);
+          return d.getTime() === day.getTime();
+        }).length;
+
+        const incomingAdmissions = incomingFromSurgery + incomingFromAppt;
+        const predictedOccupancy = Math.max(0, stillAdmitted + incomingAdmissions);
+        const occupancyPercent = totalBeds > 0 ? Math.round((predictedOccupancy / totalBeds) * 100) : 0;
+
+        result.push({
+          date: isoDate(day),
+          predictedOccupancy,
+          totalBeds,
+          occupancyPercent,
+          incomingAdmissions,
+          expectedDischarges,
+        });
+      }
+
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// LOS PREDICTION
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/admissions/:id/los-prediction
+router.get(
+  "/:id/los-prediction",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admission = await prisma.admission.findUnique({
+        where: { id: req.params.id },
+        include: {
+          patient: { select: { dateOfBirth: true } },
+          bed: { include: { ward: { select: { type: true } } } },
+        },
+      });
+      if (!admission) {
+        res.status(404).json({ success: false, data: null, error: "Admission not found" });
+        return;
+      }
+
+      // Find similar historical cases (same ward type, similar keywords in diagnosis)
+      const keywords = (admission.diagnosis || admission.reason || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length >= 4)
+        .slice(0, 5);
+
+      const historical = await prisma.admission.findMany({
+        where: {
+          status: "DISCHARGED",
+          dischargedAt: { not: null },
+          bed: { ward: { type: admission.bed.ward.type } },
+          admissionType: admission.admissionType ?? undefined,
+          id: { not: admission.id },
+        },
+        select: { admittedAt: true, dischargedAt: true, diagnosis: true, finalDiagnosis: true },
+        take: 500,
+        orderBy: { admittedAt: "desc" },
+      });
+
+      const matches = historical.filter((h) => {
+        if (keywords.length === 0) return true;
+        const txt = `${h.diagnosis || ""} ${h.finalDiagnosis || ""}`.toLowerCase();
+        return keywords.some((k) => txt.includes(k));
+      });
+
+      const pool = matches.length >= 5 ? matches : historical;
+      const losArr = pool
+        .filter((h) => h.dischargedAt)
+        .map((h) => {
+          const ms = h.dischargedAt!.getTime() - h.admittedAt.getTime();
+          return Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000)));
+        })
+        .sort((a, b) => a - b);
+
+      let expectedDays = 3;
+      let confidence: "low" | "medium" | "high" = "low";
+      if (losArr.length > 0) {
+        const median = losArr[Math.floor(losArr.length / 2)];
+        expectedDays = Math.max(1, median);
+        confidence = losArr.length >= 20 ? "high" : losArr.length >= 5 ? "medium" : "low";
+      }
+
+      res.json({
+        success: true,
+        data: {
+          expectedDays,
+          confidence,
+          basedOn: "historical_median",
+          similar_cases_count: pool.length,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// ISOLATION STATUS
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/admissions/isolation/active
+router.get(
+  "/isolation/active",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.admission.findMany({
+        where: {
+          status: "ADMITTED",
+          isolationType: { not: null },
+        },
+        include: {
+          patient: { include: { user: { select: { name: true } } } },
+          bed: { include: { ward: true } },
+        },
+        orderBy: { isolationStartDate: "desc" },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/admissions/:id/isolation
+router.patch(
+  "/:id/isolation",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(isolationStatusSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as {
+        isolationType?: string | null;
+        isolationReason?: string;
+        isolationStartDate?: string;
+        isolationEndDate?: string;
+        clear?: boolean;
+      };
+
+      const data: Record<string, unknown> = {};
+      if (body.clear) {
+        data.isolationType = null;
+        data.isolationReason = null;
+        data.isolationStartDate = null;
+        data.isolationEndDate = new Date();
+      } else {
+        if (body.isolationType !== undefined) data.isolationType = body.isolationType;
+        if (body.isolationReason !== undefined) data.isolationReason = body.isolationReason;
+        if (body.isolationStartDate) data.isolationStartDate = new Date(body.isolationStartDate);
+        else if (body.isolationType && !body.isolationStartDate) data.isolationStartDate = new Date();
+        if (body.isolationEndDate) data.isolationEndDate = new Date(body.isolationEndDate);
+      }
+
+      const updated = await prisma.admission.update({
+        where: { id: req.params.id },
+        data,
+      });
+      auditLog(req, "UPDATE_ISOLATION", "admission", updated.id, body).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// PATIENT BELONGINGS
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/admissions/:id/belongings
+router.get(
+  "/:id/belongings",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rec = await prisma.patientBelongings.findUnique({
+        where: { admissionId: req.params.id },
+      });
+      res.json({ success: true, data: rec, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/admissions/:id/belongings
+router.post(
+  "/:id/belongings",
+  authorize(Role.ADMIN, Role.NURSE, Role.RECEPTION),
+  validate(belongingsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admissionId = req.params.id;
+      const existing = await prisma.patientBelongings.findUnique({
+        where: { admissionId },
+      });
+      const data = {
+        items: req.body.items ?? [],
+        notes: req.body.notes ?? null,
+      };
+      const rec = existing
+        ? await prisma.patientBelongings.update({
+            where: { admissionId },
+            data,
+          })
+        : await prisma.patientBelongings.create({
+            data: {
+              admissionId,
+              ...data,
+              checkedInBy: req.user!.userId,
+            },
+          });
+      auditLog(req, "BELONGINGS_UPSERT", "patient_belongings", rec.id, {
+        admissionId,
+      }).catch(console.error);
+      res.status(existing ? 200 : 201).json({ success: true, data: rec, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/admissions/:id/belongings
+router.patch(
+  "/:id/belongings",
+  authorize(Role.ADMIN, Role.NURSE, Role.RECEPTION),
+  validate(updateBelongingsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admissionId = req.params.id;
+      const data: Record<string, unknown> = {};
+      if (req.body.items !== undefined) data.items = req.body.items;
+      if (req.body.notes !== undefined) data.notes = req.body.notes;
+      const rec = await prisma.patientBelongings.update({
+        where: { admissionId },
+        data,
+      });
+      auditLog(req, "BELONGINGS_UPDATE", "patient_belongings", rec.id, {
+        admissionId,
+      }).catch(console.error);
+      res.json({ success: true, data: rec, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/admissions/:id/belongings/checkout — checkout all belongings
+router.post(
+  "/:id/belongings/checkout",
+  authorize(Role.ADMIN, Role.NURSE, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const admissionId = req.params.id;
+      const existing = await prisma.patientBelongings.findUnique({
+        where: { admissionId },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "No belongings record found" });
+        return;
+      }
+      const items = Array.isArray(existing.items) ? (existing.items as any[]) : [];
+      const now = new Date().toISOString();
+      const updatedItems = items.map((it) => ({
+        ...it,
+        checkedIn: false,
+        checkedOutAt: it.checkedOutAt || now,
+      }));
+      const rec = await prisma.patientBelongings.update({
+        where: { admissionId },
+        data: {
+          items: updatedItems,
+          checkedOutBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "BELONGINGS_CHECKOUT", "patient_belongings", rec.id, {
+        admissionId,
+      }).catch(console.error);
+      res.json({ success: true, data: rec, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// DAILY CENSUS
+// ═══════════════════════════════════════════════════════
+
+// GET /api/v1/admissions/census/daily?date=YYYY-MM-DD
+router.get(
+  "/census/daily",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const dateStr = (req.query.date as string) || isoDate(new Date());
+      const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+      const [totalBeds, admittedAtStart, newAdmissions, discharges, allDischarged] = await Promise.all([
+        prisma.bed.count(),
+        prisma.admission.count({
+          where: {
+            admittedAt: { lt: dayStart },
+            OR: [
+              { dischargedAt: null },
+              { dischargedAt: { gte: dayStart } },
+            ],
+          },
+        }),
+        prisma.admission.count({
+          where: { admittedAt: { gte: dayStart, lt: dayEnd } },
+        }),
+        prisma.admission.findMany({
+          where: { dischargedAt: { gte: dayStart, lt: dayEnd } },
+          select: { conditionAtDischarge: true },
+        }),
+        prisma.admission.count({
+          where: { dischargedAt: { gte: dayStart, lt: dayEnd } },
+        }),
+      ]);
+
+      const deaths = discharges.filter((d) => d.conditionAtDischarge === "DECEASED").length;
+      const admittedAtEndOfDay = admittedAtStart + newAdmissions - allDischarged;
+      const occupancyPercent = totalBeds > 0
+        ? Math.round((admittedAtEndOfDay / totalBeds) * 100)
+        : 0;
+
+      res.json({
+        success: true,
+        data: {
+          date: dateStr,
+          totalBeds,
+          admittedAtStartOfDay: admittedAtStart,
+          newAdmissions,
+          discharges: allDischarged,
+          deaths,
+          transfers_in: 0,
+          transfers_out: 0,
+          admittedAtEndOfDay,
+          occupancyPercent,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/admissions/census/range?from=&to=
+router.get(
+  "/census/range",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const from = (req.query.from as string) || isoDate(addDays(new Date(), -7));
+      const to = (req.query.to as string) || isoDate(new Date());
+      const fromD = new Date(`${from}T00:00:00.000Z`);
+      const toD = new Date(`${to}T00:00:00.000Z`);
+      const totalBeds = await prisma.bed.count();
+      const results: any[] = [];
+
+      for (let d = new Date(fromD); d <= toD; d.setUTCDate(d.getUTCDate() + 1)) {
+        const dayStart = new Date(d);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        const [admittedAtStart, newAdmissions, dischargesRec] = await Promise.all([
+          prisma.admission.count({
+            where: {
+              admittedAt: { lt: dayStart },
+              OR: [
+                { dischargedAt: null },
+                { dischargedAt: { gte: dayStart } },
+              ],
+            },
+          }),
+          prisma.admission.count({
+            where: { admittedAt: { gte: dayStart, lt: dayEnd } },
+          }),
+          prisma.admission.findMany({
+            where: { dischargedAt: { gte: dayStart, lt: dayEnd } },
+            select: { conditionAtDischarge: true },
+          }),
+        ]);
+        const deaths = dischargesRec.filter((x) => x.conditionAtDischarge === "DECEASED").length;
+        const admittedAtEnd = admittedAtStart + newAdmissions - dischargesRec.length;
+        results.push({
+          date: isoDate(dayStart),
+          totalBeds,
+          admittedAtStartOfDay: admittedAtStart,
+          newAdmissions,
+          discharges: dischargesRec.length,
+          deaths,
+          admittedAtEndOfDay: admittedAtEnd,
+          occupancyPercent: totalBeds > 0 ? Math.round((admittedAtEnd / totalBeds) * 100) : 0,
+        });
+      }
+
+      res.json({ success: true, data: results, error: null });
     } catch (err) {
       next(err);
     }

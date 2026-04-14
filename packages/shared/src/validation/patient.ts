@@ -24,6 +24,9 @@ export const createPatientSchema = z.object({
   abhaId: z.string().optional(),
   aadhaarMasked: z.string().optional(),
   photoUrl: z.string().url().optional().or(z.literal("")),
+  pricingTier: z
+    .enum(["STANDARD", "EMPLOYEE", "SENIOR_CITIZEN", "BPL", "VIP"])
+    .optional(),
 });
 
 export const updatePatientSchema = createPatientSchema.partial();

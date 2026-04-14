@@ -16,7 +16,8 @@ import { auditRouter } from "./routes/audit";
 import { analyticsRouter } from "./routes/analytics";
 import { medicineRouter } from "./routes/medicines";
 import { pharmacyRouter } from "./routes/pharmacy";
-import { labRouter } from "./routes/lab";
+import { labRouter, publicLabRouter } from "./routes/lab";
+import { controlledSubstancesRouter } from "./routes/controlled-substances";
 import { wardRouter, bedsRouter } from "./routes/wards";
 import { admissionRouter } from "./routes/admissions";
 import { medicationRouter } from "./routes/medication";
@@ -44,6 +45,13 @@ import { chatRouter } from "./routes/chat";
 import { visitorsRouter } from "./routes/visitors";
 import { hrOpsRouter } from "./routes/hr-ops";
 import { searchRouter } from "./routes/search";
+import { waitlistRouter } from "./routes/waitlist";
+import { coordinatedVisitRouter } from "./routes/coordinated-visits";
+import { paymentPlansRouter } from "./routes/payment-plans";
+import { preauthRouter } from "./routes/preauth";
+import { medReconciliationRouter } from "./routes/med-reconciliation";
+import { scheduledReportsRouter } from "./routes/scheduled-reports";
+import { patientExtrasRouter } from "./routes/patient-extras";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -71,6 +79,9 @@ app.use(express.json());
 app.use(sanitize);
 app.use(rateLimit(100, 60_000));
 
+// Public routes (no auth) — must be mounted BEFORE routers that require auth
+app.use("/api/v1/public", publicLabRouter);
+
 // Routes
 app.use("/api/v1/auth", rateLimit(10, 60_000), authRouter);
 app.use("/api/v1/patients", patientRouter);
@@ -85,6 +96,7 @@ app.use("/api/v1/analytics", analyticsRouter);
 app.use("/api/v1/medicines", medicineRouter);
 app.use("/api/v1/pharmacy", pharmacyRouter);
 app.use("/api/v1/lab", labRouter);
+app.use("/api/v1/controlled-substances", controlledSubstancesRouter);
 app.use("/api/v1/wards", wardRouter);
 app.use("/api/v1/beds", bedsRouter);
 app.use("/api/v1/admissions", admissionRouter);
@@ -114,6 +126,13 @@ app.use("/api/v1/chat", chatRouter);
 app.use("/api/v1/visitors", visitorsRouter);
 app.use("/api/v1/hr-ops", hrOpsRouter);
 app.use("/api/v1/search", searchRouter);
+app.use("/api/v1/waitlist", waitlistRouter);
+app.use("/api/v1/coordinated-visits", coordinatedVisitRouter);
+app.use("/api/v1/med-reconciliation", medReconciliationRouter);
+app.use("/api/v1/payment-plans", paymentPlansRouter);
+app.use("/api/v1/preauth", preauthRouter);
+app.use("/api/v1/scheduled-reports", scheduledReportsRouter);
+app.use("/api/v1", patientExtrasRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

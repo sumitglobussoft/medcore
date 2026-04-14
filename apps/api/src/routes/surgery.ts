@@ -11,6 +11,10 @@ import {
   preOpChecklistSchema,
   intraOpTimingSchema,
   complicationsSchema,
+  anesthesiaRecordSchema,
+  bloodRequirementSchema,
+  postOpObservationSchema,
+  ssiReportSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -785,6 +789,346 @@ router.get(
           surgeryCount: surgeries.length,
           gaps,
           averageTurnaroundMinutes: avg,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── ANESTHESIA RECORD ──────────────────────────────────
+
+// POST /api/v1/surgery/:id/anesthesia-record — create/update
+router.post(
+  "/:id/anesthesia-record",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(anesthesiaRecordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const surgery = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!surgery) {
+        res.status(404).json({ success: false, data: null, error: "Surgery not found" });
+        return;
+      }
+
+      const data: Record<string, unknown> = {
+        anesthetist: req.body.anesthetist,
+        anesthesiaType: req.body.anesthesiaType,
+        inductionAt: req.body.inductionAt ? new Date(req.body.inductionAt) : null,
+        extubationAt: req.body.extubationAt ? new Date(req.body.extubationAt) : null,
+        agents: req.body.agents ?? null,
+        vitalsLog: req.body.vitalsLog ?? null,
+        ivFluids: req.body.ivFluids ?? null,
+        bloodLossMl: req.body.bloodLossMl ?? null,
+        urineOutputMl: req.body.urineOutputMl ?? null,
+        complications: req.body.complications,
+        recoveryNotes: req.body.recoveryNotes,
+        performedBy: req.user!.userId,
+      };
+
+      const record = await prisma.anesthesiaRecord.upsert({
+        where: { surgeryId: req.params.id },
+        create: { surgeryId: req.params.id, ...data } as never,
+        update: data as never,
+      });
+
+      auditLog(req, "UPSERT_ANESTHESIA_RECORD", "anesthesiaRecord", record.id, {
+        surgeryId: req.params.id,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: record, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/surgery/:id/anesthesia-record
+router.get(
+  "/:id/anesthesia-record",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const record = await prisma.anesthesiaRecord.findUnique({
+        where: { surgeryId: req.params.id },
+      });
+      res.json({ success: true, data: record, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── BLOOD REQUIREMENT CROSS-CHECK ──────────────────────
+
+// Map surgery request component names to BloodComponent enum values
+const BLOOD_COMP_MAP: Record<string, string[]> = {
+  A_POS: ["A_POS", "A_NEG", "O_POS", "O_NEG"],
+  A_NEG: ["A_NEG", "O_NEG"],
+  B_POS: ["B_POS", "B_NEG", "O_POS", "O_NEG"],
+  B_NEG: ["B_NEG", "O_NEG"],
+  AB_POS: ["A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG", "O_POS", "O_NEG"],
+  AB_NEG: ["A_NEG", "B_NEG", "AB_NEG", "O_NEG"],
+  O_POS: ["O_POS", "O_NEG"],
+  O_NEG: ["O_NEG"],
+};
+
+// Convert Patient.bloodGroup string (e.g. "O+") to BloodGroupType enum format
+function normalizeBloodGroup(bg?: string | null): string | null {
+  if (!bg) return null;
+  const cleaned = bg.trim().toUpperCase().replace(/\s+/g, "");
+  const map: Record<string, string> = {
+    "A+": "A_POS", "A-": "A_NEG",
+    "B+": "B_POS", "B-": "B_NEG",
+    "AB+": "AB_POS", "AB-": "AB_NEG",
+    "O+": "O_POS", "O-": "O_NEG",
+    A_POS: "A_POS", A_NEG: "A_NEG",
+    B_POS: "B_POS", B_NEG: "B_NEG",
+    AB_POS: "AB_POS", AB_NEG: "AB_NEG",
+    O_POS: "O_POS", O_NEG: "O_NEG",
+  };
+  return map[cleaned] ?? null;
+}
+
+// POST /api/v1/surgery/:id/blood-requirement
+router.post(
+  "/:id/blood-requirement",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(bloodRequirementSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const surgery = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+        include: { patient: true },
+      });
+      if (!surgery) {
+        res.status(404).json({ success: false, data: null, error: "Surgery not found" });
+        return;
+      }
+      const patientGroup = normalizeBloodGroup(surgery.patient.bloodGroup);
+      if (!patientGroup) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Patient blood group not set or invalid",
+        });
+        return;
+      }
+
+      const compatibleGroups = BLOOD_COMP_MAP[patientGroup] || [patientGroup];
+      const needed = req.body.units as number;
+      const component = req.body.component as string;
+      const autoReserve = req.body.autoReserve !== false;
+
+      // Find available units of matching component & compatible group, nearest expiry first
+      const units = await prisma.bloodUnit.findMany({
+        where: {
+          status: "AVAILABLE",
+          component: component as never,
+          bloodGroup: { in: compatibleGroups as never },
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { expiresAt: "asc" },
+        take: needed,
+      });
+
+      const available = units.length;
+      const shortfall = Math.max(0, needed - available);
+
+      let reservedUnits: typeof units = [];
+      if (autoReserve && available > 0) {
+        const reservedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await prisma.bloodUnit.updateMany({
+          where: { id: { in: units.map((u) => u.id) } },
+          data: {
+            status: "RESERVED",
+            reservedUntil,
+            reservedBy: req.user!.userId,
+          },
+        });
+        reservedUnits = units;
+
+        // Mark on surgery if reservation at least partly fulfills
+        if (available >= needed && !surgery.bloodReserved) {
+          await prisma.surgery.update({
+            where: { id: surgery.id },
+            data: { bloodReserved: true },
+          });
+        }
+      }
+
+      auditLog(req, "SURGERY_BLOOD_REQ_CHECK", "surgery", surgery.id, {
+        component,
+        needed,
+        available,
+        shortfall,
+        autoReserved: autoReserve ? available : 0,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          patientBloodGroup: patientGroup,
+          compatibleGroups,
+          component,
+          unitsRequested: needed,
+          unitsAvailable: available,
+          shortfall,
+          canProceed: shortfall === 0,
+          reserved: reservedUnits.map((u) => ({
+            id: u.id,
+            unitNumber: u.unitNumber,
+            bloodGroup: u.bloodGroup,
+            expiresAt: u.expiresAt,
+          })),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── POST-OP OBSERVATIONS (PACU) ────────────────────────
+
+// POST /api/v1/surgery/:id/observations
+router.post(
+  "/:id/observations",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(postOpObservationSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const surgery = await prisma.surgery.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!surgery) {
+        res.status(404).json({ success: false, data: null, error: "Surgery not found" });
+        return;
+      }
+
+      const obs = await prisma.postOpObservation.create({
+        data: {
+          surgeryId: req.params.id,
+          bpSystolic: req.body.bpSystolic,
+          bpDiastolic: req.body.bpDiastolic,
+          pulse: req.body.pulse,
+          spO2: req.body.spO2,
+          painScore: req.body.painScore,
+          consciousness: req.body.consciousness,
+          nausea: req.body.nausea ?? false,
+          notes: req.body.notes,
+          observedBy: req.user!.userId,
+        },
+      });
+
+      auditLog(req, "ADD_POSTOP_OBSERVATION", "postOpObservation", obs.id, {
+        surgeryId: req.params.id,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: obs, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/surgery/:id/observations
+router.get(
+  "/:id/observations",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.postOpObservation.findMany({
+        where: { surgeryId: req.params.id },
+        orderBy: { observedAt: "asc" },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── SSI REPORT ─────────────────────────────────────────
+
+// PATCH /api/v1/surgery/:id/ssi-report
+router.patch(
+  "/:id/ssi-report",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  validate(ssiReportSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const surgery = await prisma.surgery.update({
+        where: { id: req.params.id },
+        data: {
+          ssiDetected: true,
+          ssiType: req.body.ssiType,
+          ssiDetectedDate: new Date(req.body.detectedDate),
+          ssiTreatment: req.body.treatment,
+        },
+      });
+      auditLog(req, "REPORT_SSI", "surgery", surgery.id, {
+        ssiType: req.body.ssiType,
+      }).catch(console.error);
+      res.json({ success: true, data: surgery, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/surgery/analytics/ssi-rate
+router.get(
+  "/analytics/ssi-rate",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const from = req.query.from
+        ? new Date(req.query.from as string)
+        : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+
+      const surgeries = await prisma.surgery.findMany({
+        where: {
+          status: "COMPLETED",
+          actualEndAt: { gte: from, lte: to },
+        },
+        select: {
+          id: true,
+          caseNumber: true,
+          procedure: true,
+          ssiDetected: true,
+          ssiType: true,
+          ssiDetectedDate: true,
+        },
+      });
+
+      const total = surgeries.length;
+      const ssiCases = surgeries.filter((s) => s.ssiDetected);
+      const byType: Record<string, number> = {
+        SUPERFICIAL: 0,
+        DEEP: 0,
+        ORGAN_SPACE: 0,
+      };
+      ssiCases.forEach((s) => {
+        if (s.ssiType && byType[s.ssiType] !== undefined) byType[s.ssiType] += 1;
+      });
+
+      res.json({
+        success: true,
+        data: {
+          from,
+          to,
+          totalSurgeries: total,
+          ssiCount: ssiCases.length,
+          ssiRate: total > 0 ? +((ssiCases.length / total) * 100).toFixed(2) : 0,
+          byType,
+          cases: ssiCases,
         },
         error: null,
       });

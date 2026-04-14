@@ -233,3 +233,65 @@ export const packageConsumptionSchema = z.object({
 export const renewPackageSchema = z.object({
   amountPaid: z.number().positive(),
 });
+
+// ─── Payment Plans / EMI (Apr 2026) ────────────────────
+export const paymentPlanFrequency = z.enum(["MONTHLY", "WEEKLY", "BIWEEKLY"]);
+
+export const paymentPlanSchema = z.object({
+  invoiceId: z.string().uuid(),
+  downPayment: z.number().nonnegative().default(0),
+  installments: z.number().int().min(2).max(60),
+  frequency: paymentPlanFrequency.default("MONTHLY"),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD"),
+});
+
+export const installmentPaymentSchema = z.object({
+  installmentId: z.string().uuid(),
+  amount: z.number().positive(),
+  mode: z.enum(["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"]),
+  transactionId: z.string().optional(),
+});
+
+// ─── Pre-Authorization ─────────────────────────────────
+export const preAuthRequestSchema = z.object({
+  patientId: z.string().uuid(),
+  insuranceProvider: z.string().min(1),
+  policyNumber: z.string().min(1),
+  procedureName: z.string().min(1),
+  estimatedCost: z.number().positive(),
+  diagnosis: z.string().optional(),
+  supportingDocs: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+});
+
+export const updatePreAuthStatusSchema = z.object({
+  status: z.enum(["APPROVED", "REJECTED", "PARTIAL"]),
+  approvedAmount: z.number().nonnegative().optional(),
+  rejectionReason: z.string().optional(),
+  claimReferenceNumber: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── Discount Approval ─────────────────────────────────
+export const discountApprovalSchema = z.object({
+  invoiceId: z.string().uuid(),
+  amount: z.number().positive(),
+  percentage: z.number().min(0).max(100).optional(),
+  reason: z.string().min(1).max(500),
+});
+
+export const rejectDiscountSchema = z.object({
+  rejectionReason: z.string().min(1).max(500),
+});
+
+// ─── Constants ─────────────────────────────────────────
+export const PAYMENT_PLAN_PREFIX = "PP";
+export const PREAUTH_PREFIX = "PA";
+
+export type PaymentPlanInput = z.infer<typeof paymentPlanSchema>;
+export type InstallmentPaymentInput = z.infer<typeof installmentPaymentSchema>;
+export type PreAuthRequestInput = z.infer<typeof preAuthRequestSchema>;
+export type UpdatePreAuthStatusInput = z.infer<typeof updatePreAuthStatusSchema>;
+export type DiscountApprovalInput = z.infer<typeof discountApprovalSchema>;

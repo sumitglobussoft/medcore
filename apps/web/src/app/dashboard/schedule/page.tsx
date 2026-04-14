@@ -53,6 +53,7 @@ export default function SchedulePage() {
     startTime: "09:00",
     endTime: "13:00",
     slotDuration: 15,
+    bufferMinutes: 0,
   });
 
   // Override form
@@ -137,6 +138,8 @@ export default function SchedulePage() {
         startTime: scheduleForm.startTime,
         endTime: scheduleForm.endTime,
         slotDuration: scheduleForm.slotDuration,
+        slotDurationMinutes: scheduleForm.slotDuration,
+        bufferMinutes: scheduleForm.bufferMinutes,
       });
       setShowScheduleForm(false);
       loadSchedule();
@@ -296,6 +299,31 @@ export default function SchedulePage() {
                 <option value={45}>45 min</option>
                 <option value={60}>60 min</option>
               </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Buffer Between Slots (min)
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={scheduleForm.bufferMinutes}
+                onChange={(e) =>
+                  setScheduleForm({
+                    ...scheduleForm,
+                    bufferMinutes: Math.max(
+                      0,
+                      Math.min(60, parseInt(e.target.value || "0", 10))
+                    ),
+                  })
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                placeholder="0"
+              />
+              <p className="mt-1 text-[10px] text-gray-500">
+                Gap added after each slot (e.g. 5 min for room cleaning)
+              </p>
             </div>
           </div>
           <div className="mt-4 flex gap-2">

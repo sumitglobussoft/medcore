@@ -1,6 +1,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authorize } from "../middleware/auth";
+import { Role } from "@medcore/shared";
+import {
+  notifyQueuePosition,
+  broadcastQueuePositions,
+} from "../services/notification-triggers";
 
 const router = Router();
 
@@ -201,6 +206,36 @@ router.get(
       );
 
       res.json({ success: true, data: display, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/queue/notify-position/:appointmentId — manual position SMS
+router.post(
+  "/notify-position/:appointmentId",
+  authenticate,
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await notifyQueuePosition(req.params.appointmentId);
+      res.json({ success: true, data: { notified: true }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/queue/broadcast-positions — cron stub: re-send to all waiting
+router.post(
+  "/broadcast-positions",
+  authenticate,
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      await broadcastQueuePositions();
+      res.json({ success: true, data: { broadcast: true }, error: null });
     } catch (err) {
       next(err);
     }

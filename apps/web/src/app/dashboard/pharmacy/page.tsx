@@ -33,7 +33,48 @@ interface Medicine {
   genericName?: string | null;
 }
 
-type Tab = "inventory" | "low" | "expiring" | "movements";
+type Tab =
+  | "inventory"
+  | "low"
+  | "expiring"
+  | "movements"
+  | "returns"
+  | "transfers"
+  | "valuation";
+
+interface ReturnRow {
+  id: string;
+  returnNumber: string;
+  quantity: number;
+  reason: string;
+  refundAmount: number;
+  createdAt: string;
+  inventoryItem: {
+    batchNumber: string;
+    medicine: { name: string };
+  };
+}
+
+interface TransferRow {
+  id: string;
+  transferNumber: string;
+  fromLocation: string;
+  toLocation: string;
+  quantity: number;
+  transferredAt: string;
+  inventoryItem: {
+    batchNumber: string;
+    medicine: { name: string };
+  };
+}
+
+interface ValuationRow {
+  medicineId: string;
+  medicineName: string;
+  onHand: number;
+  unitValue: number;
+  totalValue: number;
+}
 
 const MOVEMENT_COLORS: Record<string, string> = {
   PURCHASE: "bg-green-100 text-green-700",
@@ -49,16 +90,81 @@ export default function PharmacyPage() {
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
+  const [returns, setReturns] = useState<ReturnRow[]>([]);
+  const [transfers, setTransfers] = useState<TransferRow[]>([]);
+  const [valuation, setValuation] = useState<{
+    method: string;
+    perMedicine: ValuationRow[];
+    totalValue: number;
+  } | null>(null);
+  const [valuationMethod, setValuationMethod] = useState("WEIGHTED_AVG");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [returnFor, setReturnFor] = useState<InventoryItem | null>(null);
+  const [transferFor, setTransferFor] = useState<InventoryItem | null>(null);
+  const [orderingId, setOrderingId] = useState<string | null>(null);
 
   const canManage = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  const isAdmin = user?.role === "ADMIN";
 
   useEffect(() => {
     if (tab === "movements") loadMovements();
+    else if (tab === "returns") loadReturns();
+    else if (tab === "transfers") loadTransfers();
+    else if (tab === "valuation") loadValuation();
     else loadInventory();
-  }, [tab, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, search, valuationMethod]);
+
+  async function loadReturns() {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: ReturnRow[] }>("/pharmacy/returns");
+      setReturns(res.data);
+    } catch {
+      setReturns([]);
+    }
+    setLoading(false);
+  }
+
+  async function loadTransfers() {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: TransferRow[] }>("/pharmacy/transfers");
+      setTransfers(res.data);
+    } catch {
+      setTransfers([]);
+    }
+    setLoading(false);
+  }
+
+  async function loadValuation() {
+    setLoading(true);
+    try {
+      const res = await api.get<{
+        data: { method: string; perMedicine: ValuationRow[]; totalValue: number };
+      }>(`/pharmacy/reports/valuation?method=${valuationMethod}`);
+      setValuation(res.data);
+    } catch {
+      setValuation(null);
+    }
+    setLoading(false);
+  }
+
+  async function orderFromSupplier(itemId: string) {
+    if (!confirm("Create draft PO from best supplier for this medicine?")) return;
+    setOrderingId(itemId);
+    try {
+      const res = await api.post<{
+        data: { po: { poNumber: string }; emailStub: string };
+      }>(`/pharmacy/inventory/${itemId}/order-from-supplier`);
+      alert(`PO ${res.data.po.poNumber} created. ${res.data.emailStub}`);
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setOrderingId(null);
+  }
 
   async function loadInventory() {
     setLoading(true);
@@ -144,9 +250,23 @@ export default function PharmacyPage() {
         <button onClick={() => setTab("movements")} className={tabClass("movements")}>
           Movements
         </button>
+        <button onClick={() => setTab("returns")} className={tabClass("returns")}>
+          Returns
+        </button>
+        <button onClick={() => setTab("transfers")} className={tabClass("transfers")}>
+          Transfers
+        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setTab("valuation")}
+            className={tabClass("valuation")}
+          >
+            Valuation
+          </button>
+        )}
       </div>
 
-      {tab !== "movements" && (
+      {(tab === "inventory" || tab === "low" || tab === "expiring") && (
         <div className="mb-4 relative max-w-md">
           <Search
             size={16}
@@ -207,6 +327,144 @@ export default function PharmacyPage() {
               </tbody>
             </table>
           )
+        ) : tab === "returns" ? (
+          returns.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No returns.</div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-left text-sm text-gray-500">
+                  <th className="px-4 py-3">Return #</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Medicine</th>
+                  <th className="px-4 py-3">Batch</th>
+                  <th className="px-4 py-3">Qty</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3">Refund</th>
+                </tr>
+              </thead>
+              <tbody>
+                {returns.map((r) => (
+                  <tr key={r.id} className="border-b last:border-0">
+                    <td className="px-4 py-3 font-mono text-sm">
+                      {r.returnNumber}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {new Date(r.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {r.inventoryItem.medicine.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {r.inventoryItem.batchNumber}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{r.quantity}</td>
+                    <td className="px-4 py-3 text-sm">{r.reason}</td>
+                    <td className="px-4 py-3 text-sm">
+                      ₹{r.refundAmount.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : tab === "transfers" ? (
+          transfers.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">No transfers.</div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-left text-sm text-gray-500">
+                  <th className="px-4 py-3">Transfer #</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Medicine</th>
+                  <th className="px-4 py-3">Batch</th>
+                  <th className="px-4 py-3">From</th>
+                  <th className="px-4 py-3">To</th>
+                  <th className="px-4 py-3">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.map((t) => (
+                  <tr key={t.id} className="border-b last:border-0">
+                    <td className="px-4 py-3 font-mono text-sm">
+                      {t.transferNumber}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {new Date(t.transferredAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {t.inventoryItem.medicine.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {t.inventoryItem.batchNumber}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{t.fromLocation}</td>
+                    <td className="px-4 py-3 text-sm">{t.toLocation}</td>
+                    <td className="px-4 py-3 text-sm">{t.quantity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : tab === "valuation" ? (
+          <div>
+            <div className="flex items-center gap-3 border-b px-4 py-3">
+              <label className="text-sm text-gray-600">Method:</label>
+              <select
+                value={valuationMethod}
+                onChange={(e) => setValuationMethod(e.target.value)}
+                className="rounded border px-2 py-1 text-sm"
+              >
+                <option value="WEIGHTED_AVG">Weighted Average</option>
+                <option value="FIFO">FIFO</option>
+                <option value="LIFO">LIFO</option>
+              </select>
+              <div className="ml-auto text-sm text-gray-600">
+                Total Value:{" "}
+                <span className="text-lg font-bold text-primary">
+                  ₹
+                  {valuation?.totalValue?.toLocaleString("en-IN", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }) ?? "0.00"}
+                </span>
+              </div>
+            </div>
+            {!valuation || valuation.perMedicine.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                No valuation data.
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b text-left text-sm text-gray-500">
+                    <th className="px-4 py-3">Medicine</th>
+                    <th className="px-4 py-3">On Hand</th>
+                    <th className="px-4 py-3">Unit Value</th>
+                    <th className="px-4 py-3">Total Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {valuation.perMedicine.map((v) => (
+                    <tr
+                      key={v.medicineId}
+                      className="border-b last:border-0"
+                    >
+                      <td className="px-4 py-3 text-sm">{v.medicineName}</td>
+                      <td className="px-4 py-3 text-sm">{v.onHand}</td>
+                      <td className="px-4 py-3 text-sm">
+                        ₹{v.unitValue.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium">
+                        ₹{v.totalValue.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No inventory items.
@@ -222,37 +480,71 @@ export default function PharmacyPage() {
                 <th className="px-4 py-3">Price</th>
                 <th className="px-4 py-3">Location</th>
                 <th className="px-4 py-3">Reorder</th>
+                {canManage && <th className="px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => (
-                <tr key={i.id} className="border-b last:border-0">
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{i.medicine.name}</p>
-                    {i.medicine.genericName && (
-                      <p className="text-xs text-gray-500">
-                        {i.medicine.genericName}
-                      </p>
+              {items.map((i) => {
+                const isLow =
+                  i.reorderLevel != null && i.quantity <= i.reorderLevel;
+                return (
+                  <tr key={i.id} className="border-b last:border-0">
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{i.medicine.name}</p>
+                      {i.medicine.genericName && (
+                        <p className="text-xs text-gray-500">
+                          {i.medicine.genericName}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{i.batchNumber}</td>
+                    <td className={`px-4 py-3 text-sm ${qtyColor(i)}`}>
+                      {i.quantity}
+                    </td>
+                    <td className={`px-4 py-3 text-sm ${expiryColor(i.expiryDate)}`}>
+                      {new Date(i.expiryDate).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {i.sellingPrice
+                        ? `₹${i.sellingPrice.toFixed(2)}`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{i.location || "—"}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {i.reorderLevel ?? "—"}
+                    </td>
+                    {canManage && (
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setReturnFor(i)}
+                            className="rounded bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700 hover:bg-purple-200"
+                          >
+                            Return
+                          </button>
+                          <button
+                            onClick={() => setTransferFor(i)}
+                            className="rounded bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200"
+                          >
+                            Transfer
+                          </button>
+                          {isLow && (
+                            <button
+                              disabled={orderingId === i.id}
+                              onClick={() => orderFromSupplier(i.id)}
+                              className="rounded bg-orange-100 px-2 py-1 text-xs font-medium text-orange-700 hover:bg-orange-200 disabled:opacity-50"
+                            >
+                              {orderingId === i.id
+                                ? "…"
+                                : "Order from Supplier"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-sm">{i.batchNumber}</td>
-                  <td className={`px-4 py-3 text-sm ${qtyColor(i)}`}>
-                    {i.quantity}
-                  </td>
-                  <td className={`px-4 py-3 text-sm ${expiryColor(i.expiryDate)}`}>
-                    {new Date(i.expiryDate).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {i.sellingPrice
-                      ? `₹${i.sellingPrice.toFixed(2)}`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-sm">{i.location || "—"}</td>
-                  <td className="px-4 py-3 text-sm">
-                    {i.reorderLevel ?? "—"}
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -261,6 +553,216 @@ export default function PharmacyPage() {
       {showAdd && (
         <AddStockModal onClose={() => setShowAdd(false)} onSaved={loadInventory} />
       )}
+
+      {returnFor && (
+        <ReturnModal
+          item={returnFor}
+          onClose={() => setReturnFor(null)}
+          onSaved={() => {
+            loadInventory();
+            if (tab === "returns") loadReturns();
+          }}
+        />
+      )}
+      {transferFor && (
+        <TransferModal
+          item={transferFor}
+          onClose={() => setTransferFor(null)}
+          onSaved={() => {
+            loadInventory();
+            if (tab === "transfers") loadTransfers();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReturnModal({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: InventoryItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [quantity, setQuantity] = useState("1");
+  const [reason, setReason] = useState("PATIENT_RETURNED");
+  const [refundAmount, setRefundAmount] = useState("0");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post("/pharmacy/returns", {
+        inventoryItemId: item.id,
+        quantity: parseInt(quantity, 10),
+        reason,
+        refundAmount: parseFloat(refundAmount || "0"),
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+      >
+        <h2 className="mb-4 text-lg font-bold">
+          Return {item.medicine.name} ({item.batchNumber})
+        </h2>
+        <div className="space-y-3 text-sm">
+          <input
+            type="number"
+            min={1}
+            max={item.quantity * 2}
+            placeholder="Quantity"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+          <select
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+          >
+            <option value="PATIENT_RETURNED">Patient Returned</option>
+            <option value="WRONG_ITEM">Wrong Item</option>
+            <option value="EXPIRED">Expired</option>
+            <option value="DAMAGED">Damaged</option>
+          </select>
+          <input
+            type="number"
+            step="0.01"
+            placeholder="Refund Amount (optional)"
+            value={refundAmount}
+            onChange={(e) => setRefundAmount(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+          />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Record Return"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TransferModal({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: InventoryItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [fromLocation, setFromLocation] = useState(item.location || "");
+  const [toLocation, setToLocation] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post("/pharmacy/transfers", {
+        inventoryItemId: item.id,
+        fromLocation,
+        toLocation,
+        quantity: parseInt(quantity, 10),
+        notes: notes || undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+      >
+        <h2 className="mb-4 text-lg font-bold">
+          Transfer {item.medicine.name} ({item.batchNumber})
+        </h2>
+        <div className="space-y-3 text-sm">
+          <input
+            placeholder="From Location"
+            value={fromLocation}
+            onChange={(e) => setFromLocation(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+          <input
+            placeholder="To Location"
+            value={toLocation}
+            onChange={(e) => setToLocation(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+          <input
+            type="number"
+            min={1}
+            max={item.quantity}
+            placeholder="Quantity"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            required
+          />
+          <textarea
+            placeholder="Notes (optional)"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full rounded border px-3 py-2"
+            rows={2}
+          />
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Transfer"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -45,6 +45,26 @@ export const recordLabResultSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const labQCSchema = z.object({
+  testId: z.string().uuid(),
+  qcLevel: z.enum(["LOW", "NORMAL", "HIGH", "INTERNAL"]),
+  instrument: z.string().optional(),
+  meanValue: z.number(),
+  recordedValue: z.number(),
+  cv: z.number().optional(),
+  withinRange: z.boolean(),
+  notes: z.string().optional(),
+});
+
+export const verifyResultSchema = z.object({
+  notes: z.string().optional(),
+});
+
+export const shareLinkSchema = z.object({
+  resource: z.enum(["lab_order", "prescription", "invoice"]).default("lab_order"),
+  days: z.number().int().min(1).max(30).optional(), // default 7
+});
+
 export type CreateLabTestInput = z.infer<typeof createLabTestSchema>;
 export type UpdateLabTestInput = z.infer<typeof updateLabTestSchema>;
 export type CreateLabOrderInput = z.infer<typeof createLabOrderSchema>;
@@ -52,3 +72,6 @@ export type UpdateLabOrderStatusInput = z.infer<
   typeof updateLabOrderStatusSchema
 >;
 export type RecordLabResultInput = z.infer<typeof recordLabResultSchema>;
+export type LabQCInput = z.infer<typeof labQCSchema>;
+export type VerifyResultInput = z.infer<typeof verifyResultSchema>;
+export type ShareLinkInput = z.infer<typeof shareLinkSchema>;

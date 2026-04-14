@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Plus, Hotel } from "lucide-react";
+import { Plus, Hotel, TrendingUp } from "lucide-react";
 
 interface Bed {
   id: string;
@@ -58,6 +58,7 @@ export default function WardsPage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showWardModal, setShowWardModal] = useState(false);
+  const [tab, setTab] = useState<"beds" | "forecast">("beds");
   const [showBedModal, setShowBedModal] = useState<string | null>(null);
   const [wardForm, setWardForm] = useState({
     name: "",
@@ -171,6 +172,34 @@ export default function WardsPage() {
         )}
       </div>
 
+      {/* Tabs */}
+      <div className="mb-4 flex gap-2 border-b border-slate-200">
+        <button
+          onClick={() => setTab("beds")}
+          className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
+            tab === "beds"
+              ? "border-primary text-primary font-semibold"
+              : "border-transparent text-slate-600"
+          }`}
+        >
+          Beds
+        </button>
+        <button
+          onClick={() => setTab("forecast")}
+          className={`inline-flex items-center gap-1 px-3 py-2 text-sm border-b-2 -mb-0.5 ${
+            tab === "forecast"
+              ? "border-primary text-primary font-semibold"
+              : "border-transparent text-slate-600"
+          }`}
+        >
+          <TrendingUp size={14} /> Forecast
+        </button>
+      </div>
+
+      {tab === "forecast" ? (
+        <OccupancyForecast />
+      ) : (
+        <>
       {/* Summary cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl bg-white p-5 shadow-sm">
@@ -321,6 +350,8 @@ export default function WardsPage() {
           })}
         </div>
       )}
+        </>
+      )}
 
       {/* Add Ward Modal */}
       {showWardModal && (
@@ -400,6 +431,133 @@ export default function WardsPage() {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+interface ForecastDay {
+  date: string;
+  predictedOccupancy: number;
+  totalBeds: number;
+  occupancyPercent: number;
+  incomingAdmissions: number;
+  expectedDischarges: number;
+}
+
+function OccupancyForecast() {
+  const [data, setData] = useState<ForecastDay[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: ForecastDay[] }>(
+          "/admissions/forecast?days=7"
+        );
+        setData(res.data || []);
+      } catch {
+        setData([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading)
+    return <div className="p-8 text-center text-slate-500">Loading forecast...</div>;
+  if (data.length === 0)
+    return (
+      <div className="p-8 text-center text-slate-500 border border-dashed rounded-lg">
+        No forecast data.
+      </div>
+    );
+
+  const maxOcc = Math.max(100, ...data.map((d) => d.occupancyPercent));
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold">Next 7 Days Predicted Occupancy</h3>
+          <span className="text-xs text-slate-500">
+            based on expected LOS, scheduled surgeries, and planned admissions
+          </span>
+        </div>
+        {/* SVG line chart */}
+        <svg viewBox="0 0 700 200" className="w-full h-48">
+          <polyline
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth="2"
+            points={data
+              .map((d, i) => {
+                const x = (i / Math.max(1, data.length - 1)) * 680 + 10;
+                const y = 180 - (d.occupancyPercent / maxOcc) * 160;
+                return `${x},${y}`;
+              })
+              .join(" ")}
+          />
+          {data.map((d, i) => {
+            const x = (i / Math.max(1, data.length - 1)) * 680 + 10;
+            const y = 180 - (d.occupancyPercent / maxOcc) * 160;
+            return (
+              <g key={d.date}>
+                <circle cx={x} cy={y} r="3" fill="#3b82f6" />
+                <text x={x} y={195} fontSize="9" textAnchor="middle" fill="#64748b">
+                  {d.date.slice(5)}
+                </text>
+                <text x={x} y={y - 6} fontSize="9" textAnchor="middle" fill="#1e293b">
+                  {d.occupancyPercent}%
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="bg-white border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs text-slate-600 uppercase">
+            <tr>
+              <th className="px-3 py-2 text-left">Date</th>
+              <th className="px-3 py-2 text-right">Predicted</th>
+              <th className="px-3 py-2 text-right">Total Beds</th>
+              <th className="px-3 py-2 text-right">Incoming</th>
+              <th className="px-3 py-2 text-right">Discharges</th>
+              <th className="px-3 py-2 text-right">% Occ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((d) => (
+              <tr key={d.date} className="border-t border-slate-100">
+                <td className="px-3 py-2">{d.date}</td>
+                <td className="px-3 py-2 text-right font-semibold">
+                  {d.predictedOccupancy}
+                </td>
+                <td className="px-3 py-2 text-right">{d.totalBeds}</td>
+                <td className="px-3 py-2 text-right text-green-700">
+                  {d.incomingAdmissions}
+                </td>
+                <td className="px-3 py-2 text-right text-amber-700">
+                  {d.expectedDischarges}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs ${
+                      d.occupancyPercent >= 90
+                        ? "bg-red-100 text-red-700"
+                        : d.occupancyPercent >= 75
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-green-100 text-green-700"
+                    }`}
+                  >
+                    {d.occupancyPercent}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

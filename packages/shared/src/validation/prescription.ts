@@ -39,7 +39,16 @@ export const prescriptionTemplateSchema = z.object({
   items: z.array(prescriptionItemSchema).min(1),
 });
 
+export const renalDoseCalcSchema = z.object({
+  medicineId: z.string().uuid(),
+  creatinineMgDl: z.number().positive(),
+  ageYears: z.number().int().positive(),
+  weightKg: z.number().positive(),
+  genderMale: z.boolean(),
+});
+
 export type CreatePrescriptionInput = z.infer<typeof createPrescriptionSchema>;
 export type CopyPrescriptionInput = z.infer<typeof copyPrescriptionSchema>;
 export type SharePrescriptionInput = z.infer<typeof sharePrescriptionSchema>;
 export type PrescriptionTemplateInput = z.infer<typeof prescriptionTemplateSchema>;
+export type RenalDoseCalcInput = z.infer<typeof renalDoseCalcSchema>;

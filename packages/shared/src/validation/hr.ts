@@ -135,3 +135,65 @@ export type RejectLeaveInput = z.infer<typeof rejectLeaveSchema>;
 export type LeaveBalanceInput = z.infer<typeof leaveBalanceSchema>;
 export type CreateHolidayInput = z.infer<typeof createHolidaySchema>;
 export type PayrollCalcInput = z.infer<typeof payrollCalcSchema>;
+
+// ─── STAFF CERTIFICATIONS ───────────────────────────────
+
+export const CertificationTypeEnum = z.enum([
+  "MEDICAL_LICENSE",
+  "NURSING_CERT",
+  "BLS",
+  "ACLS",
+  "TRAINING",
+  "OTHER",
+]);
+
+export const CertificationStatusEnum = z.enum([
+  "ACTIVE",
+  "EXPIRED",
+  "RENEWED",
+  "REVOKED",
+]);
+
+export const certificationSchema = z.object({
+  userId: z.string().uuid(),
+  type: CertificationTypeEnum,
+  title: z.string().min(1),
+  issuingBody: z.string().optional(),
+  certNumber: z.string().optional(),
+  issuedDate: dateString.optional(),
+  expiryDate: dateString.optional(),
+  documentPath: z.string().optional(),
+  status: CertificationStatusEnum.optional(),
+  notes: z.string().optional(),
+});
+
+export const updateCertificationSchema = certificationSchema
+  .omit({ userId: true })
+  .partial();
+
+export type CertificationInput = z.infer<typeof certificationSchema>;
+export type UpdateCertificationInput = z.infer<typeof updateCertificationSchema>;
+
+// ─── OVERTIME RECORDS ───────────────────────────────────
+
+export const overtimeRecordSchema = z.object({
+  userId: z.string().uuid(),
+  date: dateString,
+  regularHours: z.number().nonnegative(),
+  overtimeHours: z.number().nonnegative(),
+  hourlyRate: z.number().nonnegative(),
+  overtimeRate: z.number().positive().default(1.5),
+  notes: z.string().optional(),
+});
+
+export const autoOvertimeSchema = z.object({
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+  userId: z.string().uuid().optional(),
+  defaultHourlyRate: z.number().nonnegative().default(0),
+  regularHoursPerDay: z.number().positive().default(8),
+  overtimeRate: z.number().positive().default(1.5),
+});
+
+export type OvertimeRecordInput = z.infer<typeof overtimeRecordSchema>;
+export type AutoOvertimeInput = z.infer<typeof autoOvertimeSchema>;

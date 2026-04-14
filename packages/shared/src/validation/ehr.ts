@@ -95,3 +95,77 @@ export type CreateFamilyHistoryInput = z.infer<typeof createFamilyHistorySchema>
 export type CreateImmunizationInput = z.infer<typeof createImmunizationSchema>;
 export type UpdateImmunizationInput = z.infer<typeof updateImmunizationSchema>;
 export type CreateDocumentInput = z.infer<typeof createDocumentSchema>;
+
+// ─── ADVANCE DIRECTIVES ─────────────────────────────────
+
+export const AdvanceDirectiveTypeEnum = z.enum([
+  "DNR",
+  "DNI",
+  "DNA",
+  "LIVING_WILL",
+  "ORGAN_DONATION",
+  "OTHER",
+]);
+
+export const advanceDirectiveSchema = z.object({
+  type: AdvanceDirectiveTypeEnum,
+  effectiveDate: dateString,
+  expiryDate: dateString.optional(),
+  documentPath: z.string().optional(),
+  witnessedBy: z.string().optional(),
+  notes: z.string().min(1, "Notes are required"),
+});
+
+export const updateAdvanceDirectiveSchema = advanceDirectiveSchema.partial().extend({
+  active: z.boolean().optional(),
+});
+
+export type AdvanceDirectiveInput = z.infer<typeof advanceDirectiveSchema>;
+export type UpdateAdvanceDirectiveInput = z.infer<typeof updateAdvanceDirectiveSchema>;
+
+// ─── MEDICATION RECONCILIATION ──────────────────────────
+
+export const MedItemSchema = z.object({
+  name: z.string().min(1),
+  dosage: z.string().optional().default(""),
+  frequency: z.string().optional().default(""),
+  route: z.string().optional().default(""),
+  continued: z.boolean().optional().default(true),
+  notes: z.string().optional(),
+});
+
+export const medReconciliationSchema = z.object({
+  patientId: z.string().uuid(),
+  admissionId: z.string().uuid().optional(),
+  dischargeId: z.string().uuid().optional(),
+  reconciliationType: z.enum(["ADMISSION", "DISCHARGE"]),
+  homeMedications: z.array(MedItemSchema).default([]),
+  hospitalMedications: z.array(MedItemSchema).default([]),
+  dischargeMedications: z.array(MedItemSchema).default([]),
+  changes: z
+    .object({
+      added: z.array(z.string()).default([]),
+      removed: z.array(z.string()).default([]),
+      modified: z.array(z.string()).default([]),
+    })
+    .default({ added: [], removed: [], modified: [] }),
+  patientCounseled: z.boolean().default(false),
+  notes: z.string().optional(),
+});
+
+export const updateMedReconciliationSchema = medReconciliationSchema
+  .omit({ patientId: true })
+  .partial();
+
+export type MedItemInput = z.infer<typeof MedItemSchema>;
+export type MedReconciliationInput = z.infer<typeof medReconciliationSchema>;
+export type UpdateMedReconciliationInput = z.infer<typeof updateMedReconciliationSchema>;
+
+// ─── PROBLEM LIST FILTERS ───────────────────────────────
+
+export const problemListFilterSchema = z.object({
+  activeOnly: z.coerce.boolean().optional(),
+  type: z.enum(["condition", "allergy", "diagnosis", "admission"]).optional(),
+});
+
+export type ProblemListFilter = z.infer<typeof problemListFilterSchema>;

@@ -162,3 +162,90 @@ export type MassCasualtyInput = z.infer<typeof massCasualtySchema>;
 export type TelemedTechIssuesInput = z.infer<typeof telemedTechIssuesSchema>;
 export type TelemedFollowUpInput = z.infer<typeof telemedFollowUpSchema>;
 export type TelemedPrescriptionInput = z.infer<typeof telemedPrescriptionSchema>;
+
+// ─── Surgery: Anesthesia record (Apr 2026) ───────────
+export const ANESTHESIA_TYPES = [
+  "GENERAL",
+  "SPINAL",
+  "EPIDURAL",
+  "LOCAL",
+  "REGIONAL",
+  "SEDATION",
+] as const;
+
+export const anesthesiaRecordSchema = z.object({
+  anesthetist: z.string().optional(),
+  anesthesiaType: z.enum(ANESTHESIA_TYPES),
+  inductionAt: z.string().datetime().optional(),
+  extubationAt: z.string().datetime().optional(),
+  agents: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        dose: z.string().optional(),
+        time: z.string().optional(),
+      })
+    )
+    .optional(),
+  vitalsLog: z
+    .array(
+      z.object({
+        time: z.string(),
+        bp: z.string().optional(),
+        hr: z.number().optional(),
+        spo2: z.number().optional(),
+        etco2: z.number().optional(),
+      })
+    )
+    .optional(),
+  ivFluids: z
+    .array(
+      z.object({
+        fluid: z.string().min(1),
+        volume: z.number().positive(),
+        time: z.string().optional(),
+      })
+    )
+    .optional(),
+  bloodLossMl: z.number().int().nonnegative().optional(),
+  urineOutputMl: z.number().int().nonnegative().optional(),
+  complications: z.string().optional(),
+  recoveryNotes: z.string().optional(),
+});
+
+// ─── Surgery: Blood requirement check ────────────────
+export const bloodRequirementSchema = z.object({
+  component: z.enum([
+    "WHOLE_BLOOD",
+    "PACKED_RED_CELLS",
+    "PLATELETS",
+    "FRESH_FROZEN_PLASMA",
+    "CRYOPRECIPITATE",
+  ]),
+  units: z.number().int().min(1).max(20),
+  autoReserve: z.boolean().optional().default(true),
+});
+
+// ─── Surgery: Post-op observation ────────────────────
+export const postOpObservationSchema = z.object({
+  bpSystolic: z.number().int().min(0).max(300).optional(),
+  bpDiastolic: z.number().int().min(0).max(200).optional(),
+  pulse: z.number().int().min(0).max(250).optional(),
+  spO2: z.number().int().min(0).max(100).optional(),
+  painScore: z.number().int().min(0).max(10).optional(),
+  consciousness: z.enum(["ALERT", "DROWSY", "UNRESPONSIVE"]).optional(),
+  nausea: z.boolean().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── Surgery: SSI report ─────────────────────────────
+export const ssiReportSchema = z.object({
+  ssiType: z.enum(["SUPERFICIAL", "DEEP", "ORGAN_SPACE"]),
+  detectedDate: z.string(),
+  treatment: z.string().optional(),
+});
+
+export type AnesthesiaRecordInput = z.infer<typeof anesthesiaRecordSchema>;
+export type BloodRequirementInput = z.infer<typeof bloodRequirementSchema>;
+export type PostOpObservationInput = z.infer<typeof postOpObservationSchema>;
+export type SsiReportInput = z.infer<typeof ssiReportSchema>;

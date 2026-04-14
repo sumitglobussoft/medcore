@@ -22,4 +22,5 @@ export * from "./validation/phase4-ops";
 export * from "./validation/phase4-specialty";
 export * from "./validation/phase4-engagement";
 export * from "./validation/ancillary-enhancements";
+export * from "./validation/reports";
 export * from "./constants";

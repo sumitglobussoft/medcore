@@ -107,3 +107,107 @@ export type DeliveryOutcomeInput = z.infer<typeof deliveryOutcomeSchema>;
 export type CreateGrowthRecordInput = z.infer<typeof createGrowthRecordSchema>;
 export type UpdateGrowthRecordInput = z.infer<typeof updateGrowthRecordSchema>;
 export type UltrasoundRecordInput = z.infer<typeof ultrasoundRecordSchema>;
+
+// ─── PARTOGRAPH ─────────────────────────────────────
+export const partographObservationSchema = z.object({
+  time: z.string(),
+  fetalHeartRate: z.number().int().min(60).max(220).optional(),
+  cervicalDilation: z.number().min(0).max(10).optional(), // cm
+  descent: z.number().int().min(-5).max(5).optional(), // station -5..+5
+  contractionsPer10Min: z.number().int().min(0).max(10).optional(),
+  contractionStrength: z.enum(["MILD", "MODERATE", "STRONG"]).optional(),
+  maternalPulse: z.number().int().min(40).max(200).optional(),
+  maternalBP: z.string().optional(),
+  temperature: z.number().optional(),
+  notes: z.string().optional(),
+});
+
+export const startPartographSchema = z.object({
+  observations: z.array(partographObservationSchema).optional().default([]),
+  interventions: z.string().optional(),
+});
+
+export const addPartographObservationSchema = partographObservationSchema;
+
+export const endPartographSchema = z.object({
+  outcome: z.string().min(1),
+  interventions: z.string().optional(),
+});
+
+// ─── ACOG RISK SCORE ────────────────────────────────
+export const acogRiskScoreSchema = z.object({
+  heightCm: z.number().positive().optional(),
+  weightKg: z.number().positive().optional(),
+  hasPrevCSection: z.boolean().optional(),
+  hasHypertension: z.boolean().optional(),
+  hasDiabetes: z.boolean().optional(),
+  hasPriorGDM: z.boolean().optional(),
+  hasPriorStillbirth: z.boolean().optional(),
+  hasPriorPreterm: z.boolean().optional(),
+  hasPriorComplications: z.boolean().optional(),
+  currentBleeding: z.boolean().optional(),
+  currentPreeclampsia: z.boolean().optional(),
+});
+
+// ─── POSTNATAL VISIT ────────────────────────────────
+export const postnatalVisitSchema = z.object({
+  weekPostpartum: z.number().int().min(0).max(52),
+  motherBP: z.string().optional(),
+  motherWeight: z.number().positive().optional(),
+  lochia: z.enum(["NORMAL", "HEAVY", "ABSENT", "ABNORMAL_COLOR"]).optional(),
+  uterineInvolution: z.enum(["NORMAL", "DELAYED"]).optional(),
+  breastExam: z.string().optional(),
+  breastfeeding: z.enum(["EXCLUSIVE", "MIXED", "NONE"]).optional(),
+  mentalHealth: z.string().optional(),
+  babyWeight: z.number().positive().optional(),
+  babyFeeding: z.string().optional(),
+  babyJaundice: z.boolean().optional(),
+  babyExam: z.string().optional(),
+  immunizationGiven: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── MILESTONE RECORD ───────────────────────────────
+export const MILESTONE_DOMAINS = [
+  "GROSS_MOTOR",
+  "FINE_MOTOR",
+  "LANGUAGE",
+  "SOCIAL",
+  "COGNITIVE",
+] as const;
+
+export const milestoneRecordSchema = z.object({
+  patientId: z.string().uuid(),
+  ageMonths: z.number().int().min(0).max(240),
+  domain: z.enum(MILESTONE_DOMAINS),
+  milestone: z.string().min(1),
+  achieved: z.boolean(),
+  achievedAt: z.string().datetime().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── FEEDING LOG ────────────────────────────────────
+export const FEED_TYPES = [
+  "BREAST_LEFT",
+  "BREAST_RIGHT",
+  "BOTTLE_FORMULA",
+  "BOTTLE_EBM",
+  "SOLID_FOOD",
+] as const;
+
+export const feedingLogSchema = z.object({
+  loggedAt: z.string().datetime().optional(),
+  feedType: z.enum(FEED_TYPES),
+  durationMin: z.number().int().min(0).max(300).optional(),
+  volumeMl: z.number().int().min(0).max(2000).optional(),
+  foodItem: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export type PartographObservationInput = z.infer<typeof partographObservationSchema>;
+export type StartPartographInput = z.infer<typeof startPartographSchema>;
+export type EndPartographInput = z.infer<typeof endPartographSchema>;
+export type AcogRiskScoreInput = z.infer<typeof acogRiskScoreSchema>;
+export type PostnatalVisitInput = z.infer<typeof postnatalVisitSchema>;
+export type MilestoneRecordInput = z.infer<typeof milestoneRecordSchema>;
+export type FeedingLogInput = z.infer<typeof feedingLogSchema>;

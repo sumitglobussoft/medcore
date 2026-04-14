@@ -593,4 +593,84 @@ router.delete(
   }
 );
 
+// GET /api/v1/prescriptions/:id/leaflets — leaflets for all medicines in prescription
+router.get(
+  "/:id/leaflets",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rx = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: true,
+          patient: { include: { user: { select: { name: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+      if (!rx) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Prescription not found" });
+        return;
+      }
+      const names = rx.items.map((i) => i.medicineName);
+      const meds = await prisma.medicine.findMany({
+        where: {
+          OR: names.map((n) => ({
+            OR: [
+              { name: { equals: n, mode: "insensitive" } },
+              { genericName: { equals: n, mode: "insensitive" } },
+            ],
+          })),
+        },
+        select: {
+          id: true,
+          name: true,
+          genericName: true,
+          brand: true,
+          strength: true,
+          form: true,
+          patientInstructions: true,
+          sideEffects: true,
+          contraindications: true,
+          pregnancyCategory: true,
+        },
+      });
+
+      // Map Rx items to leaflets (retain instruction from Rx item)
+      const leaflets = rx.items.map((it) => {
+        const match =
+          meds.find(
+            (m) =>
+              m.name.toLowerCase() === it.medicineName.toLowerCase() ||
+              (m.genericName ?? "").toLowerCase() ===
+                it.medicineName.toLowerCase()
+          ) ?? null;
+        return {
+          medicineName: it.medicineName,
+          dosage: it.dosage,
+          frequency: it.frequency,
+          duration: it.duration,
+          instructions: it.instructions,
+          leaflet: match,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          prescriptionId: rx.id,
+          patientName: rx.patient.user.name,
+          doctorName: rx.doctor.user.name,
+          diagnosis: rx.diagnosis,
+          createdAt: rx.createdAt,
+          leaflets,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as prescriptionRouter };

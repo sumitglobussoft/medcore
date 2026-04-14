@@ -8,6 +8,10 @@ import {
   dispensePrescriptionSchema,
   batchRecallSchema,
   stockAdjustmentSchema,
+  pharmacyReturnSchema,
+  stockTransferSchema,
+  PHARMACY_RETURN_PREFIX,
+  STOCK_TRANSFER_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -280,6 +284,8 @@ router.post(
 
       const dispensed: Array<{
         medicineName: string;
+        medicineId: string;
+        requiresRegister: boolean;
         inventoryItemId: string;
         batchNumber: string;
         quantity: number;
@@ -352,6 +358,8 @@ router.post(
 
           dispensed.push({
             medicineName: item.medicineName,
+            medicineId: medicine.id,
+            requiresRegister: medicine.requiresRegister === true,
             inventoryItemId: inv.id,
             batchNumber: inv.batchNumber,
             quantity: qty,
@@ -360,6 +368,61 @@ router.post(
           });
         }
       });
+
+      // Auto-create controlled-substance entries for dispensed items with requiresRegister=true
+      const controlledCreated: Array<{ entryNumber: string; medicineId: string }> = [];
+      for (const d of dispensed.filter((x) => x.requiresRegister)) {
+        try {
+          const last = await prisma.controlledSubstanceEntry.findFirst({
+            orderBy: { createdAt: "desc" },
+            select: { entryNumber: true },
+          });
+          let next = 1;
+          if (last?.entryNumber) {
+            const m = last.entryNumber.match(/CSR(\d+)/);
+            if (m) next = parseInt(m[1]) + 1;
+          }
+          const entryNumber = "CSR" + String(next).padStart(6, "0");
+
+          const lastForMed = await prisma.controlledSubstanceEntry.findFirst({
+            where: { medicineId: d.medicineId },
+            orderBy: { dispensedAt: "desc" },
+            select: { balance: true },
+          });
+          let balance: number;
+          if (lastForMed) {
+            balance = Math.max(0, lastForMed.balance - d.quantity);
+          } else {
+            const agg = await prisma.inventoryItem.aggregate({
+              where: { medicineId: d.medicineId, recalled: false },
+              _sum: { quantity: true },
+            });
+            balance = Math.max(0, (agg._sum.quantity ?? 0));
+          }
+          const entry = await prisma.controlledSubstanceEntry.create({
+            data: {
+              entryNumber,
+              medicineId: d.medicineId,
+              quantity: d.quantity,
+              patientId: prescription.patientId,
+              prescriptionId: prescription.id,
+              doctorId: prescription.doctorId,
+              dispensedBy: req.user!.userId,
+              balance,
+              notes: `Auto-registered on dispense of Rx ${prescription.id}`,
+            },
+          });
+          controlledCreated.push({
+            entryNumber: entry.entryNumber,
+            medicineId: entry.medicineId,
+          });
+        } catch (e) {
+          console.error("[controlled-auto-register]", e);
+          warnings.push(
+            `Failed to auto-register controlled substance: ${d.medicineName}`
+          );
+        }
+      }
 
       // Auto-billing: if this prescription's appointment has a PENDING invoice,
       // append dispensed items as InvoiceItems.
@@ -414,7 +477,7 @@ router.post(
 
       res.json({
         success: true,
-        data: { dispensed, warnings, prescriptionId, autoBilled },
+        data: { dispensed, warnings, prescriptionId, autoBilled, controlledCreated },
         error: null,
       });
     } catch (err) {
@@ -777,6 +840,438 @@ router.get(
         },
       });
       res.json({ success: true, data: substitutes, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// RETURNS / EXCHANGE (Apr 2026)
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/returns",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE),
+  validate(pharmacyReturnSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { inventoryItemId, quantity, reason, refundAmount, originalDispenseId } =
+        req.body;
+
+      const item = await prisma.inventoryItem.findUnique({
+        where: { id: inventoryItemId },
+      });
+      if (!item) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Inventory item not found" });
+        return;
+      }
+
+      // Generate return number
+      const cfgKey = "next_pharmacy_return_number";
+      const cfg = await prisma.systemConfig.findUnique({ where: { key: cfgKey } });
+      const seq = cfg ? parseInt(cfg.value) : 1;
+      const returnNumber = `${PHARMACY_RETURN_PREFIX}${String(seq).padStart(6, "0")}`;
+
+      const result = await prisma.$transaction(async (tx) => {
+        const rec = await tx.pharmacyReturn.create({
+          data: {
+            returnNumber,
+            inventoryItemId,
+            quantity,
+            reason,
+            refundAmount: refundAmount ?? 0,
+            originalDispenseMovementId: originalDispenseId ?? null,
+            performedBy: req.user!.userId,
+          },
+        });
+
+        // Create RETURNED StockMovement + increment item qty (unless expired/damaged — still log but don't restock)
+        const restock =
+          reason === "PATIENT_RETURNED" || reason === "WRONG_ITEM";
+        await tx.stockMovement.create({
+          data: {
+            inventoryItemId,
+            type: "RETURNED",
+            quantity: restock ? quantity : 0,
+            reason: `${reason}${restock ? "" : " (not restocked)"}`,
+            performedBy: req.user!.userId,
+            referenceId: rec.id,
+          },
+        });
+        if (restock) {
+          await tx.inventoryItem.update({
+            where: { id: inventoryItemId },
+            data: { quantity: { increment: quantity } },
+          });
+        }
+
+        if (cfg) {
+          await tx.systemConfig.update({
+            where: { key: cfgKey },
+            data: { value: String(seq + 1) },
+          });
+        } else {
+          await tx.systemConfig.create({
+            data: { key: cfgKey, value: String(seq + 1) },
+          });
+        }
+        return rec;
+      });
+
+      auditLog(req, "PHARMACY_RETURN", "pharmacy_return", result.id, {
+        inventoryItemId,
+        quantity,
+        reason,
+      }).catch(console.error);
+
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/returns",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { reason, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (reason) where.reason = reason;
+      if (from || to) {
+        where.createdAt = {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(to) } : {}),
+        };
+      }
+      const rows = await prisma.pharmacyReturn.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          inventoryItem: { include: { medicine: true } },
+        },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// STOCK TRANSFERS (Apr 2026)
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/transfers",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(stockTransferSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { inventoryItemId, fromLocation, toLocation, quantity, notes } =
+        req.body;
+      const item = await prisma.inventoryItem.findUnique({
+        where: { id: inventoryItemId },
+      });
+      if (!item) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Inventory item not found" });
+        return;
+      }
+
+      const cfgKey = "next_stock_transfer_number";
+      const cfg = await prisma.systemConfig.findUnique({ where: { key: cfgKey } });
+      const seq = cfg ? parseInt(cfg.value) : 1;
+      const transferNumber = `${STOCK_TRANSFER_PREFIX}${String(seq).padStart(6, "0")}`;
+
+      const result = await prisma.$transaction(async (tx) => {
+        const rec = await tx.stockTransfer.create({
+          data: {
+            transferNumber,
+            inventoryItemId,
+            fromLocation,
+            toLocation,
+            quantity,
+            performedBy: req.user!.userId,
+            notes: notes ?? null,
+          },
+        });
+        await tx.inventoryItem.update({
+          where: { id: inventoryItemId },
+          data: { location: toLocation },
+        });
+        await tx.stockMovement.create({
+          data: {
+            inventoryItemId,
+            type: "ADJUSTMENT",
+            quantity: 0,
+            reason: `Transfer ${fromLocation} → ${toLocation}`,
+            performedBy: req.user!.userId,
+            referenceId: rec.id,
+          },
+        });
+        if (cfg) {
+          await tx.systemConfig.update({
+            where: { key: cfgKey },
+            data: { value: String(seq + 1) },
+          });
+        } else {
+          await tx.systemConfig.create({
+            data: { key: cfgKey, value: String(seq + 1) },
+          });
+        }
+        return rec;
+      });
+
+      auditLog(req, "STOCK_TRANSFER", "stock_transfer", result.id, {
+        fromLocation,
+        toLocation,
+        quantity,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/transfers",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.stockTransfer.findMany({
+        orderBy: { transferredAt: "desc" },
+        include: { inventoryItem: { include: { medicine: true } } },
+        take: 200,
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// LOW STOCK → SUPPLIER ORDER (stub)
+// ───────────────────────────────────────────────────────
+
+router.post(
+  "/inventory/:id/order-from-supplier",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const item = await prisma.inventoryItem.findUnique({
+        where: { id: req.params.id },
+        include: { medicine: true },
+      });
+      if (!item) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Inventory item not found" });
+        return;
+      }
+
+      // find best supplier from catalog
+      const catalogMatch = await prisma.supplierCatalogItem.findFirst({
+        where: { medicineId: item.medicineId, isActive: true },
+        orderBy: { unitPrice: "asc" },
+      });
+      if (!catalogMatch) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "No supplier found for this medicine",
+        });
+        return;
+      }
+      const supplier = await prisma.supplier.findUnique({
+        where: { id: catalogMatch.supplierId },
+      });
+
+      const qty =
+        item.reorderQuantity && item.reorderQuantity > 0
+          ? item.reorderQuantity
+          : Math.max(catalogMatch.moq, (item.reorderLevel ?? 10) * 2);
+
+      // Create draft PO
+      const poSeqCfg = await prisma.systemConfig.findUnique({
+        where: { key: "next_po_number" },
+      });
+      const poSeq = poSeqCfg ? parseInt(poSeqCfg.value) : 1;
+      const poNumber = `PO${String(poSeq).padStart(6, "0")}`;
+
+      const unitPrice = catalogMatch.unitPrice;
+      const subtotal = unitPrice * qty;
+
+      const po = await prisma.$transaction(async (tx) => {
+        const p = await tx.purchaseOrder.create({
+          data: {
+            poNumber,
+            supplierId: catalogMatch.supplierId,
+            status: "DRAFT",
+            subtotal,
+            taxAmount: 0,
+            totalAmount: subtotal,
+            createdBy: req.user!.userId,
+            items: {
+              create: [
+                {
+                  description: item.medicine.name,
+                  medicineId: item.medicineId,
+                  quantity: qty,
+                  unitPrice,
+                  amount: subtotal,
+                },
+              ],
+            },
+          },
+        });
+        if (poSeqCfg) {
+          await tx.systemConfig.update({
+            where: { key: "next_po_number" },
+            data: { value: String(poSeq + 1) },
+          });
+        } else {
+          await tx.systemConfig.create({
+            data: { key: "next_po_number", value: String(poSeq + 1) },
+          });
+        }
+        return p;
+      });
+
+      auditLog(req, "SUPPLIER_ORDER_DRAFT", "purchase_order", po.id, {
+        supplierId: catalogMatch.supplierId,
+        quantity: qty,
+      }).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          po,
+          supplier,
+          emailStub: `Email queued to ${supplier?.email ?? "(no email)"} for PO ${poNumber}`,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// INVENTORY VALUATION (FIFO / LIFO / WEIGHTED_AVG)
+// ───────────────────────────────────────────────────────
+
+router.get(
+  "/reports/valuation",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const method = (req.query.method as string) || "WEIGHTED_AVG";
+      if (!["FIFO", "LIFO", "WEIGHTED_AVG"].includes(method)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "method must be FIFO | LIFO | WEIGHTED_AVG",
+        });
+        return;
+      }
+
+      // Group inventory by medicine with batches. For FIFO/LIFO use purchase-
+      // movements ordered asc/desc to take layers up to on-hand qty. For
+      // WEIGHTED_AVG use avg cost over batch rows with qty > 0.
+      const medicines = await prisma.medicine.findMany({
+        include: {
+          inventoryItems: {
+            where: { recalled: false },
+            include: {
+              movements: {
+                where: { type: "PURCHASE" },
+                orderBy: { createdAt: method === "LIFO" ? "desc" : "asc" },
+              },
+            },
+          },
+        },
+      });
+
+      const per: Array<{
+        medicineId: string;
+        medicineName: string;
+        onHand: number;
+        unitValue: number;
+        totalValue: number;
+      }> = [];
+      let grandTotal = 0;
+
+      for (const med of medicines) {
+        const onHand = med.inventoryItems.reduce((s, b) => s + b.quantity, 0);
+        if (onHand === 0) {
+          per.push({
+            medicineId: med.id,
+            medicineName: med.name,
+            onHand: 0,
+            unitValue: 0,
+            totalValue: 0,
+          });
+          continue;
+        }
+
+        let totalValue = 0;
+        if (method === "WEIGHTED_AVG") {
+          const totalQty = onHand;
+          const totalCost = med.inventoryItems.reduce(
+            (s, b) => s + b.unitCost * b.quantity,
+            0
+          );
+          totalValue = totalCost;
+          const unitValue = totalQty > 0 ? totalCost / totalQty : 0;
+          per.push({
+            medicineId: med.id,
+            medicineName: med.name,
+            onHand,
+            unitValue: +unitValue.toFixed(2),
+            totalValue: +totalValue.toFixed(2),
+          });
+        } else {
+          // FIFO/LIFO — build cost layers from batches sorted by createdAt
+          const batches = [...med.inventoryItems].sort((a, b) =>
+            method === "LIFO"
+              ? b.createdAt.getTime() - a.createdAt.getTime()
+              : a.createdAt.getTime() - b.createdAt.getTime()
+          );
+          let remaining = onHand;
+          for (const b of batches) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, b.quantity);
+            totalValue += take * b.unitCost;
+            remaining -= take;
+          }
+          per.push({
+            medicineId: med.id,
+            medicineName: med.name,
+            onHand,
+            unitValue: +(totalValue / onHand).toFixed(2),
+            totalValue: +totalValue.toFixed(2),
+          });
+        }
+
+        grandTotal += totalValue;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          method,
+          perMedicine: per.filter((p) => p.onHand > 0),
+          totalValue: +grandTotal.toFixed(2),
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

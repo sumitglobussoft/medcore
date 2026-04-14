@@ -69,6 +69,17 @@ export const dispensePrescriptionSchema = z.object({
   prescriptionId: z.string().uuid(),
 });
 
+export const controlledSubstanceSchema = z.object({
+  medicineId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  patientId: z.string().uuid().optional(),
+  prescriptionId: z.string().uuid().optional(),
+  doctorId: z.string().uuid().optional(),
+  notes: z.string().optional(),
+});
+
+export type ControlledSubstanceInput = z.infer<typeof controlledSubstanceSchema>;
+
 export const checkInteractionsSchema = z.object({
   medicineIds: z.array(z.string().uuid()).min(1, "Provide at least one medicine"),
 });
@@ -85,3 +96,39 @@ export type DispensePrescriptionInput = z.infer<
   typeof dispensePrescriptionSchema
 >;
 export type CheckInteractionsInput = z.infer<typeof checkInteractionsSchema>;
+
+// ─── Pharmacy Returns (Apr 2026) ───────────────────────
+export const pharmacyReturnReason = z.enum([
+  "EXPIRED",
+  "DAMAGED",
+  "WRONG_ITEM",
+  "PATIENT_RETURNED",
+]);
+
+export const pharmacyReturnSchema = z.object({
+  inventoryItemId: z.string().uuid(),
+  quantity: z.number().int().positive(),
+  reason: pharmacyReturnReason,
+  refundAmount: z.number().nonnegative().default(0),
+  originalDispenseId: z.string().uuid().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── Stock Transfer ────────────────────────────────────
+export const stockTransferSchema = z.object({
+  inventoryItemId: z.string().uuid(),
+  fromLocation: z.string().min(1),
+  toLocation: z.string().min(1),
+  quantity: z.number().int().positive(),
+  notes: z.string().optional(),
+});
+
+// ─── Valuation Method ──────────────────────────────────
+export const valuationMethodSchema = z.enum(["FIFO", "LIFO", "WEIGHTED_AVG"]);
+
+export const PHARMACY_RETURN_PREFIX = "PR";
+export const STOCK_TRANSFER_PREFIX = "ST";
+
+export type PharmacyReturnInput = z.infer<typeof pharmacyReturnSchema>;
+export type StockTransferInput = z.infer<typeof stockTransferSchema>;
+export type ValuationMethod = z.infer<typeof valuationMethodSchema>;

@@ -4,6 +4,10 @@ import {
   Role,
   createHolidaySchema,
   payrollCalcSchema,
+  certificationSchema,
+  updateCertificationSchema,
+  overtimeRecordSchema,
+  autoOvertimeSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -144,7 +148,13 @@ router.post(
       ).length;
       const overtimePay = overtimeShifts * (overtimeRate || 0) * 8; // 8-hour default
 
-      const gross = basicSalary + (allowances || 0) + overtimePay;
+      // Include approved overtime records
+      const approvedOvertime = await prisma.overtimeRecord.findMany({
+        where: { userId, approved: true, date: { gte: start, lte: end } },
+      });
+      const approvedOvertimePay = approvedOvertime.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+      const gross = basicSalary + (allowances || 0) + overtimePay + approvedOvertimePay;
       const net = +(gross - (deductions || 0) - absentPenalty).toFixed(2);
 
       res.json({
@@ -159,6 +169,7 @@ router.post(
           absentPenalty: +absentPenalty.toFixed(2),
           overtimeShifts,
           overtimePay: +overtimePay.toFixed(2),
+          approvedOvertimePay: +approvedOvertimePay.toFixed(2),
           workedDays: worked,
           scheduledDays: scheduled,
           gross: +gross.toFixed(2),
@@ -166,6 +177,357 @@ router.post(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// STAFF CERTIFICATIONS
+// ═══════════════════════════════════════════════════════
+
+function autoStatusFromExpiry(expiryDate: Date | null | undefined): string {
+  if (!expiryDate) return "ACTIVE";
+  const now = new Date();
+  return expiryDate < now ? "EXPIRED" : "ACTIVE";
+}
+
+// GET /api/v1/hr-ops/certifications?userId=&expiring=30
+router.get(
+  "/certifications",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, expiring } = req.query as Record<string, string>;
+      const isOwn = userId && req.user!.userId === userId;
+      if (!isOwn && req.user!.role !== Role.ADMIN && userId) {
+        res.status(403).json({ success: false, data: null, error: "Forbidden" });
+        return;
+      }
+      const where: Record<string, unknown> = {};
+      if (userId) where.userId = userId;
+      else if (req.user!.role !== Role.ADMIN) where.userId = req.user!.userId;
+
+      if (expiring) {
+        const days = parseInt(expiring, 10) || 30;
+        const until = new Date();
+        until.setDate(until.getDate() + days);
+        where.expiryDate = { not: null, lte: until };
+      }
+
+      const rows = await prisma.staffCertification.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: [{ expiryDate: "asc" }, { createdAt: "desc" }],
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/hr-ops/certifications/expiring?days=60
+router.get(
+  "/certifications/expiring",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const days = parseInt((req.query.days as string) || "60", 10);
+      const now = new Date();
+      const until = new Date();
+      until.setDate(until.getDate() + days);
+      const expiring = await prisma.staffCertification.findMany({
+        where: {
+          expiryDate: { not: null, gte: now, lte: until },
+          status: "ACTIVE",
+        },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { expiryDate: "asc" },
+      });
+      const expired = await prisma.staffCertification.findMany({
+        where: {
+          expiryDate: { not: null, lt: now },
+          status: { in: ["ACTIVE", "EXPIRED"] },
+        },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { expiryDate: "desc" },
+      });
+      res.json({ success: true, data: { expiring, expired }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/hr-ops/certifications
+router.post(
+  "/certifications",
+  authorize(Role.ADMIN),
+  validate(certificationSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body;
+      const expiry = body.expiryDate ? new Date(body.expiryDate) : null;
+      const created = await prisma.staffCertification.create({
+        data: {
+          userId: body.userId,
+          type: body.type,
+          title: body.title,
+          issuingBody: body.issuingBody ?? null,
+          certNumber: body.certNumber ?? null,
+          issuedDate: body.issuedDate ? new Date(body.issuedDate) : null,
+          expiryDate: expiry,
+          documentPath: body.documentPath ?? null,
+          status: body.status ?? autoStatusFromExpiry(expiry),
+          notes: body.notes ?? null,
+        },
+      });
+      auditLog(req, "CREATE_CERTIFICATION", "staff_certification", created.id, {
+        userId: body.userId,
+        title: body.title,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/hr-ops/certifications/:id
+router.patch(
+  "/certifications/:id",
+  authorize(Role.ADMIN),
+  validate(updateCertificationSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data: Record<string, unknown> = { ...req.body };
+      if (data.issuedDate) data.issuedDate = new Date(data.issuedDate as string);
+      if (data.expiryDate) data.expiryDate = new Date(data.expiryDate as string);
+      const updated = await prisma.staffCertification.update({
+        where: { id: req.params.id },
+        data,
+      });
+      auditLog(
+        req,
+        "UPDATE_CERTIFICATION",
+        "staff_certification",
+        updated.id,
+        req.body
+      ).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/hr-ops/certifications/:id
+router.delete(
+  "/certifications/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await prisma.staffCertification.delete({ where: { id: req.params.id } });
+      auditLog(req, "DELETE_CERTIFICATION", "staff_certification", req.params.id).catch(
+        console.error
+      );
+      res.json({ success: true, data: { id: req.params.id }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// OVERTIME RECORDS
+// ═══════════════════════════════════════════════════════
+
+function computeAmount(hours: number, rate: number, multiplier: number): number {
+  return +(hours * rate * multiplier).toFixed(2);
+}
+
+// GET /api/v1/hr-ops/overtime?userId=&month=YYYY-MM
+router.get(
+  "/overtime",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { userId, month } = req.query as Record<string, string>;
+      const isOwn = userId && req.user!.userId === userId;
+      if (!isOwn && req.user!.role !== Role.ADMIN && userId) {
+        res.status(403).json({ success: false, data: null, error: "Forbidden" });
+        return;
+      }
+      const where: Record<string, unknown> = {};
+      if (userId) where.userId = userId;
+      else if (req.user!.role !== Role.ADMIN) where.userId = req.user!.userId;
+
+      if (month) {
+        const [y, m] = month.split("-").map((x) => parseInt(x, 10));
+        if (!Number.isNaN(y) && !Number.isNaN(m)) {
+          const start = new Date(Date.UTC(y, m - 1, 1));
+          const end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+          where.date = { gte: start, lte: end };
+        }
+      }
+      const rows = await prisma.overtimeRecord.findMany({
+        where,
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { date: "desc" },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/hr-ops/overtime
+router.post(
+  "/overtime",
+  authorize(Role.ADMIN),
+  validate(overtimeRecordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body;
+      const amount = computeAmount(body.overtimeHours, body.hourlyRate, body.overtimeRate);
+      const created = await prisma.overtimeRecord.create({
+        data: {
+          userId: body.userId,
+          date: new Date(body.date),
+          regularHours: body.regularHours,
+          overtimeHours: body.overtimeHours,
+          hourlyRate: body.hourlyRate,
+          overtimeRate: body.overtimeRate,
+          amount,
+          notes: body.notes ?? null,
+        },
+      });
+      auditLog(req, "CREATE_OVERTIME", "overtime_record", created.id, body).catch(
+        console.error
+      );
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/hr-ops/overtime/auto-calculate
+router.post(
+  "/overtime/auto-calculate",
+  authorize(Role.ADMIN),
+  validate(autoOvertimeSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { year, month, userId, defaultHourlyRate, regularHoursPerDay, overtimeRate } =
+        req.body;
+      const start = new Date(Date.UTC(year, month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+      const shiftsWhere: Record<string, unknown> = {
+        date: { gte: start, lte: end },
+        status: { in: ["PRESENT", "LATE"] },
+      };
+      if (userId) shiftsWhere.userId = userId;
+
+      const shifts = await prisma.staffShift.findMany({
+        where: shiftsWhere,
+        orderBy: { date: "asc" },
+      });
+
+      // Compute hours worked per shift
+      const byUserDate: Record<string, { userId: string; date: Date; hours: number }> = {};
+      for (const s of shifts) {
+        const [sh, sm] = s.startTime.split(":").map((x) => parseInt(x, 10));
+        const [eh, em] = s.endTime.split(":").map((x) => parseInt(x, 10));
+        let mins = eh * 60 + em - (sh * 60 + sm);
+        if (mins < 0) mins += 24 * 60; // overnight
+        const hours = mins / 60;
+        const k = `${s.userId}|${s.date.toISOString().slice(0, 10)}`;
+        if (!byUserDate[k]) byUserDate[k] = { userId: s.userId, date: s.date, hours: 0 };
+        byUserDate[k].hours += hours;
+      }
+
+      const created: any[] = [];
+      for (const v of Object.values(byUserDate)) {
+        const otHours = Math.max(0, v.hours - regularHoursPerDay);
+        if (otHours <= 0) continue;
+        // Skip if we already have an OT record for this user+date
+        const existing = await prisma.overtimeRecord.findFirst({
+          where: { userId: v.userId, date: v.date },
+        });
+        if (existing) continue;
+        const amount = computeAmount(otHours, defaultHourlyRate, overtimeRate);
+        const rec = await prisma.overtimeRecord.create({
+          data: {
+            userId: v.userId,
+            date: v.date,
+            regularHours: Math.min(regularHoursPerDay, v.hours),
+            overtimeHours: otHours,
+            hourlyRate: defaultHourlyRate,
+            overtimeRate,
+            amount,
+          },
+        });
+        created.push(rec);
+      }
+
+      auditLog(req, "AUTO_CALC_OVERTIME", "overtime_record", undefined, {
+        year,
+        month,
+        created: created.length,
+      }).catch(console.error);
+
+      res.json({ success: true, data: { created: created.length, records: created }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/hr-ops/overtime/:id/approve
+router.patch(
+  "/overtime/:id/approve",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const updated = await prisma.overtimeRecord.update({
+        where: { id: req.params.id },
+        data: { approved: true, approvedBy: req.user!.userId },
+      });
+      auditLog(req, "APPROVE_OVERTIME", "overtime_record", updated.id).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/hr-ops/overtime/:id
+router.patch(
+  "/overtime/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data: Record<string, unknown> = { ...req.body };
+      if (data.date) data.date = new Date(data.date as string);
+      // recompute amount if hours/rates changed
+      if (data.overtimeHours !== undefined || data.hourlyRate !== undefined || data.overtimeRate !== undefined) {
+        const existing = await prisma.overtimeRecord.findUnique({ where: { id: req.params.id } });
+        if (existing) {
+          const oh = (data.overtimeHours as number) ?? existing.overtimeHours;
+          const hr = (data.hourlyRate as number) ?? existing.hourlyRate;
+          const or = (data.overtimeRate as number) ?? existing.overtimeRate;
+          data.amount = computeAmount(oh, hr, or);
+        }
+      }
+      const updated = await prisma.overtimeRecord.update({
+        where: { id: req.params.id },
+        data,
+      });
+      auditLog(req, "UPDATE_OVERTIME", "overtime_record", updated.id, req.body).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

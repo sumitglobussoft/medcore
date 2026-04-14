@@ -8,6 +8,7 @@ import {
   checkInteractionsSchema,
   pediatricDoseCalcSchema,
   contraindicationCheckSchema,
+  renalDoseCalcSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -408,6 +409,234 @@ router.get(
         orderBy: { name: "asc" },
       });
       res.json({ success: true, data: meds, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// GENERIC SUBSTITUTION SUGGESTIONS WITH PRICING
+// GET /api/v1/medicines/:id/generics
+// ───────────────────────────────────────────────────────
+router.get(
+  "/:id/generics",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const base = await prisma.medicine.findUnique({
+        where: { id: req.params.id },
+        include: {
+          inventoryItems: {
+            where: { quantity: { gt: 0 }, recalled: false },
+            orderBy: { expiryDate: "asc" },
+          },
+        },
+      });
+      if (!base) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Medicine not found" });
+        return;
+      }
+
+      // Current reference (brand) sellingPrice: best-available stock price
+      const basePrice =
+        base.inventoryItems.length > 0
+          ? Math.min(...base.inventoryItems.map((i) => i.sellingPrice))
+          : null;
+
+      if (!base.genericName) {
+        res.json({
+          success: true,
+          data: {
+            basePrice,
+            base: {
+              id: base.id,
+              name: base.name,
+              brand: base.brand,
+              genericName: base.genericName,
+            },
+            alternatives: [],
+          },
+          error: null,
+        });
+        return;
+      }
+
+      const alternatives = await prisma.medicine.findMany({
+        where: {
+          id: { not: base.id },
+          genericName: { equals: base.genericName, mode: "insensitive" },
+          ...(base.strength ? { strength: base.strength } : {}),
+          ...(base.form ? { form: base.form } : {}),
+        },
+        include: {
+          inventoryItems: {
+            where: { quantity: { gt: 0 }, recalled: false },
+            orderBy: { sellingPrice: "asc" },
+          },
+        },
+      });
+
+      const out = alternatives
+        .map((m) => {
+          const stock = m.inventoryItems.reduce((s, i) => s + i.quantity, 0);
+          const price =
+            m.inventoryItems.length > 0
+              ? Math.min(...m.inventoryItems.map((i) => i.sellingPrice))
+              : null;
+          const savings =
+            basePrice !== null && price !== null
+              ? Math.round((basePrice - price) * 100) / 100
+              : null;
+          return {
+            id: m.id,
+            name: m.name,
+            brand: m.brand,
+            strength: m.strength,
+            form: m.form,
+            availableStock: stock,
+            sellingPrice: price,
+            savingsVsBrand: savings,
+          };
+        })
+        .filter((x) => x.availableStock > 0)
+        .sort((a, b) => {
+          const ap = a.sellingPrice ?? Number.MAX_VALUE;
+          const bp = b.sellingPrice ?? Number.MAX_VALUE;
+          return ap - bp;
+        });
+
+      res.json({
+        success: true,
+        data: {
+          base: {
+            id: base.id,
+            name: base.name,
+            brand: base.brand,
+            genericName: base.genericName,
+            strength: base.strength,
+            form: base.form,
+          },
+          basePrice,
+          alternatives: out,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// PATIENT LEAFLET
+// GET /api/v1/medicines/:id/leaflet
+// ───────────────────────────────────────────────────────
+router.get(
+  "/:id/leaflet",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const m = await prisma.medicine.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          name: true,
+          genericName: true,
+          brand: true,
+          strength: true,
+          form: true,
+          patientInstructions: true,
+          sideEffects: true,
+          contraindications: true,
+          pregnancyCategory: true,
+        },
+      });
+      if (!m) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Medicine not found" });
+        return;
+      }
+      res.json({ success: true, data: m, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// RENAL DOSE CALCULATOR — Cockcroft-Gault
+// POST /api/v1/medicines/calculate-renal-dose
+// ───────────────────────────────────────────────────────
+router.post(
+  "/calculate-renal-dose",
+  validate(renalDoseCalcSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const {
+        medicineId,
+        creatinineMgDl,
+        ageYears,
+        weightKg,
+        genderMale,
+      } = req.body as {
+        medicineId: string;
+        creatinineMgDl: number;
+        ageYears: number;
+        weightKg: number;
+        genderMale: boolean;
+      };
+      const med = await prisma.medicine.findUnique({
+        where: { id: medicineId },
+      });
+      if (!med) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Medicine not found" });
+        return;
+      }
+      // Cockcroft-Gault: CrCl = ((140 - age) * weight) / (72 * Scr) * (0.85 if female)
+      let crcl = ((140 - ageYears) * weightKg) / (72 * creatinineMgDl);
+      if (!genderMale) crcl *= 0.85;
+      crcl = Math.round(crcl * 10) / 10;
+
+      let stage = "NORMAL";
+      if (crcl < 15) stage = "KIDNEY_FAILURE";
+      else if (crcl < 30) stage = "SEVERE";
+      else if (crcl < 60) stage = "MODERATE";
+      else if (crcl < 90) stage = "MILD";
+
+      let recommendation = "No dose adjustment typically required.";
+      if (med.renalAdjustmentNotes) {
+        recommendation = med.renalAdjustmentNotes;
+      }
+      // Simple heuristic recommendation on top of free-text notes
+      let recommendedFactor = 1;
+      if (crcl < 30) recommendedFactor = 0.5;
+      else if (crcl < 60) recommendedFactor = 0.75;
+
+      res.json({
+        success: true,
+        data: {
+          medicine: {
+            id: med.id,
+            name: med.name,
+            requiresRenalAdjustment: med.requiresRenalAdjustment,
+            renalAdjustmentNotes: med.renalAdjustmentNotes,
+          },
+          inputs: { creatinineMgDl, ageYears, weightKg, genderMale },
+          crClMlPerMin: crcl,
+          ckdStage: stage,
+          recommendedDoseFactor: recommendedFactor,
+          recommendation,
+          warning:
+            med.requiresRenalAdjustment && crcl < 60
+              ? `Renal impairment detected (CrCl ${crcl} mL/min) — dose adjustment advised.`
+              : null,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

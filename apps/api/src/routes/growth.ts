@@ -4,6 +4,9 @@ import {
   Role,
   createGrowthRecordSchema,
   updateGrowthRecordSchema,
+  milestoneRecordSchema,
+  feedingLogSchema,
+  MILESTONE_DOMAINS,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -518,6 +521,401 @@ router.get(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── FAILURE-TO-THRIVE DETECTION ───────────────────────
+
+// GET /growth/patient/:id/ftt-check
+router.get(
+  "/patient/:id/ftt-check",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const records = await prisma.growthRecord.findMany({
+        where: { patientId: req.params.id, weightKg: { not: null } },
+        orderBy: { measurementDate: "asc" },
+      });
+
+      if (records.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            isFTT: false,
+            reasons: [],
+            suggestions: ["Record growth measurements to enable FTT screening"],
+            currentPercentile: null,
+            velocityKgPerMonth: null,
+          },
+          error: null,
+        });
+        return;
+      }
+
+      const latest = records[records.length - 1];
+      const currentPercentile = latest.weightPercentile ?? null;
+
+      // Percentile band drop: compare earliest with latest
+      const earliest = records[0];
+      const percentileDrop =
+        (earliest.weightPercentile ?? 50) - (latest.weightPercentile ?? 50);
+
+      // Velocity check — kg/month in last interval
+      let velocityKgPerMonth: number | null = null;
+      if (records.length >= 2) {
+        const a = records[records.length - 2];
+        const b = latest;
+        const months = Math.max(1, b.ageMonths - a.ageMonths);
+        const gain = (b.weightKg ?? 0) - (a.weightKg ?? 0);
+        velocityKgPerMonth = Math.round((gain / months) * 100) / 100;
+      }
+
+      // Expected monthly gain table (WHO, averaged)
+      // 0-3m: 0.8kg/mo, 3-6m: 0.5, 6-12m: 0.35, 12-24m: 0.2, 24+m: 0.15
+      const ageM = latest.ageMonths;
+      let expectedVelocity = 0.2;
+      if (ageM < 3) expectedVelocity = 0.8;
+      else if (ageM < 6) expectedVelocity = 0.5;
+      else if (ageM < 12) expectedVelocity = 0.35;
+      else if (ageM < 24) expectedVelocity = 0.25;
+
+      const reasons: string[] = [];
+      if (currentPercentile !== null && currentPercentile < 5) {
+        reasons.push(`Current weight percentile ${currentPercentile}% (< 5th)`);
+      }
+      // 2-percentile-band drop — ~25 percentile points
+      if (percentileDrop >= 25) {
+        reasons.push(
+          `Weight percentile dropped ${percentileDrop} points (${earliest.weightPercentile}% → ${latest.weightPercentile}%)`
+        );
+      }
+      if (velocityKgPerMonth !== null && velocityKgPerMonth < expectedVelocity * 0.5) {
+        reasons.push(
+          `Velocity ${velocityKgPerMonth} kg/mo is below 50% of expected (${expectedVelocity} kg/mo)`
+        );
+      }
+
+      const isFTT = reasons.length > 0;
+
+      const suggestions: string[] = [];
+      if (isFTT) {
+        suggestions.push("Evaluate feeding practices and caloric intake");
+        suggestions.push("Screen for underlying medical conditions (celiac, GERD, infections)");
+        suggestions.push("Refer to nutritionist for dietary plan");
+        suggestions.push("Consider social/environmental factors (food security, caregiver stress)");
+        suggestions.push("Schedule close follow-up (2-4 weeks)");
+      }
+
+      res.json({
+        success: true,
+        data: {
+          isFTT,
+          reasons,
+          suggestions,
+          currentPercentile,
+          velocityKgPerMonth,
+          expectedVelocityKgPerMonth: expectedVelocity,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── MILESTONE CATALOG ────────────────────────────────
+
+// Hardcoded catalog — 30+ CDC/WHO milestones across domains
+type MilestoneCatalogItem = { ageMonths: number; domain: string; milestone: string };
+const MILESTONE_CATALOG: MilestoneCatalogItem[] = [
+  // Gross motor
+  { ageMonths: 2, domain: "GROSS_MOTOR", milestone: "Lifts head 45° when on tummy" },
+  { ageMonths: 4, domain: "GROSS_MOTOR", milestone: "Holds head steady without support" },
+  { ageMonths: 6, domain: "GROSS_MOTOR", milestone: "Rolls from tummy to back" },
+  { ageMonths: 9, domain: "GROSS_MOTOR", milestone: "Sits without support" },
+  { ageMonths: 9, domain: "GROSS_MOTOR", milestone: "Crawls" },
+  { ageMonths: 12, domain: "GROSS_MOTOR", milestone: "Stands with support" },
+  { ageMonths: 15, domain: "GROSS_MOTOR", milestone: "Walks independently" },
+  { ageMonths: 24, domain: "GROSS_MOTOR", milestone: "Runs and kicks a ball" },
+  { ageMonths: 36, domain: "GROSS_MOTOR", milestone: "Pedals a tricycle" },
+  // Fine motor
+  { ageMonths: 4, domain: "FINE_MOTOR", milestone: "Brings hands to mouth" },
+  { ageMonths: 6, domain: "FINE_MOTOR", milestone: "Transfers object hand-to-hand" },
+  { ageMonths: 9, domain: "FINE_MOTOR", milestone: "Pincer grasp developing" },
+  { ageMonths: 12, domain: "FINE_MOTOR", milestone: "Uses pincer grasp" },
+  { ageMonths: 18, domain: "FINE_MOTOR", milestone: "Scribbles with crayon" },
+  { ageMonths: 24, domain: "FINE_MOTOR", milestone: "Stacks 4 blocks" },
+  { ageMonths: 36, domain: "FINE_MOTOR", milestone: "Draws a circle" },
+  { ageMonths: 48, domain: "FINE_MOTOR", milestone: "Draws a person with 3 parts" },
+  // Language
+  { ageMonths: 2, domain: "LANGUAGE", milestone: "Coos and makes gurgling sounds" },
+  { ageMonths: 6, domain: "LANGUAGE", milestone: "Babbles consonant sounds" },
+  { ageMonths: 12, domain: "LANGUAGE", milestone: "Says mama/dada with meaning" },
+  { ageMonths: 18, domain: "LANGUAGE", milestone: "Uses 10+ single words" },
+  { ageMonths: 24, domain: "LANGUAGE", milestone: "2-word phrases" },
+  { ageMonths: 36, domain: "LANGUAGE", milestone: "Speaks 3-4 word sentences" },
+  { ageMonths: 48, domain: "LANGUAGE", milestone: "Tells a simple story" },
+  { ageMonths: 60, domain: "LANGUAGE", milestone: "Speaks clearly in full sentences" },
+  // Social
+  { ageMonths: 2, domain: "SOCIAL", milestone: "Smiles socially" },
+  { ageMonths: 6, domain: "SOCIAL", milestone: "Responds to own name" },
+  { ageMonths: 9, domain: "SOCIAL", milestone: "Stranger anxiety; plays peek-a-boo" },
+  { ageMonths: 18, domain: "SOCIAL", milestone: "Imitates household tasks" },
+  { ageMonths: 24, domain: "SOCIAL", milestone: "Parallel play with peers" },
+  { ageMonths: 36, domain: "SOCIAL", milestone: "Shares toys; cooperative play" },
+  { ageMonths: 48, domain: "SOCIAL", milestone: "Plays make-believe; follows rules" },
+  // Cognitive
+  { ageMonths: 6, domain: "COGNITIVE", milestone: "Looks for dropped objects" },
+  { ageMonths: 9, domain: "COGNITIVE", milestone: "Object permanence" },
+  { ageMonths: 18, domain: "COGNITIVE", milestone: "Points to body parts" },
+  { ageMonths: 24, domain: "COGNITIVE", milestone: "Sorts shapes and colors" },
+  { ageMonths: 36, domain: "COGNITIVE", milestone: "Understands concept of 2" },
+  { ageMonths: 48, domain: "COGNITIVE", milestone: "Counts to 10; names colors" },
+  { ageMonths: 60, domain: "COGNITIVE", milestone: "Knows address and phone" },
+];
+
+// GET /growth/milestones/catalog?ageMonths=
+router.get(
+  "/milestones/catalog",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const ageMonths = req.query.ageMonths
+        ? parseInt(req.query.ageMonths as string, 10)
+        : null;
+      const items = ageMonths !== null
+        ? MILESTONE_CATALOG.filter((m) => m.ageMonths <= ageMonths)
+        : MILESTONE_CATALOG;
+      res.json({
+        success: true,
+        data: {
+          ageMonths,
+          domains: MILESTONE_DOMAINS,
+          milestones: items,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /growth/milestones
+router.post(
+  "/milestones",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  validate(milestoneRecordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId, ageMonths, domain, milestone, achieved, achievedAt, notes } =
+        req.body;
+      // Upsert by patient + milestone string
+      const existing = await prisma.milestoneRecord.findFirst({
+        where: { patientId, milestone },
+      });
+      let record;
+      if (existing) {
+        record = await prisma.milestoneRecord.update({
+          where: { id: existing.id },
+          data: {
+            ageMonths,
+            domain,
+            achieved,
+            achievedAt: achievedAt ? new Date(achievedAt) : achieved ? new Date() : null,
+            notes,
+            recordedBy: req.user!.userId,
+          },
+        });
+      } else {
+        record = await prisma.milestoneRecord.create({
+          data: {
+            patientId,
+            ageMonths,
+            domain,
+            milestone,
+            achieved,
+            achievedAt: achievedAt ? new Date(achievedAt) : achieved ? new Date() : null,
+            notes,
+            recordedBy: req.user!.userId,
+          },
+        });
+      }
+      auditLog(req, "RECORD_MILESTONE", "milestoneRecord", record.id, {
+        patientId,
+        milestone,
+        achieved,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: record, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /growth/patient/:id/milestones — list + catalog diff
+router.get(
+  "/patient/:id/milestones",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const ageM = computeAgeMonths(patient.dateOfBirth);
+      const records = await prisma.milestoneRecord.findMany({
+        where: { patientId: req.params.id },
+        orderBy: { ageMonths: "asc" },
+      });
+      const byMilestone = new Map<string, (typeof records)[number]>();
+      records.forEach((r) => byMilestone.set(r.milestone, r));
+
+      const diff = MILESTONE_CATALOG.map((m) => {
+        const rec = byMilestone.get(m.milestone);
+        const expected = ageM != null && ageM >= m.ageMonths;
+        let status: "ACHIEVED" | "EXPECTED_NOT_ACHIEVED" | "UPCOMING" | "NOT_YET" = "UPCOMING";
+        if (rec?.achieved) status = "ACHIEVED";
+        else if (expected) status = "EXPECTED_NOT_ACHIEVED";
+        else status = "UPCOMING";
+        return {
+          ...m,
+          status,
+          achieved: !!rec?.achieved,
+          achievedAt: rec?.achievedAt ?? null,
+          notes: rec?.notes ?? null,
+        };
+      });
+
+      const summary = {
+        total: diff.length,
+        achieved: diff.filter((d) => d.status === "ACHIEVED").length,
+        expectedNotAchieved: diff.filter((d) => d.status === "EXPECTED_NOT_ACHIEVED").length,
+      };
+
+      res.json({
+        success: true,
+        data: { ageMonths: ageM, summary, diff },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── FEEDING LOG ───────────────────────────────────────
+
+// POST /growth/patient/:id/feeding
+router.post(
+  "/patient/:id/feeding",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PATIENT),
+  validate(feedingLogSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const log = await prisma.feedingLog.create({
+        data: {
+          patientId: req.params.id,
+          loggedAt: req.body.loggedAt ? new Date(req.body.loggedAt) : new Date(),
+          feedType: req.body.feedType,
+          durationMin: req.body.durationMin,
+          volumeMl: req.body.volumeMl,
+          foodItem: req.body.foodItem,
+          notes: req.body.notes,
+          loggedBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "LOG_FEEDING", "feedingLog", log.id, {
+        patientId: req.params.id,
+        feedType: req.body.feedType,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: log, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /growth/patient/:id/feeding — list + daily summary
+router.get(
+  "/patient/:id/feeding",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to, limit = "100" } = req.query as Record<string, string | undefined>;
+      const take = Math.min(parseInt(limit || "100"), 500);
+      const where: Record<string, unknown> = { patientId: req.params.id };
+      if (from || to) {
+        const range: Record<string, Date> = {};
+        if (from) range.gte = new Date(from);
+        if (to) range.lte = new Date(to);
+        where.loggedAt = range;
+      }
+      const logs = await prisma.feedingLog.findMany({
+        where,
+        orderBy: { loggedAt: "desc" },
+        take,
+      });
+
+      // Daily summary
+      const dailyMap = new Map<
+        string,
+        { date: string; feeds: number; totalVolumeMl: number; totalDurationMin: number }
+      >();
+      for (const l of logs) {
+        const day = new Date(l.loggedAt).toISOString().slice(0, 10);
+        const cur = dailyMap.get(day) ?? {
+          date: day,
+          feeds: 0,
+          totalVolumeMl: 0,
+          totalDurationMin: 0,
+        };
+        cur.feeds += 1;
+        cur.totalVolumeMl += l.volumeMl ?? 0;
+        cur.totalDurationMin += l.durationMin ?? 0;
+        dailyMap.set(day, cur);
+      }
+      const daily = Array.from(dailyMap.values()).sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+
+      res.json({
+        success: true,
+        data: {
+          logs,
+          daily,
+          totalLogs: logs.length,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// DELETE /growth/feeding/:id
+router.delete(
+  "/feeding/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await prisma.feedingLog.delete({ where: { id: req.params.id } });
+      auditLog(req, "DELETE_FEEDING_LOG", "feedingLog", req.params.id, {}).catch(
+        console.error
+      );
+      res.json({ success: true, data: { id: req.params.id }, error: null });
     } catch (err) {
       next(err);
     }

@@ -101,6 +101,23 @@ router.post(
         }
       }
 
+      // ─── Patient pricing-tier discount (Apr 2026) ────────
+      const patientRec = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { pricingTier: true },
+      });
+      const tier = patientRec?.pricingTier || "STANDARD";
+      let tierDiscount = 0;
+      if (tier !== "STANDARD") {
+        const tierCfg = await prisma.systemConfig.findUnique({
+          where: { key: `tier_discount_${tier}` },
+        });
+        const pct = tierCfg ? parseFloat(tierCfg.value) : 0;
+        if (pct > 0) {
+          tierDiscount = +((subtotal * pct) / 100).toFixed(2);
+        }
+      }
+
       // Advance payment application
       let advanceApplied = 0;
       let advanceToConsume: Array<{ id: string; use: number }> = [];
@@ -126,6 +143,7 @@ router.post(
         taxAmount -
         (discountAmount || 0) -
         packageDiscount -
+        tierDiscount -
         advanceApplied;
 
       const invoice = await prisma.$transaction(async (tx) => {
@@ -138,12 +156,17 @@ router.post(
             taxAmount,
             cgstAmount,
             sgstAmount,
-            discountAmount: discountAmount || 0,
+            discountAmount: (discountAmount || 0) + tierDiscount,
             packageDiscount,
             advanceApplied,
             totalAmount: Math.max(0, +totalAmount.toFixed(2)),
             dueDate: dueDate ? new Date(dueDate) : undefined,
-            notes,
+            notes:
+              tierDiscount > 0
+                ? `${notes ? notes + "\n" : ""}[TIER ${tier}] auto-discount Rs.${tierDiscount.toFixed(
+                    2
+                  )}`
+                : notes,
             paymentStatus: advanceApplied >= totalAmount && totalAmount >= 0 ? "PAID" : "PENDING",
             items: {
               create: items.map(
@@ -916,6 +939,44 @@ router.post(
         return;
       }
 
+      // ─── Approval threshold check (Apr 2026) ─────────────
+      const thresholdCfg = await prisma.systemConfig.findUnique({
+        where: { key: "discount_auto_approve_threshold" },
+      });
+      const threshold = thresholdCfg ? parseFloat(thresholdCfg.value) : 10; // default 10%
+      const effPct =
+        percentage !== undefined
+          ? percentage
+          : gross > 0
+            ? (discountAmount / gross) * 100
+            : 0;
+
+      const requiresApproval =
+        req.user!.role !== Role.ADMIN && effPct > threshold;
+
+      if (requiresApproval) {
+        const approval = await prisma.discountApproval.create({
+          data: {
+            invoiceId: invoice.id,
+            amount: discountAmount,
+            percentage: percentage ?? null,
+            reason,
+            requestedBy: req.user!.userId,
+          },
+        });
+        auditLog(req, "REQUEST_DISCOUNT_APPROVAL", "discount_approval", approval.id, {
+          invoiceId: invoice.id,
+          discountAmount,
+          percentage,
+        }).catch(console.error);
+        res.status(202).json({
+          success: true,
+          data: { approval, pending: true },
+          error: null,
+        });
+        return;
+      }
+
       const newTotal = gross - discountAmount;
       const totalPaid = invoice.payments.reduce((s, p) => s + p.amount, 0);
       const newStatus =
@@ -950,6 +1011,215 @@ router.post(
       }).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── DISCOUNT APPROVAL WORKFLOW (Apr 2026) ────────────────
+// GET /api/v1/billing/discount-approvals?status=PENDING
+router.get(
+  "/discount-approvals",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { status, invoiceId } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (status) where.status = status;
+      if (invoiceId) where.invoiceId = invoiceId;
+      const rows = await prisma.discountApproval.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              totalAmount: true,
+              patient: {
+                select: {
+                  mrNumber: true,
+                  user: { select: { name: true, phone: true } },
+                },
+              },
+            },
+          },
+        },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/billing/discount-approvals/:id/approve
+router.post(
+  "/discount-approvals/:id/approve",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const approval = await prisma.discountApproval.findUnique({
+        where: { id: req.params.id },
+        include: { invoice: { include: { payments: true } } },
+      });
+      if (!approval) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Approval not found" });
+        return;
+      }
+      if (approval.status !== "PENDING") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Approval already ${approval.status.toLowerCase()}`,
+        });
+        return;
+      }
+
+      const inv = approval.invoice;
+      const gross = inv.subtotal + inv.taxAmount;
+      const newTotal = Math.max(0, gross - approval.amount);
+      const totalPaid = inv.payments.reduce((s, p) => s + p.amount, 0);
+      const newStatus =
+        totalPaid >= newTotal && newTotal > 0
+          ? "PAID"
+          : totalPaid > 0
+            ? "PARTIAL"
+            : "PENDING";
+      const discountNote = `[DISCOUNT APPROVED ${new Date().toISOString()}] ${
+        approval.percentage ? `${approval.percentage}%` : `Rs.${approval.amount}`
+      } — ${approval.reason}`;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.invoice.update({
+          where: { id: inv.id },
+          data: {
+            discountAmount: approval.amount,
+            totalAmount: newTotal,
+            paymentStatus: newStatus,
+            notes: inv.notes ? `${inv.notes}\n${discountNote}` : discountNote,
+          },
+        });
+        await tx.discountApproval.update({
+          where: { id: approval.id },
+          data: {
+            status: "APPROVED",
+            approvedBy: req.user!.userId,
+            approvedAt: new Date(),
+          },
+        });
+      });
+
+      auditLog(req, "APPROVE_DISCOUNT", "discount_approval", approval.id, {
+        invoiceId: inv.id,
+        amount: approval.amount,
+      }).catch(console.error);
+
+      res.json({ success: true, data: { approved: true }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/billing/discount-approvals/:id/reject
+router.post(
+  "/discount-approvals/:id/reject",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { rejectionReason } = req.body as { rejectionReason?: string };
+      const updated = await prisma.discountApproval.update({
+        where: { id: req.params.id },
+        data: {
+          status: "REJECTED",
+          rejectionReason: rejectionReason ?? "Not approved",
+          approvedBy: req.user!.userId,
+          approvedAt: new Date(),
+        },
+      });
+      auditLog(req, "REJECT_DISCOUNT", "discount_approval", updated.id, {
+        rejectionReason,
+      }).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── LATE-FEE AUTOMATION (Apr 2026) ───────────────────────
+// POST /api/v1/billing/apply-late-fees — can be run on cron
+router.post(
+  "/apply-late-fees",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const graceCfg = await prisma.systemConfig.findUnique({
+        where: { key: "late_fee_grace_days" },
+      });
+      const graceDays = graceCfg ? parseInt(graceCfg.value) : 30;
+      const flatCfg = await prisma.systemConfig.findUnique({
+        where: { key: "late_fee_amount" },
+      });
+      const pctCfg = await prisma.systemConfig.findUnique({
+        where: { key: "late_fee_percent" },
+      });
+      const flat = flatCfg ? parseFloat(flatCfg.value) : 100;
+      const pct = pctCfg ? parseFloat(pctCfg.value) : 0;
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - graceDays);
+
+      const candidates = await prisma.invoice.findMany({
+        where: {
+          paymentStatus: { in: ["PENDING", "PARTIAL"] },
+          lateFeeAppliedAt: null,
+          createdAt: { lt: cutoff },
+        },
+        include: { patient: { include: { user: true } } },
+      });
+
+      let applied = 0;
+      for (const inv of candidates) {
+        const lateFee = pct > 0 ? +((inv.totalAmount * pct) / 100).toFixed(2) : flat;
+        await prisma.$transaction(async (tx) => {
+          await tx.invoiceItem.create({
+            data: {
+              invoiceId: inv.id,
+              description: `Late fee (${graceDays}+ days overdue)`,
+              category: "LATE_FEE",
+              quantity: 1,
+              unitPrice: lateFee,
+              amount: lateFee,
+            },
+          });
+          await tx.invoice.update({
+            where: { id: inv.id },
+            data: {
+              lateFeeAmount: lateFee,
+              lateFeeAppliedAt: new Date(),
+              totalAmount: inv.totalAmount + lateFee,
+              subtotal: inv.subtotal + lateFee,
+            },
+          });
+        });
+        applied++;
+      }
+
+      auditLog(req, "APPLY_LATE_FEES", "invoice", undefined, {
+        applied,
+        graceDays,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: { applied, totalScanned: candidates.length },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

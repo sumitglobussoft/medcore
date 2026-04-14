@@ -38,6 +38,47 @@ export default function VitalsPage() {
   });
   const [saving, setSaving] = useState(false);
 
+  // Patient baseline + last-recorded change summary
+  const [baseline, setBaseline] = useState<{
+    bpSystolic?: { baseline: number | null; sampleSize: number };
+    bpDiastolic?: { baseline: number | null; sampleSize: number };
+    pulse?: { baseline: number | null; sampleSize: number };
+    spO2?: { baseline: number | null; sampleSize: number };
+    temperature?: { baseline: number | null; sampleSize: number };
+    respiratoryRate?: { baseline: number | null; sampleSize: number };
+  } | null>(null);
+  const [changeSummary, setChangeSummary] = useState<
+    Array<{
+      field: string;
+      previous: number | null;
+      current: number | null;
+      delta: number | null;
+      significant: boolean;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (!selectedPatient) {
+      setBaseline(null);
+      return;
+    }
+    api
+      .get<{ data: typeof baseline }>(
+        `/patients/${selectedPatient.patientId}/vitals-baseline`
+      )
+      .then((r) => setBaseline(r.data))
+      .catch(() => setBaseline(null));
+  }, [selectedPatient]);
+
+  function baselineDeviation(
+    field: "bpSystolic" | "bpDiastolic" | "pulse" | "spO2",
+    value: number
+  ): boolean {
+    const b = baseline?.[field]?.baseline;
+    if (typeof b !== "number" || b === 0) return false;
+    return Math.abs((value - b) / b) > 0.2;
+  }
+
   // ── Derived: BMI + abnormal flags ─────────────────────
   const weightKg = form.weight ? parseFloat(form.weight) : NaN;
   const heightCm = form.height ? parseFloat(form.height) : NaN;
@@ -102,7 +143,17 @@ export default function VitalsPage() {
 
     setSaving(true);
     try {
-      await api.post(`/patients/${selectedPatient.patientId}/vitals`, {
+      const res = await api.post<{
+        data: {
+          changes?: Array<{
+            field: string;
+            previous: number | null;
+            current: number | null;
+            delta: number | null;
+            significant: boolean;
+          }>;
+        };
+      }>(`/patients/${selectedPatient.patientId}/vitals`, {
         appointmentId: selectedPatient.appointmentId,
         patientId: selectedPatient.patientId,
         bloodPressureSystolic: form.bloodPressureSystolic
@@ -126,12 +177,15 @@ export default function VitalsPage() {
         notes: form.notes || undefined,
       });
 
+      setChangeSummary(res.data.changes ?? []);
+
       alert(
         flags.length > 0
           ? `Vitals saved (Abnormal: ${flags.join(", ")})`
           : "Vitals saved!"
       );
-      setSelectedPatient(null);
+      // Keep summary visible briefly
+      setTimeout(() => setSelectedPatient(null), 1500);
       setForm({
         bloodPressureSystolic: "",
         bloodPressureDiastolic: "",
@@ -219,10 +273,42 @@ export default function VitalsPage() {
                 Vitals — Token #{selectedPatient.tokenNumber} ({selectedPatient.patientName})
               </h2>
 
+              {baseline && (
+                <div className="mb-4 rounded-lg bg-blue-50 p-3 text-xs text-blue-900">
+                  <p className="mb-1 font-semibold">Patient Baseline (median of non-abnormal readings)</p>
+                  <p>
+                    BP: {baseline.bpSystolic?.baseline ?? "—"}/
+                    {baseline.bpDiastolic?.baseline ?? "—"} · Pulse:{" "}
+                    {baseline.pulse?.baseline ?? "—"} · SpO2:{" "}
+                    {baseline.spO2?.baseline ?? "—"} (n=
+                    {baseline.bpSystolic?.sampleSize ?? 0})
+                  </p>
+                </div>
+              )}
+
+              {changeSummary.length > 0 &&
+                changeSummary.some((c) => c.significant) && (
+                  <div className="mb-4 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                    <p className="mb-1 font-semibold">Sudden changes vs last 24h reading</p>
+                    {changeSummary
+                      .filter((c) => c.significant)
+                      .map((c) => (
+                        <p key={c.field}>
+                          {c.field}: {c.previous} → {c.current} (Δ{c.delta})
+                        </p>
+                      ))}
+                  </div>
+                )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium">
                     BP Systolic (mmHg)
+                    {baseline?.bpSystolic?.baseline != null && (
+                      <span className="ml-2 text-xs font-normal text-gray-400">
+                        baseline {baseline.bpSystolic.baseline}
+                      </span>
+                    )}
                   </label>
                   <input
                     type="number"
@@ -230,13 +316,26 @@ export default function VitalsPage() {
                     onChange={(e) =>
                       setForm({ ...form, bloodPressureSystolic: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      form.bloodPressureSystolic &&
+                      baselineDeviation(
+                        "bpSystolic",
+                        parseFloat(form.bloodPressureSystolic)
+                      )
+                        ? "border-red-400 bg-red-50"
+                        : ""
+                    }`}
                     placeholder="120"
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
                     BP Diastolic (mmHg)
+                    {baseline?.bpDiastolic?.baseline != null && (
+                      <span className="ml-2 text-xs font-normal text-gray-400">
+                        baseline {baseline.bpDiastolic.baseline}
+                      </span>
+                    )}
                   </label>
                   <input
                     type="number"
@@ -244,7 +343,15 @@ export default function VitalsPage() {
                     onChange={(e) =>
                       setForm({ ...form, bloodPressureDiastolic: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      form.bloodPressureDiastolic &&
+                      baselineDeviation(
+                        "bpDiastolic",
+                        parseFloat(form.bloodPressureDiastolic)
+                      )
+                        ? "border-red-400 bg-red-50"
+                        : ""
+                    }`}
                     placeholder="80"
                   />
                 </div>

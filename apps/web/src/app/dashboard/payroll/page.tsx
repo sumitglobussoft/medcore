@@ -66,6 +66,7 @@ export default function PayrollPage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [bulkRunning, setBulkRunning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"payroll" | "overtime">("payroll");
 
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
@@ -181,6 +182,33 @@ export default function PayrollPage() {
 
   return (
     <div>
+      <div className="mb-4 flex gap-2 border-b border-slate-200">
+        <button
+          onClick={() => setActiveTab("payroll")}
+          className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
+            activeTab === "payroll"
+              ? "border-primary text-primary font-semibold"
+              : "border-transparent text-slate-600"
+          }`}
+        >
+          Payroll
+        </button>
+        <button
+          onClick={() => setActiveTab("overtime")}
+          className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
+            activeTab === "overtime"
+              ? "border-primary text-primary font-semibold"
+              : "border-transparent text-slate-600"
+          }`}
+        >
+          Overtime
+        </button>
+      </div>
+
+      {activeTab === "overtime" ? (
+        <OvertimePanel month={month} onMonthChange={setMonth} />
+      ) : (
+      <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Payroll</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -344,6 +372,171 @@ export default function PayrollPage() {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+      </>
+      )}
+    </div>
+  );
+}
+
+interface OvertimeRow {
+  id: string;
+  userId: string;
+  date: string;
+  regularHours: number;
+  overtimeHours: number;
+  hourlyRate: number;
+  overtimeRate: number;
+  amount: number;
+  approved: boolean;
+  notes: string | null;
+  user?: { id: string; name: string; role: string };
+}
+
+function OvertimePanel({
+  month,
+  onMonthChange,
+}: {
+  month: string;
+  onMonthChange: (m: string) => void;
+}) {
+  const [rows, setRows] = useState<OvertimeRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: OvertimeRow[] }>(
+        `/hr-ops/overtime?month=${month}`
+      );
+      setRows(res.data || []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, [month]);
+
+  const autoCalc = async () => {
+    setRunning(true);
+    try {
+      const [y, m] = month.split("-").map((x) => parseInt(x, 10));
+      await api.post("/hr-ops/overtime/auto-calculate", {
+        year: y,
+        month: m,
+        defaultHourlyRate: 250,
+        regularHoursPerDay: 8,
+        overtimeRate: 1.5,
+      });
+      load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const approve = async (id: string) => {
+    await api.patch(`/hr-ops/overtime/${id}/approve`, {});
+    load();
+  };
+
+  const totalPending = rows
+    .filter((r) => !r.approved)
+    .reduce((s, r) => s + r.amount, 0);
+  const totalApproved = rows
+    .filter((r) => r.approved)
+    .reduce((s, r) => s + r.amount, 0);
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Overtime</h1>
+          <p className="text-sm text-slate-500">
+            {rows.length} records - pending Rs. {totalPending.toFixed(2)} - approved Rs. {totalApproved.toFixed(2)}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => onMonthChange(e.target.value)}
+            className="rounded-lg border bg-white px-3 py-2 text-sm"
+          />
+          <button
+            onClick={autoCalc}
+            disabled={running}
+            className="px-3 py-2 text-sm bg-blue-600 text-white rounded disabled:opacity-50"
+          >
+            {running ? "Calculating..." : "Auto-calculate from shifts"}
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-white shadow-sm">
+        {loading ? (
+          <div className="p-8 text-center text-slate-500">Loading...</div>
+        ) : rows.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">No overtime records.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-slate-500">
+                <th className="px-3 py-2">Staff</th>
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2 text-right">Reg Hrs</th>
+                <th className="px-3 py-2 text-right">OT Hrs</th>
+                <th className="px-3 py-2 text-right">Rate</th>
+                <th className="px-3 py-2 text-right">Amount</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-slate-100">
+                  <td className="px-3 py-2">{r.user?.name || r.userId.slice(0, 8)}</td>
+                  <td className="px-3 py-2">{r.date.slice(0, 10)}</td>
+                  <td className="px-3 py-2 text-right">{r.regularHours.toFixed(1)}</td>
+                  <td className="px-3 py-2 text-right">{r.overtimeHours.toFixed(1)}</td>
+                  <td className="px-3 py-2 text-right">
+                    Rs. {r.hourlyRate} x {r.overtimeRate}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold">
+                    Rs. {r.amount.toFixed(2)}
+                  </td>
+                  <td className="px-3 py-2">
+                    {r.approved ? (
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                        Approved
+                      </span>
+                    ) : (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
+                        Pending
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!r.approved && (
+                      <button
+                        onClick={() => approve(r.id)}
+                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded"
+                      >
+                        Approve
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

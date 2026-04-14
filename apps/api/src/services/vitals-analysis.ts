@@ -119,3 +119,59 @@ export function computeVitalsFlags(v: VitalsInput): VitalsAnalysis {
     isCritical: critical.length > 0,
   };
 }
+
+/**
+ * Extended analysis that also compares values against a patient's personal
+ * baseline. Values deviating by more than 20% from baseline are flagged with
+ * "SIGNIFICANT_CHANGE_FROM_BASELINE".
+ */
+export function computeVitalsFlagsWithBaseline(
+  v: VitalsInput,
+  baseline: {
+    bpSystolic?: { baseline: number | null } | null;
+    bpDiastolic?: { baseline: number | null } | null;
+    pulse?: { baseline: number | null } | null;
+    spO2?: { baseline: number | null } | null;
+  } | null
+): VitalsAnalysis & { baselineDeviations: string[] } {
+  const base = computeVitalsFlags(v);
+  const deviations: string[] = [];
+
+  function check(
+    label: string,
+    value: number | null | undefined,
+    b: number | null | undefined
+  ) {
+    if (
+      typeof value === "number" &&
+      typeof b === "number" &&
+      b !== 0 &&
+      Math.abs((value - b) / b) > 0.2
+    ) {
+      deviations.push(label);
+    }
+  }
+
+  if (baseline) {
+    check("bpSystolic", v.bloodPressureSystolic, baseline.bpSystolic?.baseline);
+    check(
+      "bpDiastolic",
+      v.bloodPressureDiastolic,
+      baseline.bpDiastolic?.baseline
+    );
+    check("pulse", v.pulseRate, baseline.pulse?.baseline);
+    check("spO2", v.spO2, baseline.spO2?.baseline);
+  }
+
+  const flags = [...base.flags];
+  if (deviations.length > 0 && !flags.includes("SIGNIFICANT_CHANGE_FROM_BASELINE")) {
+    flags.push("SIGNIFICANT_CHANGE_FROM_BASELINE");
+  }
+
+  return {
+    ...base,
+    flags,
+    isAbnormal: flags.length > 0,
+    baselineDeviations: deviations,
+  };
+}

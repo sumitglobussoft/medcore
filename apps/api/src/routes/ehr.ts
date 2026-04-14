@@ -10,6 +10,8 @@ import {
   createImmunizationSchema,
   updateImmunizationSchema,
   createDocumentSchema,
+  advanceDirectiveSchema,
+  updateAdvanceDirectiveSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -814,6 +816,270 @@ router.get(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// ADVANCE DIRECTIVES
+// ═══════════════════════════════════════════════════════
+
+router.get(
+  "/patients/:patientId/advance-directives",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      const includeInactive = req.query.includeInactive === "true";
+      const rows = await prisma.advanceDirective.findMany({
+        where: {
+          patientId: req.params.patientId,
+          ...(includeInactive ? {} : { active: true }),
+        },
+        orderBy: { effectiveDate: "desc" },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/patients/:patientId/advance-directives",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(advanceDirectiveSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.patientId;
+      if (!(await assertPatientAccess(req, res, patientId))) return;
+      const body = req.body;
+      const created = await prisma.advanceDirective.create({
+        data: {
+          patientId,
+          type: body.type,
+          effectiveDate: new Date(body.effectiveDate),
+          expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
+          documentPath: body.documentPath ?? null,
+          witnessedBy: body.witnessedBy ?? null,
+          notes: body.notes,
+          createdBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "CREATE_ADVANCE_DIRECTIVE", "advance_directive", created.id, {
+        patientId,
+        type: body.type,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.patch(
+  "/advance-directives/:id",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(updateAdvanceDirectiveSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data: Record<string, unknown> = { ...req.body };
+      if (data.effectiveDate) data.effectiveDate = new Date(data.effectiveDate as string);
+      if (data.expiryDate) data.expiryDate = new Date(data.expiryDate as string);
+      const updated = await prisma.advanceDirective.update({
+        where: { id: req.params.id },
+        data,
+      });
+      auditLog(
+        req,
+        "UPDATE_ADVANCE_DIRECTIVE",
+        "advance_directive",
+        updated.id,
+        req.body
+      ).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  "/advance-directives/:id",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const updated = await prisma.advanceDirective.update({
+        where: { id: req.params.id },
+        data: { active: false },
+      });
+      auditLog(
+        req,
+        "SOFT_DELETE_ADVANCE_DIRECTIVE",
+        "advance_directive",
+        updated.id
+      ).catch(console.error);
+      res.json({ success: true, data: { id: updated.id }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════
+// PROBLEM LIST (consolidated)
+// ═══════════════════════════════════════════════════════
+
+// Severity ranking helper
+function severityRank(s: string | null | undefined): number {
+  switch (s) {
+    case "LIFE_THREATENING":
+      return 5;
+    case "SEVERE":
+      return 4;
+    case "ACTIVE":
+    case "RELAPSED":
+      return 3;
+    case "MODERATE":
+    case "CONTROLLED":
+      return 2;
+    case "MILD":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+router.get(
+  "/patients/:patientId/problem-list",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.patientId;
+      if (!(await assertPatientAccess(req, res, patientId))) return;
+
+      const activeOnly = req.query.activeOnly !== "false";
+      const typeFilter = req.query.type as string | undefined;
+
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+      const [conditions, allergies, recentPrescriptions, activeAdmission] =
+        await Promise.all([
+          prisma.chronicCondition.findMany({
+            where: {
+              patientId,
+              ...(activeOnly
+                ? { status: { in: ["ACTIVE", "CONTROLLED", "RELAPSED"] } }
+                : {}),
+            },
+            orderBy: { updatedAt: "desc" },
+          }),
+          prisma.patientAllergy.findMany({
+            where: {
+              patientId,
+              ...(activeOnly
+                ? { severity: { in: ["SEVERE", "LIFE_THREATENING"] } }
+                : {}),
+            },
+            orderBy: { notedAt: "desc" },
+          }),
+          prisma.prescription.findMany({
+            where: {
+              patientId,
+              createdAt: { gte: ninetyDaysAgo },
+            },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, diagnosis: true, createdAt: true, doctorId: true },
+          }),
+          prisma.admission.findFirst({
+            where: { patientId, status: "ADMITTED" },
+            orderBy: { admittedAt: "desc" },
+            include: { bed: { include: { ward: true } } },
+          }),
+        ]);
+
+      const items: Array<{
+        id: string;
+        type: "condition" | "allergy" | "diagnosis" | "admission";
+        title: string;
+        severity: string;
+        status: string;
+        lastUpdated: string;
+        source: string;
+        icd10Code?: string | null;
+      }> = [];
+
+      if (!typeFilter || typeFilter === "condition") {
+        for (const c of conditions) {
+          items.push({
+            id: c.id,
+            type: "condition",
+            title: c.condition,
+            severity: c.status,
+            status: c.status,
+            lastUpdated: c.updatedAt.toISOString(),
+            source: "Chronic Condition",
+            icd10Code: c.icd10Code,
+          });
+        }
+      }
+
+      if (!typeFilter || typeFilter === "allergy") {
+        for (const a of allergies) {
+          items.push({
+            id: a.id,
+            type: "allergy",
+            title: `Allergy: ${a.allergen}${a.reaction ? ` (${a.reaction})` : ""}`,
+            severity: a.severity,
+            status: "ACTIVE",
+            lastUpdated: a.notedAt.toISOString(),
+            source: "Allergy",
+          });
+        }
+      }
+
+      if (!typeFilter || typeFilter === "diagnosis") {
+        // Deduplicate by diagnosis text (case-insensitive)
+        const seen = new Set<string>();
+        for (const p of recentPrescriptions) {
+          const key = (p.diagnosis || "").trim().toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          items.push({
+            id: p.id,
+            type: "diagnosis",
+            title: p.diagnosis,
+            severity: "ACTIVE",
+            status: "ACTIVE",
+            lastUpdated: p.createdAt.toISOString(),
+            source: "Recent Prescription",
+          });
+        }
+      }
+
+      if ((!typeFilter || typeFilter === "admission") && activeAdmission) {
+        items.push({
+          id: activeAdmission.id,
+          type: "admission",
+          title:
+            activeAdmission.diagnosis ||
+            activeAdmission.reason ||
+            `Admitted (${activeAdmission.admissionNumber})`,
+          severity: "ACTIVE",
+          status: "ADMITTED",
+          lastUpdated: activeAdmission.admittedAt.toISOString(),
+          source: `Currently Admitted — ${activeAdmission.bed.ward.name} / ${activeAdmission.bed.bedNumber}`,
+        });
+      }
+
+      items.sort((a, b) => {
+        const sd = severityRank(b.severity) - severityRank(a.severity);
+        if (sd !== 0) return sd;
+        return b.lastUpdated.localeCompare(a.lastUpdated);
+      });
+
+      res.json({ success: true, data: items, error: null });
     } catch (err) {
       next(err);
     }

@@ -35,6 +35,7 @@ import {
   Receipt,
   Pill,
   ClipboardList,
+  Printer,
   AlertCircle,
 } from "lucide-react";
 
@@ -53,6 +54,7 @@ interface PatientDetail {
   insuranceId: string | null;
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
+  noShowCount?: number;
   user: { id: string; name: string; email: string; phone: string };
 }
 
@@ -413,6 +415,9 @@ export default function PatientDetailPage() {
         <ArrowLeft size={16} /> Back to Patients
       </Link>
 
+      {/* DNR / Advance Directive Banner */}
+      <DnrBanner patientId={id} />
+
       {/* ALERT BANNER */}
       {(allergiesAlert.length > 0 || stats?.currentAdmissionId) && (
         <div className="mb-4 space-y-2">
@@ -477,6 +482,44 @@ export default function PatientDetailPage() {
               <span className="rounded-full bg-primary/10 px-3 py-0.5 font-mono text-sm font-medium text-primary">
                 {patient.mrNumber}
               </span>
+              {patient.noShowCount != null && patient.noShowCount > 0 && (
+                <span
+                  className="rounded-full bg-red-100 px-3 py-0.5 text-xs font-semibold text-red-700"
+                  title="Appointments missed without cancellation"
+                >
+                  No-shows: {patient.noShowCount}
+                </span>
+              )}
+              <button
+                onClick={() => window.print()}
+                aria-label="Print medical record"
+                className="no-print ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              >
+                <Printer size={13} aria-hidden="true" /> Print Medical Record
+              </button>
+              <button
+                onClick={async () => {
+                  const token = localStorage.getItem("medcore_token");
+                  const API_BASE =
+                    process.env.NEXT_PUBLIC_API_URL ||
+                    "http://localhost:4000/api/v1";
+                  const res = await fetch(
+                    `${API_BASE}/patients/${patient.id}/ccda`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                  );
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `ccda-${patient.mrNumber}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                aria-label="Export medical record"
+                className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Download size={13} /> Export Medical Record
+              </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
               {patient.age != null && (
@@ -1056,20 +1099,52 @@ function VitalsTrendsTab({ patientId }: { patientId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between rounded-xl bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">Vitals Trends</h2>
-        <div className="flex gap-1">
-          {(["30", "90", "365", "all"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`rounded px-3 py-1 text-xs ${
-                range === r
-                  ? "bg-primary text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {r === "all" ? "All" : `${r}d`}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            {(["30", "90", "365", "all"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`rounded px-3 py-1 text-xs ${
+                  range === r
+                    ? "bg-primary text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {r === "all" ? "All" : `${r}d`}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              const token = localStorage.getItem("medcore_token");
+              const API_BASE =
+                process.env.NEXT_PUBLIC_API_URL ||
+                "http://localhost:4000/api/v1";
+              let qs = "";
+              if (range !== "all") {
+                const days = parseInt(range);
+                const from = new Date(Date.now() - days * 86400_000).toISOString();
+                qs = `?from=${from}`;
+              }
+              // Open in new window — backend responds with printable HTML
+              fetch(`${API_BASE}/patients/${patientId}/vitals/pdf${qs}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+                .then((r) => r.text())
+                .then((html) => {
+                  const win = window.open("", "_blank");
+                  if (win) {
+                    win.document.open();
+                    win.document.write(html);
+                    win.document.close();
+                  }
+                });
+            }}
+            className="rounded border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Download Vitals Report
+          </button>
         </div>
       </div>
 
@@ -3374,6 +3449,145 @@ function DocumentUploadForm({
 }
 
 // ───────────────────────────────────────────────────────
+// Problem List Card (top of Patient 360)
+// ───────────────────────────────────────────────────────
+
+interface ProblemItem {
+  id: string;
+  type: "condition" | "allergy" | "diagnosis" | "admission";
+  title: string;
+  severity: string;
+  status: string;
+  lastUpdated: string;
+  source: string;
+  icd10Code?: string | null;
+}
+
+function ProblemListCard({ patientId }: { patientId: string }) {
+  const [items, setItems] = useState<ProblemItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: ProblemItem[] }>(
+          `/ehr/patients/${patientId}/problem-list?activeOnly=true`
+        );
+        setItems(res.data || []);
+      } catch {
+        setItems([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [patientId]);
+
+  if (loading) return null;
+  if (items.length === 0) return null;
+
+  const top = items.slice(0, 5);
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm border-l-4 border-red-500">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-red-600" />
+          Problem List ({items.length})
+        </h3>
+        <Link
+          href={`/dashboard/patients/${patientId}/problem-list`}
+          className="text-xs text-blue-600 hover:underline"
+        >
+          View all
+        </Link>
+      </div>
+      <ul className="space-y-1.5">
+        {top.map((p) => (
+          <li
+            key={`${p.type}-${p.id}`}
+            className="flex items-start gap-2 text-sm"
+          >
+            <span
+              className={`mt-0.5 inline-block w-2 h-2 rounded-full shrink-0 ${
+                p.severity === "LIFE_THREATENING" || p.severity === "SEVERE"
+                  ? "bg-red-500"
+                  : p.severity === "ACTIVE" || p.severity === "RELAPSED"
+                    ? "bg-amber-500"
+                    : "bg-slate-400"
+              }`}
+            />
+            <div className="flex-1 min-w-0">
+              <span className="font-medium text-gray-900">{p.title}</span>
+              <span className="ml-2 text-xs text-gray-500">{p.source}</span>
+            </div>
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
+                p.severity === "LIFE_THREATENING"
+                  ? "bg-red-100 text-red-700"
+                  : p.severity === "SEVERE"
+                    ? "bg-orange-100 text-orange-700"
+                    : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {p.severity}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// DNR / Advance Directive Banner
+// ───────────────────────────────────────────────────────
+
+interface AdvanceDirective {
+  id: string;
+  type: string;
+  effectiveDate: string;
+  expiryDate: string | null;
+  notes: string;
+  active: boolean;
+}
+
+function DnrBanner({ patientId }: { patientId: string }) {
+  const [directives, setDirectives] = useState<AdvanceDirective[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: AdvanceDirective[] }>(
+          `/ehr/patients/${patientId}/advance-directives`
+        );
+        setDirectives((res.data || []).filter((d) => d.active));
+      } catch {
+        setDirectives([]);
+      }
+    })();
+  }, [patientId]);
+
+  const dnr = directives.find(
+    (d) =>
+      d.active &&
+      (d.type === "DNR" || d.type === "DNI" || d.type === "DNA") &&
+      (!d.expiryDate || new Date(d.expiryDate) >= new Date())
+  );
+  if (!dnr) return null;
+  return (
+    <div className="mb-3 rounded-lg bg-red-50 border-2 border-red-500 p-3 flex items-center gap-3">
+      <AlertTriangle className="h-6 w-6 text-red-600 shrink-0" />
+      <div>
+        <div className="font-bold text-red-800">{dnr.type} ORDER ACTIVE</div>
+        <div className="text-sm text-red-700">{dnr.notes}</div>
+        <div className="text-xs text-red-600">
+          Effective: {dnr.effectiveDate.slice(0, 10)}
+          {dnr.expiryDate ? ` · Expires: ${dnr.expiryDate.slice(0, 10)}` : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
 // Patient 360 Tab
 // ───────────────────────────────────────────────────────
 
@@ -3517,6 +3731,7 @@ function Patient360Tab({
 
   return (
     <div className="space-y-4">
+      <ProblemListCard patientId={patientId} />
       {/* Active items row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <ActiveTile

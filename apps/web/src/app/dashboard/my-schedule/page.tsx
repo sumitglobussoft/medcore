@@ -145,6 +145,8 @@ export default function MySchedulePage() {
         </div>
       </div>
 
+      <MyCertificationsPanel userId={user?.id} />
+
       {loading ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
           Loading...
@@ -368,6 +370,79 @@ export default function MySchedulePage() {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+interface MyCert {
+  id: string;
+  type: string;
+  title: string;
+  expiryDate: string | null;
+  status: string;
+}
+
+function MyCertificationsPanel({ userId }: { userId: string | undefined }) {
+  const [certs, setCerts] = useState<MyCert[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      try {
+        const res = await api.get<{ data: MyCert[] }>(
+          `/hr-ops/certifications?userId=${userId}`
+        );
+        setCerts(res.data || []);
+      } catch {
+        setCerts([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [userId]);
+
+  if (loading) return null;
+  if (certs.length === 0) return null;
+
+  const now = new Date();
+  return (
+    <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
+      <h2 className="text-sm font-semibold mb-3">My Certifications</h2>
+      <ul className="divide-y divide-slate-100 text-sm">
+        {certs.map((c) => {
+          const days = c.expiryDate
+            ? Math.round(
+                (new Date(c.expiryDate).getTime() - now.getTime()) / 86400000
+              )
+            : null;
+          const color =
+            days === null
+              ? "text-slate-500"
+              : days < 0
+                ? "text-red-600"
+                : days <= 30
+                  ? "text-amber-600"
+                  : "text-green-700";
+          return (
+            <li key={c.id} className="py-2 flex items-center justify-between">
+              <div>
+                <div className="font-medium">{c.title}</div>
+                <div className="text-xs text-slate-500">
+                  {c.type.replace(/_/g, " ")}
+                </div>
+              </div>
+              <div className={`text-xs ${color}`}>
+                {c.expiryDate
+                  ? days! < 0
+                    ? `Expired ${-days!}d ago`
+                    : `${days}d left`
+                  : "No expiry"}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

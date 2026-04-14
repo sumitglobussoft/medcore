@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { DollarSign, Receipt, AlertCircle, TrendingUp } from "lucide-react";
+import { DollarSign, Receipt, AlertCircle, TrendingUp, History } from "lucide-react";
 
 interface DailyReport {
   totalCollection: number;
@@ -34,12 +34,31 @@ const MODE_BG_LIGHT: Record<string, string> = {
   ONLINE: "bg-amber-100 text-amber-700",
 };
 
+interface ReportRun {
+  id: string;
+  reportType: string;
+  generatedAt: string;
+  status: string;
+  parameters?: unknown;
+  snapshot?: unknown;
+  scheduledReport?: { id: string; name: string } | null;
+  sentTo?: string[] | null;
+  error?: string | null;
+}
+
 export default function ReportsPage() {
   const { user } = useAuthStore();
   const router = useRouter();
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"daily" | "history">("daily");
+
+  // Report history
+  const [runs, setRuns] = useState<ReportRun[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [selectedRun, setSelectedRun] = useState<ReportRun | null>(null);
+  const [typeFilter, setTypeFilter] = useState("");
 
   useEffect(() => {
     if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") {
@@ -48,11 +67,7 @@ export default function ReportsPage() {
     }
   }, [user, router]);
 
-  useEffect(() => {
-    loadReport();
-  }, [date]);
-
-  async function loadReport() {
+  const loadReport = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get<{ data: DailyReport }>(
@@ -60,7 +75,6 @@ export default function ReportsPage() {
       );
       setReport(res.data);
     } catch {
-      // If the endpoint doesn't exist yet, show empty state
       setReport({
         totalCollection: 0,
         transactionCount: 0,
@@ -70,7 +84,31 @@ export default function ReportsPage() {
       });
     }
     setLoading(false);
-  }
+  }, [date]);
+
+  const loadRuns = useCallback(async () => {
+    setRunsLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if (typeFilter) qs.set("type", typeFilter);
+      const res = await api.get<{ data: ReportRun[] }>(
+        `/analytics/report-runs?${qs.toString()}`
+      );
+      setRuns(res.data || []);
+    } catch {
+      setRuns([]);
+    }
+    setRunsLoading(false);
+  }, [typeFilter]);
+
+  useEffect(() => {
+    if (tab === "daily") {
+      loadReport();
+    } else {
+      loadRuns();
+    }
+  }, [tab, loadReport, loadRuns]);
 
   if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") return null;
 
@@ -83,15 +121,157 @@ export default function ReportsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Billing Reports</h1>
-          <p className="text-sm text-gray-500">Daily collection summary</p>
+          <p className="text-sm text-gray-500">Daily collection summary and generation history</p>
         </div>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border px-4 py-2 text-sm"
-        />
+        {tab === "daily" && (
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded-lg border px-4 py-2 text-sm"
+          />
+        )}
       </div>
+
+      {/* Tabs */}
+      <div className="mb-4 flex gap-2 border-b">
+        <button
+          onClick={() => setTab("daily")}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === "daily"
+              ? "border-b-2 border-primary text-primary"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Daily Collection
+        </button>
+        <button
+          onClick={() => setTab("history")}
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === "history"
+              ? "border-b-2 border-primary text-primary"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <History size={14} className="mr-1 inline" /> Report History
+        </button>
+      </div>
+
+      {tab === "history" && (
+        <div>
+          <div className="mb-4 flex gap-3">
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="">All Types</option>
+              <option value="DAILY_CENSUS">Daily Census</option>
+              <option value="WEEKLY_REVENUE">Weekly Revenue</option>
+              <option value="MONTHLY_SUMMARY">Monthly Summary</option>
+              <option value="CUSTOM">Custom</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="col-span-2 rounded-xl bg-white shadow-sm">
+              {runsLoading ? (
+                <div className="p-8 text-center text-gray-500">Loading...</div>
+              ) : runs.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">No report runs yet</div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b text-left text-sm text-gray-500">
+                      <th className="px-4 py-3">Generated</th>
+                      <th className="px-4 py-3">Schedule</th>
+                      <th className="px-4 py-3">Type</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runs.map((r) => (
+                      <tr
+                        key={r.id}
+                        onClick={() => setSelectedRun(r)}
+                        className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
+                          selectedRun?.id === r.id ? "bg-blue-50" : ""
+                        }`}
+                      >
+                        <td className="px-4 py-3 text-sm">
+                          {new Date(r.generatedAt).toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {r.scheduledReport?.name ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-sm">{r.reportType}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                              r.status === "SUCCESS"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {r.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="rounded-xl bg-white p-5 shadow-sm">
+              <h3 className="mb-3 text-sm font-semibold">Run Detail</h3>
+              {selectedRun ? (
+                <div className="space-y-2 text-xs">
+                  <p>
+                    <strong>Type:</strong> {selectedRun.reportType}
+                  </p>
+                  <p>
+                    <strong>Generated:</strong>{" "}
+                    {new Date(selectedRun.generatedAt).toLocaleString("en-IN")}
+                  </p>
+                  <p>
+                    <strong>Status:</strong> {selectedRun.status}
+                  </p>
+                  {selectedRun.sentTo && selectedRun.sentTo.length > 0 && (
+                    <p>
+                      <strong>Sent to:</strong> {selectedRun.sentTo.join(", ")}
+                    </p>
+                  )}
+                  {selectedRun.error && (
+                    <p className="text-red-600">
+                      <strong>Error:</strong> {selectedRun.error}
+                    </p>
+                  )}
+                  {selectedRun.parameters ? (
+                    <div>
+                      <p className="mb-1 font-semibold">Parameters</p>
+                      <pre className="max-h-40 overflow-auto rounded bg-gray-50 p-2">
+                        {JSON.stringify(selectedRun.parameters, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
+                  {selectedRun.snapshot ? (
+                    <div>
+                      <p className="mb-1 font-semibold">Snapshot</p>
+                      <pre className="max-h-60 overflow-auto rounded bg-gray-50 p-2">
+                        {JSON.stringify(selectedRun.snapshot, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Select a row to view details</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "daily" && (
+        <div>
 
       {loading ? (
         <div className="p-8 text-center text-gray-500">Loading...</div>
@@ -237,6 +417,8 @@ export default function ReportsPage() {
           </div>
         </>
       ) : null}
+        </div>
+      )}
     </div>
   );
 }

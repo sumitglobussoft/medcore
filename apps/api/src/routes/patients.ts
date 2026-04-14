@@ -230,7 +230,23 @@ router.post(
   validate(recordVitalsSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const analysis = computeVitalsFlags(req.body);
+      // Compute baseline + analysis (considering patient baseline)
+      const { computePatientBaseline, detectSuddenChanges } = await import(
+        "../services/vitals-baseline"
+      );
+      const { computeVitalsFlagsWithBaseline } = await import(
+        "../services/vitals-analysis"
+      );
+      const baseline = await computePatientBaseline(req.params.id);
+      const analysis = computeVitalsFlagsWithBaseline(req.body, {
+        bpSystolic: baseline.bpSystolic,
+        bpDiastolic: baseline.bpDiastolic,
+        pulse: baseline.pulse,
+        spO2: baseline.spO2,
+      });
+
+      // Detect sudden changes vs last 24h
+      const suddenChanges = await detectSuddenChanges(req.params.id, req.body);
 
       const vitals = await prisma.vitals.create({
         data: {
@@ -239,7 +255,8 @@ router.post(
           nurseId: req.user!.userId,
           bmi: analysis.bmi,
           isAbnormal: analysis.isAbnormal,
-          abnormalFlags: analysis.flags.length > 0 ? analysis.flags.join(",") : null,
+          abnormalFlags:
+            analysis.flags.length > 0 ? analysis.flags.join(",") : null,
         },
       });
 
@@ -249,7 +266,10 @@ router.post(
           try {
             const apt = await prisma.appointment.findUnique({
               where: { id: req.body.appointmentId },
-              select: { doctorId: true, patient: { select: { user: { select: { name: true } } } } },
+              select: {
+                doctorId: true,
+                patient: { select: { user: { select: { name: true, phone: true } } } },
+              },
             });
             if (apt?.doctorId) {
               const doc = await prisma.doctor.findUnique({
@@ -264,11 +284,35 @@ router.post(
                     channel: "PUSH" as any,
                     title: "Critical Vitals Alert",
                     message: `${apt.patient?.user?.name || "Patient"}: ${analysis.flags.join(", ")}`,
-                    data: { vitalsId: vitals.id, flags: analysis.flags } as any,
+                    data: {
+                      vitalsId: vitals.id,
+                      flags: analysis.flags,
+                    } as any,
                     sentAt: new Date(),
                   },
                 });
               }
+            }
+
+            // If vitals are critical (e.g. LOW_SPO2), also send an SMS to
+            // the patient per configured template.
+            const patientUser = apt?.patient?.user;
+            if (patientUser?.phone) {
+              const cfg = await prisma.systemConfig.findUnique({
+                where: { key: "vitals_alert_sms_template" },
+              });
+              const tpl =
+                cfg?.value ||
+                "Your recent vitals reading shows {{flags}}. Please contact the clinic for follow-up.";
+              const msg = tpl.replace(
+                "{{flags}}",
+                analysis.critical.join(", ")
+              );
+              const { sendSMS, sendWhatsApp } = await import(
+                "../services/notification"
+              );
+              sendSMS(patientUser.phone, msg).catch(() => undefined);
+              sendWhatsApp(patientUser.phone, msg).catch(() => undefined);
             }
           } catch (e) {
             console.error("vitals-critical-notify", e);
@@ -276,9 +320,58 @@ router.post(
         })().catch(console.error);
       }
 
+      // Fire notification to doctor when sudden changes are detected
+      if (suddenChanges.hasSignificantChange && req.body.appointmentId) {
+        (async () => {
+          try {
+            const apt = await prisma.appointment.findUnique({
+              where: { id: req.body.appointmentId },
+              select: {
+                doctorId: true,
+                patient: { select: { user: { select: { name: true } } } },
+              },
+            });
+            if (apt?.doctorId) {
+              const doc = await prisma.doctor.findUnique({
+                where: { id: apt.doctorId },
+                select: { userId: true },
+              });
+              if (doc?.userId) {
+                const sigs = suddenChanges.changes
+                  .filter((c) => c.significant)
+                  .map((c) => `${c.field}: Δ${c.delta}`)
+                  .join(", ");
+                await prisma.notification.create({
+                  data: {
+                    userId: doc.userId,
+                    type: "APPOINTMENT_REMINDER" as any,
+                    channel: "PUSH" as any,
+                    title: "Sudden Vitals Change",
+                    message: `${apt.patient?.user?.name || "Patient"}: ${sigs}`,
+                    data: {
+                      vitalsId: vitals.id,
+                      changes: suddenChanges.changes,
+                    } as any,
+                    sentAt: new Date(),
+                  },
+                });
+              }
+            }
+          } catch (e) {
+            console.error("vitals-sudden-notify", e);
+          }
+        })().catch(console.error);
+      }
+
       res.status(201).json({
         success: true,
-        data: { ...vitals, analysis },
+        data: {
+          ...vitals,
+          analysis,
+          changes: suddenChanges.changes,
+          previousRecordedAt: suddenChanges.previousRecordedAt,
+          baseline,
+        },
         error: null,
       });
     } catch (err) {
@@ -1072,6 +1165,105 @@ router.delete(
         console.error
       );
       res.json({ success: true, data: { unlinked: true }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/renal-function
+// Latest creatinine + Cockcroft-Gault eGFR estimate
+router.get(
+  "/:id/renal-function",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patient = await prisma.patient.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, dateOfBirth: true, age: true, gender: true },
+      });
+      if (!patient) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+
+      // Find latest creatinine lab result (parameter includes 'creatinine', case-insensitive)
+      const recentResults = await prisma.labResult.findMany({
+        where: {
+          parameter: { contains: "reatinine", mode: "insensitive" },
+          orderItem: { order: { patientId: patient.id } },
+        },
+        orderBy: { reportedAt: "desc" },
+        take: 1,
+        include: {
+          orderItem: {
+            select: {
+              order: {
+                select: { orderedAt: true, orderNumber: true },
+              },
+            },
+          },
+        },
+      });
+
+      const latest = recentResults[0] ?? null;
+      const creatinineMgDl = latest ? parseFloat(latest.value) : null;
+
+      // Get latest weight from vitals for CrCl calc
+      const latestVitals = await prisma.vitals.findFirst({
+        where: { patientId: patient.id, weight: { not: null } },
+        orderBy: { recordedAt: "desc" },
+        select: { weight: true, recordedAt: true },
+      });
+
+      const ageYears =
+        patient.age ??
+        (patient.dateOfBirth
+          ? Math.floor(
+              (Date.now() - patient.dateOfBirth.getTime()) /
+                (365.25 * 24 * 3600 * 1000)
+            )
+          : null);
+      const genderMale = patient.gender === "MALE";
+      const weightKg = latestVitals?.weight ?? null;
+
+      let crcl: number | null = null;
+      if (creatinineMgDl && creatinineMgDl > 0 && ageYears && weightKg) {
+        let v = ((140 - ageYears) * weightKg) / (72 * creatinineMgDl);
+        if (!genderMale) v *= 0.85;
+        crcl = Math.round(v * 10) / 10;
+      }
+
+      let stage: string | null = null;
+      if (crcl !== null) {
+        if (crcl < 15) stage = "KIDNEY_FAILURE";
+        else if (crcl < 30) stage = "SEVERE";
+        else if (crcl < 60) stage = "MODERATE";
+        else if (crcl < 90) stage = "MILD";
+        else stage = "NORMAL";
+      }
+
+      res.json({
+        success: true,
+        data: {
+          patientId: patient.id,
+          ageYears,
+          genderMale,
+          weightKg,
+          latestCreatinine: latest
+            ? {
+                value: creatinineMgDl,
+                unit: latest.unit,
+                reportedAt: latest.reportedAt,
+                orderNumber: latest.orderItem.order.orderNumber,
+              }
+            : null,
+          crClMlPerMin: crcl,
+          ckdStage: stage,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

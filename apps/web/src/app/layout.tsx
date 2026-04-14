@@ -1,9 +1,28 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ToastContainer } from "@/components/Toast";
+import { ThemeBootstrap } from "@/components/ThemeBootstrap";
 
 export const metadata: Metadata = {
   title: "MedCore - Hospital Operations",
   description: "Hospital Operations Automation System",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    title: "MedCore",
+    capable: true,
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2563eb",
 };
 
 export default function RootLayout({
@@ -12,8 +31,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-bg min-h-screen antialiased">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Inline script to apply theme before hydration — prevents flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var m=localStorage.getItem('medcore_theme')||'system';var d=m==='dark'||(m==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark';}}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body className="bg-bg min-h-screen antialiased text-gray-900 dark:text-gray-100">
+        <a href="#main-content" className="skip-link">
+          Skip to main content
+        </a>
+        <ThemeBootstrap />
+        {children}
+        <ToastContainer />
+      </body>
     </html>
   );
 }

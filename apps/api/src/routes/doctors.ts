@@ -94,13 +94,15 @@ router.get(
         const startTime = override?.startTime || schedule.startTime;
         const endTime = override?.endTime || schedule.endTime;
         const duration = schedule.slotDurationMinutes || DEFAULT_SLOT_DURATION_MINUTES;
+        const buffer = schedule.bufferMinutes || 0;
+        const step = duration + buffer;
 
         const [startH, startM] = startTime.split(":").map(Number);
         const [endH, endM] = endTime.split(":").map(Number);
         const startMinutes = startH * 60 + startM;
         const endMinutes = endH * 60 + endM;
 
-        for (let m = startMinutes; m + duration <= endMinutes; m += duration) {
+        for (let m = startMinutes; m + duration <= endMinutes; m += step) {
           const slotStart = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
           const slotEndMin = m + duration;
           const slotEnd = `${String(Math.floor(slotEndMin / 60)).padStart(2, "0")}:${String(slotEndMin % 60).padStart(2, "0")}`;
@@ -142,6 +144,7 @@ router.post(
         update: {
           endTime: req.body.endTime,
           slotDurationMinutes: req.body.slotDurationMinutes,
+          bufferMinutes: req.body.bufferMinutes ?? 0,
         },
         create: {
           doctorId: req.params.id,
@@ -149,6 +152,7 @@ router.post(
           startTime: req.body.startTime,
           endTime: req.body.endTime,
           slotDurationMinutes: req.body.slotDurationMinutes,
+          bufferMinutes: req.body.bufferMinutes ?? 0,
         },
       });
 

@@ -1,0 +1,223 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { api } from "@/lib/api";
+import { Percent } from "lucide-react";
+
+type Tab = "PENDING" | "APPROVED" | "REJECTED";
+
+interface ApprovalRow {
+  id: string;
+  amount: number;
+  percentage?: number | null;
+  reason: string;
+  status: string;
+  createdAt: string;
+  rejectionReason?: string | null;
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    totalAmount: number;
+    patient: {
+      mrNumber: string;
+      user: { name: string; phone: string };
+    };
+  };
+}
+
+function fmtMoney(n: number) {
+  return `Rs. ${n.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+export default function DiscountApprovalsPage() {
+  const [tab, setTab] = useState<Tab>("PENDING");
+  const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: ApprovalRow[] }>(
+        `/billing/discount-approvals?status=${tab}`
+      );
+      setRows(res.data);
+    } catch {
+      // ignore
+    }
+    setLoading(false);
+  }, [tab]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function approve(id: string) {
+    if (!confirm("Approve this discount?")) return;
+    setActing(id);
+    try {
+      await api.post(`/billing/discount-approvals/${id}/approve`);
+      await load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setActing(null);
+  }
+
+  async function reject(id: string) {
+    const reason = prompt("Rejection reason:");
+    if (!reason) return;
+    setActing(id);
+    try {
+      await api.post(`/billing/discount-approvals/${id}/reject`, {
+        rejectionReason: reason,
+      });
+      await load();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setActing(null);
+  }
+
+  const tabClass = (t: Tab) =>
+    `px-4 py-2 text-sm font-medium rounded-lg transition ${
+      tab === t
+        ? "bg-primary text-white"
+        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+    }`;
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <Percent className="text-primary" /> Discount Approvals
+        </h1>
+        <p className="text-sm text-gray-500">
+          Approve or reject pending discount requests
+        </p>
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        <button onClick={() => setTab("PENDING")} className={tabClass("PENDING")}>
+          Pending
+        </button>
+        <button
+          onClick={() => setTab("APPROVED")}
+          className={tabClass("APPROVED")}
+        >
+          Approved
+        </button>
+        <button
+          onClick={() => setTab("REJECTED")}
+          className={tabClass("REJECTED")}
+        >
+          Rejected
+        </button>
+      </div>
+
+      <div className="rounded-xl bg-white shadow-sm">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500">Loading...</div>
+        ) : rows.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            No {tab.toLowerCase()} approvals.
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b text-left text-sm text-gray-500">
+                <th className="px-4 py-3">Requested</th>
+                <th className="px-4 py-3">Invoice</th>
+                <th className="px-4 py-3">Patient</th>
+                <th className="px-4 py-3">Amount</th>
+                <th className="px-4 py-3">%</th>
+                <th className="px-4 py-3">Reason</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-b last:border-0">
+                  <td className="px-4 py-3 text-sm">
+                    {new Date(r.createdAt).toLocaleString("en-IN")}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/dashboard/billing/${r.invoice.id}`}
+                      className="font-mono text-sm text-primary hover:underline"
+                    >
+                      {r.invoice.invoiceNumber}
+                    </Link>
+                    <p className="text-xs text-gray-500">
+                      {fmtMoney(r.invoice.totalAmount)}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium">
+                      {r.invoice.patient.user.name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {r.invoice.patient.mrNumber}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-orange-700">
+                    {fmtMoney(r.amount)}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {r.percentage != null ? `${r.percentage}%` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {r.reason}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        r.status === "APPROVED"
+                          ? "bg-green-100 text-green-700"
+                          : r.status === "REJECTED"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-yellow-100 text-yellow-700"
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                    {r.rejectionReason && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {r.rejectionReason}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {r.status === "PENDING" && (
+                      <div className="flex gap-2">
+                        <button
+                          disabled={acting === r.id}
+                          onClick={() => approve(r.id)}
+                          className="rounded bg-green-500 px-3 py-1 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          disabled={acting === r.id}
+                          onClick={() => reject(r.id)}
+                          className="rounded bg-red-500 px-3 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

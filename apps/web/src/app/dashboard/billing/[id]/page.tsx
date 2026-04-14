@@ -12,6 +12,8 @@ import {
   Percent,
   Undo2,
   Receipt,
+  CreditCard,
+  X,
 } from "lucide-react";
 
 interface InvoiceDetail {
@@ -22,6 +24,8 @@ interface InvoiceDetail {
   taxAmount: number;
   discountAmount: number;
   paymentStatus: string;
+  lateFeeAmount: number;
+  lateFeeAppliedAt?: string | null;
   notes: string | null;
   createdAt: string;
   patient: {
@@ -94,6 +98,15 @@ export default function InvoiceDetailPage() {
   const [refundReason, setRefundReason] = useState("");
   const [refundSubmitting, setRefundSubmitting] = useState(false);
 
+  // Pending discount approvals + payment plan modal
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{
+    id: string;
+    amount: number;
+    percentage?: number | null;
+    reason: string;
+  }>>([]);
+  const [planOpen, setPlanOpen] = useState(false);
+
   const loadInvoice = useCallback(async () => {
     setLoading(true);
     try {
@@ -101,6 +114,19 @@ export default function InvoiceDetailPage() {
         `/billing/invoices/${id}`
       );
       setInvoice(res.data);
+      try {
+        const a = await api.get<{
+          data: Array<{
+            id: string;
+            amount: number;
+            percentage?: number | null;
+            reason: string;
+          }>;
+        }>(`/billing/discount-approvals?status=PENDING&invoiceId=${id}`);
+        setPendingApprovals(a.data || []);
+      } catch {
+        setPendingApprovals([]);
+      }
     } catch {
       // empty
     }
@@ -299,6 +325,14 @@ export default function InvoiceDetailPage() {
               <Undo2 size={14} /> Record Refund
             </button>
           )}
+          {balance > 0 && (
+            <button
+              onClick={() => setPlanOpen(true)}
+              className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
+            >
+              <CreditCard size={14} /> Create Plan
+            </button>
+          )}
           <button
             onClick={() => window.print()}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
@@ -308,11 +342,53 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
+      {/* Pending discount approval badge */}
+      {pendingApprovals.length > 0 && (
+        <div className="no-print mx-auto mb-3 max-w-3xl rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
+          <strong>Discount Pending Approval:</strong>{" "}
+          {pendingApprovals.map((p) => (
+            <span key={p.id}>
+              Rs.{p.amount.toFixed(2)}
+              {p.percentage != null ? ` (${p.percentage}%)` : ""} — {p.reason};{" "}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {invoice.lateFeeAmount > 0 && (
+        <div className="no-print mx-auto mb-3 max-w-3xl rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+          <strong>Late fee:</strong> Rs.{invoice.lateFeeAmount.toFixed(2)}{" "}
+          applied.
+        </div>
+      )}
+
       {/* Invoice content */}
       <div
         id="invoice-print"
-        className="mx-auto max-w-3xl rounded-xl bg-white p-8 shadow-sm"
+        className="relative mx-auto max-w-3xl overflow-hidden rounded-xl bg-white p-8 shadow-sm"
       >
+        {/* Watermark overlays */}
+        {invoice.paymentStatus === "CANCELLED" && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <span className="select-none rotate-[-30deg] text-[8rem] font-black text-red-500/20">
+              CANCELLED
+            </span>
+          </div>
+        )}
+        {invoice.paymentStatus === "PAID" && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <span className="select-none rotate-[-30deg] text-[8rem] font-black text-green-500/15">
+              PAID
+            </span>
+          </div>
+        )}
+        {pendingApprovals.length > 0 && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <span className="select-none rotate-[-30deg] text-[8rem] font-black text-orange-500/20">
+              DRAFT
+            </span>
+          </div>
+        )}
         {/* Header */}
         <div className="mb-8 border-b pb-6">
           <div className="flex items-start justify-between">
@@ -848,6 +924,152 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       )}
+
+      {planOpen && invoice && (
+        <CreatePlanModal
+          invoiceId={invoice.id}
+          balance={balance}
+          onClose={() => setPlanOpen(false)}
+          onSaved={loadInvoice}
+        />
+      )}
     </>
+  );
+}
+
+function CreatePlanModal({
+  invoiceId,
+  balance,
+  onClose,
+  onSaved,
+}: {
+  invoiceId: string;
+  balance: number;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [downPayment, setDownPayment] = useState("0");
+  const [installments, setInstallments] = useState("3");
+  const [frequency, setFrequency] = useState("MONTHLY");
+  const [startDate, setStartDate] = useState(
+    new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post("/payment-plans", {
+        invoiceId,
+        downPayment: parseFloat(downPayment || "0"),
+        installments: parseInt(installments, 10),
+        frequency,
+        startDate,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+    setSaving(false);
+  }
+
+  const afterDown = Math.max(0, balance - parseFloat(downPayment || "0"));
+  const n = parseInt(installments, 10) || 1;
+  const each = afterDown / n;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Create Payment Plan</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1 hover:bg-gray-100"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="space-y-3 text-sm">
+          <p className="rounded bg-gray-50 p-2 text-xs text-gray-600">
+            Outstanding balance: {fmtMoney(balance)}
+          </p>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Down Payment
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={downPayment}
+              onChange={(e) => setDownPayment(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Installments
+            </label>
+            <input
+              type="number"
+              min={2}
+              max={60}
+              value={installments}
+              onChange={(e) => setInstallments(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Frequency</label>
+            <select
+              value={frequency}
+              onChange={(e) => setFrequency(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+            >
+              <option value="MONTHLY">Monthly</option>
+              <option value="BIWEEKLY">Bi-weekly</option>
+              <option value="WEEKLY">Weekly</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </div>
+          <p className="rounded bg-blue-50 p-2 text-xs text-blue-700">
+            Each installment: {fmtMoney(each)}
+          </p>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {saving ? "Creating..." : "Create Plan"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

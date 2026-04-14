@@ -473,6 +473,345 @@ export default function PediatricDetailPage() {
           </table>
         )}
       </div>
+
+      {/* New Apr 2026 panels */}
+      <FttBanner patientId={patientId} />
+      <MilestonesPanel patientId={patientId} canEdit={canEdit} />
+      <FeedingLogPanel patientId={patientId} canEdit={canEdit} />
+    </div>
+  );
+}
+
+// ─── Failure-to-Thrive banner ──────────────────────────
+
+function FttBanner({ patientId }: { patientId: string }) {
+  const [data, setData] = useState<{
+    isFTT: boolean;
+    reasons: string[];
+    suggestions: string[];
+    currentPercentile: number | null;
+    velocityKgPerMonth: number | null;
+    expectedVelocityKgPerMonth: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    api
+      .get<{ data: typeof data }>(`/growth/patient/${patientId}/ftt-check`)
+      .then((r) => setData(r.data))
+      .catch(() => setData(null));
+  }, [patientId]);
+
+  if (!data || !data.isFTT) return null;
+
+  return (
+    <div className="mb-6 rounded-xl border-l-4 border-red-500 bg-red-50 p-5">
+      <h3 className="font-semibold text-red-800">⚠ Failure to Thrive Detected</h3>
+      <ul className="mt-2 list-disc pl-6 text-sm text-red-700">
+        {data.reasons.map((r, i) => (
+          <li key={i}>{r}</li>
+        ))}
+      </ul>
+      {data.suggestions.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold text-red-900">Suggestions</p>
+          <ul className="list-disc pl-6 text-xs text-red-800">
+            {data.suggestions.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Milestones panel ──────────────────────────────────
+
+interface MilestoneDiffItem {
+  ageMonths: number;
+  domain: string;
+  milestone: string;
+  status: "ACHIEVED" | "EXPECTED_NOT_ACHIEVED" | "UPCOMING" | "NOT_YET";
+  achieved: boolean;
+  achievedAt: string | null;
+}
+
+function MilestonesPanel({
+  patientId,
+  canEdit,
+}: {
+  patientId: string;
+  canEdit: boolean;
+}) {
+  const [items, setItems] = useState<MilestoneDiffItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await api.get<{
+        data: { summary: { total: number; achieved: number; expectedNotAchieved: number }; diff: MilestoneDiffItem[] };
+      }>(`/growth/patient/${patientId}/milestones`);
+      setItems(res.data.diff);
+    } catch {
+      setItems([]);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, [patientId]);
+
+  async function toggle(item: MilestoneDiffItem, newAchieved: boolean) {
+    try {
+      await api.post(`/growth/milestones`, {
+        patientId,
+        ageMonths: item.ageMonths,
+        domain: item.domain,
+        milestone: item.milestone,
+        achieved: newAchieved,
+      });
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  const byDomain = new Map<string, MilestoneDiffItem[]>();
+  for (const it of items) {
+    const arr = byDomain.get(it.domain) ?? [];
+    arr.push(it);
+    byDomain.set(it.domain, arr);
+  }
+
+  return (
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <h3 className="mb-3 font-semibold">Developmental Milestones</h3>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading...</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-gray-500">No data.</p>
+      ) : (
+        <div className="space-y-4">
+          {Array.from(byDomain.entries()).map(([domain, list]) => (
+            <div key={domain}>
+              <p className="mb-2 text-xs font-semibold uppercase text-gray-600">
+                {domain.replace("_", " ")}
+              </p>
+              <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
+                {list.map((it, i) => {
+                  const statusColor =
+                    it.status === "ACHIEVED"
+                      ? "border-green-300 bg-green-50"
+                      : it.status === "EXPECTED_NOT_ACHIEVED"
+                        ? "border-red-300 bg-red-50"
+                        : "border-gray-200 bg-white";
+                  return (
+                    <label
+                      key={i}
+                      className={`flex items-center gap-2 rounded border px-3 py-1.5 text-sm ${statusColor}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={it.achieved}
+                        disabled={!canEdit}
+                        onChange={(e) => toggle(it, e.target.checked)}
+                      />
+                      <span className="text-xs text-gray-500">
+                        {it.ageMonths}m
+                      </span>
+                      <span className="flex-1">{it.milestone}</span>
+                      {it.status === "EXPECTED_NOT_ACHIEVED" && (
+                        <span className="text-xs font-semibold text-red-700">
+                          OVERDUE
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Feeding Log panel ─────────────────────────────────
+
+interface FeedingLogItem {
+  id: string;
+  loggedAt: string;
+  feedType: string;
+  durationMin?: number | null;
+  volumeMl?: number | null;
+  foodItem?: string | null;
+  notes?: string | null;
+}
+
+function FeedingLogPanel({
+  patientId,
+  canEdit,
+}: {
+  patientId: string;
+  canEdit: boolean;
+}) {
+  const [logs, setLogs] = useState<FeedingLogItem[]>([]);
+  const [daily, setDaily] = useState<
+    Array<{ date: string; feeds: number; totalVolumeMl: number; totalDurationMin: number }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({
+    feedType: "BREAST_LEFT",
+    durationMin: "",
+    volumeMl: "",
+    foodItem: "",
+    notes: "",
+  });
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await api.get<{
+        data: { logs: FeedingLogItem[]; daily: typeof daily };
+      }>(`/growth/patient/${patientId}/feeding?limit=100`);
+      setLogs(res.data.logs);
+      setDaily(res.data.daily);
+    } catch {
+      setLogs([]);
+      setDaily([]);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, [patientId]);
+
+  async function add() {
+    try {
+      await api.post(`/growth/patient/${patientId}/feeding`, {
+        feedType: form.feedType,
+        durationMin: form.durationMin ? Number(form.durationMin) : undefined,
+        volumeMl: form.volumeMl ? Number(form.volumeMl) : undefined,
+        foodItem: form.foodItem || undefined,
+        notes: form.notes || undefined,
+      });
+      setForm({ feedType: "BREAST_LEFT", durationMin: "", volumeMl: "", foodItem: "", notes: "" });
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  return (
+    <div className="mb-6 rounded-xl bg-white p-5 shadow-sm">
+      <h3 className="mb-3 font-semibold">Feeding Log</h3>
+      {canEdit && (
+        <div className="mb-4 rounded-lg border bg-gray-50 p-3">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+            <select
+              value={form.feedType}
+              onChange={(e) => setForm({ ...form, feedType: e.target.value })}
+              className="rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="BREAST_LEFT">Breast (L)</option>
+              <option value="BREAST_RIGHT">Breast (R)</option>
+              <option value="BOTTLE_FORMULA">Formula</option>
+              <option value="BOTTLE_EBM">EBM</option>
+              <option value="SOLID_FOOD">Solid food</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Duration (min)"
+              value={form.durationMin}
+              onChange={(e) => setForm({ ...form, durationMin: e.target.value })}
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+            <input
+              type="number"
+              placeholder="Volume (ml)"
+              value={form.volumeMl}
+              onChange={(e) => setForm({ ...form, volumeMl: e.target.value })}
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+            <input
+              placeholder="Food item (if solid)"
+              value={form.foodItem}
+              onChange={(e) => setForm({ ...form, foodItem: e.target.value })}
+              className="rounded-lg border px-3 py-2 text-sm"
+            />
+            <button
+              onClick={add}
+              className="rounded-lg bg-primary px-3 py-2 text-sm text-white"
+            >
+              Log feed
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading...</p>
+      ) : (
+        <>
+          {daily.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-2 text-xs font-semibold text-gray-600">
+                Daily Summary (last {daily.length} days)
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {daily.slice(-7).map((d) => (
+                  <div
+                    key={d.date}
+                    className="rounded border bg-gray-50 px-2 py-1"
+                  >
+                    <div className="font-semibold">{d.date}</div>
+                    <div>{d.feeds} feeds · {d.totalVolumeMl}ml</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {logs.length === 0 ? (
+            <p className="text-sm text-gray-500">No feeds logged yet.</p>
+          ) : (
+            <div className="max-h-80 overflow-y-auto">
+              <table className="min-w-full text-xs">
+                <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-2 py-1 text-left">Time</th>
+                    <th className="px-2 py-1 text-left">Type</th>
+                    <th className="px-2 py-1">Duration</th>
+                    <th className="px-2 py-1">Volume</th>
+                    <th className="px-2 py-1 text-left">Food</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((l) => (
+                    <tr key={l.id} className="border-t">
+                      <td className="px-2 py-1">
+                        {new Date(l.loggedAt).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1">{l.feedType.replace("_", " ")}</td>
+                      <td className="px-2 py-1 text-center">
+                        {l.durationMin ? `${l.durationMin}m` : "-"}
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        {l.volumeMl ? `${l.volumeMl}ml` : "-"}
+                      </td>
+                      <td className="px-2 py-1">{l.foodItem ?? "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

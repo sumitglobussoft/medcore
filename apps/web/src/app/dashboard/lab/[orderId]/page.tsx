@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { ArrowLeft, FlaskConical } from "lucide-react";
+import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
 
 interface LabTest {
   id: string;
@@ -107,12 +107,14 @@ export default function LabOrderPage({
 
   return (
     <div>
-      <Link
-        href="/dashboard/lab"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800"
-      >
-        <ArrowLeft size={14} /> Back to Lab Orders
-      </Link>
+      <div className="no-print">
+        <Link
+          href="/dashboard/lab"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800"
+        >
+          <ArrowLeft size={14} /> Back to Lab Orders
+        </Link>
+      </div>
 
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -125,11 +127,20 @@ export default function LabOrderPage({
               Ordered {new Date(order.orderedAt).toLocaleString()}
             </p>
           </div>
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_COLORS[order.status] || ""}`}
-          >
-            {order.status.replace(/_/g, " ")}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.print()}
+              aria-label="Print lab report"
+              className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+            >
+              <Printer size={14} aria-hidden="true" /> Print Report
+            </button>
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS_COLORS[order.status] || ""}`}
+            >
+              {order.status.replace(/_/g, " ")}
+            </span>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -982,6 +982,23 @@ router.get("/er/performance", async (req: Request, res: Response, next: NextFunc
 
     const criticalCases = (byTriage.RESUSCITATION || 0) + (byTriage.EMERGENT || 0);
 
+    // ── LWBS (Left Without Being Seen) rate ──
+    // LWBS appointments in the same window: NO_SHOW with lwbsReason set
+    const appointmentsInRange = await prisma.appointment.count({
+      where: { date: { gte: from, lte: to } },
+    });
+    const lwbsCount = await prisma.appointment.count({
+      where: {
+        date: { gte: from, lte: to },
+        status: "NO_SHOW",
+        lwbsReason: { not: null },
+      },
+    });
+    const lwbsRate =
+      appointmentsInRange > 0
+        ? +((lwbsCount / appointmentsInRange) * 100).toFixed(2)
+        : 0;
+
     res.json({
       success: true,
       data: {
@@ -991,6 +1008,9 @@ router.get("/er/performance", async (req: Request, res: Response, next: NextFunc
         avgWaitToDoctorMin,
         byTriage,
         byDisposition,
+        lwbsCount,
+        lwbsRate,
+        appointmentsInRange,
       },
       error: null,
     });
@@ -1415,5 +1435,430 @@ router.get("/export/patients.csv", async (_req: Request, res: Response, next: Ne
     next(err);
   }
 });
+
+// ─── GET /analytics/benchmarks ──────────────────────
+
+async function metricTotalForRange(
+  metric: string,
+  from: Date,
+  to: Date
+): Promise<number> {
+  if (metric === "revenue") {
+    const agg = await prisma.payment.aggregate({
+      where: { paidAt: { gte: from, lte: to } },
+      _sum: { amount: true },
+    });
+    return agg._sum.amount ?? 0;
+  }
+  if (metric === "appointments") {
+    return prisma.appointment.count({ where: { date: { gte: from, lte: to } } });
+  }
+  if (metric === "admissions") {
+    return prisma.admission.count({
+      where: { admittedAt: { gte: from, lte: to } },
+    });
+  }
+  return 0;
+}
+
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if (sorted[base + 1] !== undefined) {
+    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  }
+  return sorted[base];
+}
+
+router.get(
+  "/benchmarks",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const metric = (req.query.metric as string) || "revenue";
+      if (!["revenue", "appointments", "admissions"].includes(metric)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "metric must be revenue | appointments | admissions",
+        });
+        return;
+      }
+      const period = (req.query.period as string) || "day"; // day | week | month
+
+      const periodDays = period === "week" ? 7 : period === "month" ? 30 : 1;
+      const now = new Date();
+      const currentTo = new Date(now);
+      const currentFrom = new Date(now);
+      currentFrom.setDate(currentFrom.getDate() - periodDays + 1);
+      currentFrom.setHours(0, 0, 0, 0);
+
+      const priorTo = new Date(currentFrom.getTime() - 1);
+      const priorFrom = new Date(priorTo);
+      priorFrom.setDate(priorFrom.getDate() - periodDays + 1);
+      priorFrom.setHours(0, 0, 0, 0);
+
+      const yoyFrom = new Date(currentFrom);
+      yoyFrom.setFullYear(yoyFrom.getFullYear() - 1);
+      const yoyTo = new Date(currentTo);
+      yoyTo.setFullYear(yoyTo.getFullYear() - 1);
+
+      const [current, prior, yoy] = await Promise.all([
+        metricTotalForRange(metric, currentFrom, currentTo),
+        metricTotalForRange(metric, priorFrom, priorTo),
+        metricTotalForRange(metric, yoyFrom, yoyTo),
+      ]);
+
+      const yearAgo = new Date(now);
+      yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+      yearAgo.setHours(0, 0, 0, 0);
+
+      const samples: number[] = [];
+      const sampleCount = period === "day" ? 90 : period === "week" ? 52 : 12;
+      for (let i = 1; i <= sampleCount; i++) {
+        const sTo = new Date(currentFrom);
+        sTo.setDate(sTo.getDate() - i * periodDays);
+        sTo.setHours(23, 59, 59, 999);
+        const sFrom = new Date(sTo);
+        sFrom.setDate(sFrom.getDate() - periodDays + 1);
+        sFrom.setHours(0, 0, 0, 0);
+        if (sFrom < yearAgo) break;
+        const v = await metricTotalForRange(metric, sFrom, sTo);
+        samples.push(v);
+      }
+
+      const rolling3 =
+        samples.length >= 3
+          ? samples.slice(0, 3).reduce((a, b) => a + b, 0) / 3
+          : samples.length
+          ? samples.reduce((a, b) => a + b, 0) / samples.length
+          : 0;
+
+      const sortedSamples = [...samples].sort((a, b) => a - b);
+      const belowOrEqual = sortedSamples.filter((v) => v <= current).length;
+      const percentile = sortedSamples.length
+        ? Math.round((belowOrEqual / sortedSamples.length) * 100)
+        : 50;
+
+      let label = "Typical";
+      if (percentile >= 90) label = "Above 90th percentile";
+      else if (percentile >= 75) label = "Above typical";
+      else if (percentile <= 10) label = "Below 10th percentile";
+      else if (percentile <= 25) label = "Below typical";
+
+      res.json({
+        success: true,
+        data: {
+          metric,
+          period,
+          current,
+          prior,
+          yoy,
+          rolling3Avg: +rolling3.toFixed(2),
+          percentile,
+          label,
+          deltaVsPriorPct: deltaPct(current, prior),
+          deltaVsYoyPct: deltaPct(current, yoy),
+          p10: +quantile(sortedSamples, 0.1).toFixed(2),
+          p25: +quantile(sortedSamples, 0.25).toFixed(2),
+          p50: +quantile(sortedSamples, 0.5).toFixed(2),
+          p75: +quantile(sortedSamples, 0.75).toFixed(2),
+          p90: +quantile(sortedSamples, 0.9).toFixed(2),
+          sampleCount: sortedSamples.length,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── GET /analytics/forecast ────────────────────────
+
+router.get(
+  "/forecast",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const metric = (req.query.metric as string) || "appointments";
+      if (!["appointments", "revenue"].includes(metric)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "metric must be appointments | revenue",
+        });
+        return;
+      }
+      const periods = Math.max(
+        1,
+        Math.min(30, parseInt((req.query.periods as string) || "7", 10))
+      );
+      const groupBy = parseGroupBy(req);
+
+      const now = new Date();
+      const points: { date: string; value: number }[] = [];
+      const dayMs = 24 * 60 * 60 * 1000;
+      const stepDays = groupBy === "week" ? 7 : groupBy === "month" ? 30 : 1;
+
+      for (let i = 29; i >= 0; i--) {
+        const to = new Date(now.getTime() - i * stepDays * dayMs);
+        to.setHours(23, 59, 59, 999);
+        const from = new Date(to);
+        from.setDate(from.getDate() - stepDays + 1);
+        from.setHours(0, 0, 0, 0);
+        const v = await metricTotalForRange(metric, from, to);
+        points.push({ date: bucketKeyFor(to, groupBy), value: v });
+      }
+
+      const n = points.length;
+      const xs = points.map((_, i) => i);
+      const ys = points.map((p) => p.value);
+      const xMean = xs.reduce((a, b) => a + b, 0) / n;
+      const yMean = ys.reduce((a, b) => a + b, 0) / n;
+      let num = 0,
+        den = 0;
+      for (let i = 0; i < n; i++) {
+        num += (xs[i] - xMean) * (ys[i] - yMean);
+        den += (xs[i] - xMean) ** 2;
+      }
+      const slope = den === 0 ? 0 : num / den;
+      const intercept = yMean - slope * xMean;
+
+      let ssRes = 0,
+        ssTot = 0;
+      for (let i = 0; i < n; i++) {
+        const pred = slope * xs[i] + intercept;
+        ssRes += (ys[i] - pred) ** 2;
+        ssTot += (ys[i] - yMean) ** 2;
+      }
+      const r2 = ssTot === 0 ? 0 : 1 - ssRes / ssTot;
+      const confidence = r2 >= 0.75 ? "high" : r2 >= 0.4 ? "medium" : "low";
+
+      const forecast: { period: string; value: number; confidence: string }[] = [];
+      for (let i = 1; i <= periods; i++) {
+        const x = n - 1 + i;
+        const raw = slope * x + intercept;
+        const futureDate = new Date(now.getTime() + i * stepDays * dayMs);
+        forecast.push({
+          period: bucketKeyFor(futureDate, groupBy),
+          value: Math.max(0, +raw.toFixed(2)),
+          confidence,
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          metric,
+          groupBy,
+          historical: points,
+          forecast,
+          model: {
+            slope: +slope.toFixed(4),
+            intercept: +intercept.toFixed(2),
+            r2: +r2.toFixed(3),
+          },
+          confidence,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Report runs (tracking) ────────────────────────
+
+router.post(
+  "/report-runs",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { reportType, parameters, snapshot, status = "SUCCESS", error } =
+        req.body as {
+          reportType: string;
+          parameters?: Record<string, unknown>;
+          snapshot?: Record<string, unknown>;
+          status?: string;
+          error?: string;
+        };
+      if (!reportType) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "reportType required" });
+        return;
+      }
+      const row = await prisma.reportRun.create({
+        data: {
+          reportType,
+          parameters: (parameters as any) ?? undefined,
+          snapshot: (snapshot as any) ?? undefined,
+          generatedBy: req.user!.userId,
+          status,
+          error: error ?? null,
+        },
+      });
+      res.status(201).json({ success: true, data: row, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/report-runs",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+      const limit = Math.min(
+        100,
+        Math.max(1, parseInt((req.query.limit as string) || "50", 10))
+      );
+      const skip = (page - 1) * limit;
+
+      const where: Record<string, unknown> = {};
+      if (req.query.type) where.reportType = req.query.type;
+      if (req.query.status) where.status = req.query.status;
+
+      const gte = req.query.from ? new Date(req.query.from as string) : null;
+      const lte = req.query.to ? new Date(req.query.to as string) : null;
+      if (gte || lte) {
+        where.generatedAt = {
+          ...(gte ? { gte } : {}),
+          ...(lte ? { lte } : {}),
+        };
+      }
+
+      const [rows, total] = await Promise.all([
+        prisma.reportRun.findMany({
+          where: where as any,
+          skip,
+          take: limit,
+          orderBy: { generatedAt: "desc" },
+          include: {
+            scheduledReport: { select: { id: true, name: true } },
+          },
+        }),
+        prisma.reportRun.count({ where: where as any }),
+      ]);
+
+      res.json({
+        success: true,
+        data: rows,
+        error: null,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/report-runs/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const row = await prisma.reportRun.findUnique({
+        where: { id: req.params.id },
+        include: {
+          scheduledReport: { select: { id: true, name: true } },
+        },
+      });
+      if (!row) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Report run not found" });
+        return;
+      }
+      res.json({ success: true, data: row, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── LWBS / QUEUE WALKOUTS (Apr 2026) ──────────────────
+// GET /analytics/queue-walkouts?from=&to=
+router.get(
+  "/queue-walkouts",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+      const appts = await prisma.appointment.findMany({
+        where: {
+          date: { gte: from, lte: to },
+          status: "NO_SHOW",
+          lwbsReason: { not: null },
+        },
+        include: {
+          doctor: { include: { user: { select: { name: true } } } },
+          patient: { include: { user: { select: { name: true } } } },
+        },
+      });
+
+      const totalLwbs = appts.length;
+
+      // Group by doctor
+      const byDoctor = new Map<
+        string,
+        { doctorId: string; doctorName: string; count: number }
+      >();
+      for (const a of appts) {
+        const cur =
+          byDoctor.get(a.doctorId) || {
+            doctorId: a.doctorId,
+            doctorName: a.doctor.user.name,
+            count: 0,
+          };
+        cur.count += 1;
+        byDoctor.set(a.doctorId, cur);
+      }
+      const byDoctorArr = Array.from(byDoctor.values()).sort(
+        (a, b) => b.count - a.count
+      );
+
+      // Group by hour-of-day
+      const byHour: Array<{ hour: number; count: number }> = [];
+      for (let h = 0; h < 24; h++) byHour.push({ hour: h, count: 0 });
+      for (const a of appts) {
+        let hour: number | null = null;
+        if (a.slotStart) {
+          hour = parseInt(a.slotStart.split(":")[0], 10);
+        } else if (a.checkInAt) {
+          hour = new Date(a.checkInAt).getUTCHours();
+        }
+        if (hour !== null && hour >= 0 && hour < 24) {
+          byHour[hour].count += 1;
+        }
+      }
+
+      // Group by reason
+      const byReason = new Map<string, number>();
+      for (const a of appts) {
+        const r = (a.lwbsReason || "Not specified").trim();
+        byReason.set(r, (byReason.get(r) || 0) + 1);
+      }
+      const byReasonArr = Array.from(byReason.entries())
+        .map(([reason, count]) => ({ reason, count }))
+        .sort((a, b) => b.count - a.count);
+
+      res.json({
+        success: true,
+        data: {
+          from,
+          to,
+          totalLwbs,
+          byDoctor: byDoctorArr,
+          byHour,
+          byReason: byReasonArr,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 export { router as analyticsRouter };

@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
+import crypto from "crypto";
 import {
   Role,
   createLabTestSchema,
@@ -10,6 +11,9 @@ import {
   labReferenceRangeSchema,
   sampleRejectSchema,
   batchResultSchema,
+  labQCSchema,
+  verifyResultSchema,
+  shareLinkSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -351,6 +355,40 @@ router.post(
         return;
       }
 
+      // Delta-check: compare against previous result for same patient + same parameter + same test
+      const orderContext = await prisma.labOrderItem.findUnique({
+        where: { id: orderItemId },
+        include: { order: { select: { patientId: true, doctorId: true, orderNumber: true } } },
+      });
+      let deltaFlag = false;
+      if (orderContext) {
+        const prev = await prisma.labResult.findFirst({
+          where: {
+            parameter,
+            orderItemId: { not: orderItemId },
+            orderItem: {
+              testId: orderContext.testId,
+              order: { patientId: orderContext.order.patientId },
+            },
+          },
+          orderBy: { reportedAt: "desc" },
+        });
+        if (prev) {
+          const curN = parseFloat(value);
+          const prevN = parseFloat(prev.value);
+          if (!isNaN(curN) && !isNaN(prevN) && prevN !== 0) {
+            const pct = Math.abs((curN - prevN) / prevN) * 100;
+            if (pct > 25) deltaFlag = true;
+          } else if (
+            isNaN(curN) &&
+            isNaN(prevN) &&
+            prev.value.trim().toLowerCase() !== value.trim().toLowerCase()
+          ) {
+            deltaFlag = true;
+          }
+        }
+      }
+
       const result = await prisma.labResult.create({
         data: {
           orderItemId,
@@ -361,8 +399,34 @@ router.post(
           flag: flag ?? "NORMAL",
           notes,
           enteredBy: req.user!.userId,
+          deltaFlag,
         },
       });
+
+      // Fire-and-forget notify doctor when delta is significant
+      if (deltaFlag && orderContext) {
+        (async () => {
+          try {
+            const doc = await prisma.doctor.findUnique({
+              where: { id: orderContext.order.doctorId },
+              select: { userId: true },
+            });
+            if (doc?.userId) {
+              const { sendNotification } = await import("../services/notification");
+              const { NotificationType } = await import("@medcore/shared");
+              await sendNotification({
+                userId: doc.userId,
+                type: NotificationType.PRESCRIPTION_READY, // closest available; reused for clinical alert
+                title: "Significant lab delta",
+                message: `Order ${orderContext.order.orderNumber}: ${parameter} changed >25% vs prior result. Review.`,
+                data: { orderItemId, parameter, value },
+              });
+            }
+          } catch (e) {
+            console.error("[lab-delta-notify]", e);
+          }
+        })();
+      }
 
       // Mark this order item as completed
       await prisma.labOrderItem.update({
@@ -851,4 +915,449 @@ router.get(
   }
 );
 
+// ───────────────────────────────────────────────────────
+// DELTA CHECK
+// GET /api/v1/lab/results/:orderItemId/delta-check
+// ───────────────────────────────────────────────────────
+router.get(
+  "/results/:orderItemId/delta-check",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const orderItem = await prisma.labOrderItem.findUnique({
+        where: { id: req.params.orderItemId },
+        include: {
+          order: { select: { patientId: true } },
+          results: { orderBy: { reportedAt: "desc" } },
+          test: true,
+        },
+      });
+      if (!orderItem) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Order item not found" });
+        return;
+      }
+
+      const out: Array<{
+        parameter: string;
+        currentValue: string;
+        previousValue: string | null;
+        previousDate: Date | null;
+        deltaPercent: number | null;
+        isSignificant: boolean;
+      }> = [];
+
+      for (const current of orderItem.results) {
+        const prev = await prisma.labResult.findFirst({
+          where: {
+            parameter: current.parameter,
+            orderItemId: { not: orderItem.id },
+            orderItem: {
+              testId: orderItem.testId,
+              order: { patientId: orderItem.order.patientId },
+            },
+            reportedAt: { lt: current.reportedAt },
+          },
+          orderBy: { reportedAt: "desc" },
+        });
+        let deltaPercent: number | null = null;
+        let isSignificant = false;
+        if (prev) {
+          const curN = parseFloat(current.value);
+          const prevN = parseFloat(prev.value);
+          if (!isNaN(curN) && !isNaN(prevN) && prevN !== 0) {
+            deltaPercent = Math.round(((curN - prevN) / prevN) * 1000) / 10;
+            isSignificant = Math.abs(deltaPercent) > 25;
+          } else if (isNaN(curN) && isNaN(prevN)) {
+            isSignificant =
+              prev.value.trim().toLowerCase() !==
+              current.value.trim().toLowerCase();
+          }
+        }
+        out.push({
+          parameter: current.parameter,
+          currentValue: current.value,
+          previousValue: prev?.value ?? null,
+          previousDate: prev?.reportedAt ?? null,
+          deltaPercent,
+          isSignificant,
+        });
+      }
+
+      res.json({ success: true, data: out, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// RESULT VERIFICATION WORKFLOW
+// ───────────────────────────────────────────────────────
+router.patch(
+  "/results/:id/verify",
+  authorize(Role.DOCTOR),
+  validate(verifyResultSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await prisma.labResult.update({
+        where: { id: req.params.id },
+        data: {
+          verifiedBy: req.user!.userId,
+          verifiedAt: new Date(),
+          notes: req.body.notes
+            ? `${req.body.notes}`
+            : undefined,
+        },
+      });
+      auditLog(req, "VERIFY_LAB_RESULT", "lab_result", result.id, {}).catch(
+        console.error
+      );
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/results/pending-verification",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const results = await prisma.labResult.findMany({
+        where: { verifiedAt: null },
+        orderBy: { reportedAt: "desc" },
+        take: 200,
+        include: {
+          orderItem: {
+            include: {
+              test: { select: { code: true, name: true } },
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  patient: {
+                    select: {
+                      id: true,
+                      mrNumber: true,
+                      user: { select: { name: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      res.json({ success: true, data: results, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// LAB QC TRACKING
+// ───────────────────────────────────────────────────────
+router.post(
+  "/qc",
+  authorize(Role.ADMIN, Role.NURSE, Role.DOCTOR),
+  validate(labQCSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const entry = await prisma.labQCEntry.create({
+        data: {
+          testId: req.body.testId,
+          qcLevel: req.body.qcLevel,
+          instrument: req.body.instrument,
+          meanValue: req.body.meanValue,
+          recordedValue: req.body.recordedValue,
+          cv: req.body.cv,
+          withinRange: req.body.withinRange,
+          performedBy: req.user!.userId,
+          notes: req.body.notes,
+        },
+        include: { test: { select: { code: true, name: true } } },
+      });
+      auditLog(req, "CREATE_LAB_QC", "lab_qc_entry", entry.id, {
+        testId: entry.testId,
+        qcLevel: entry.qcLevel,
+        withinRange: entry.withinRange,
+      }).catch(console.error);
+      res.status(201).json({ success: true, data: entry, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/qc",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { testId, from, to } = req.query as Record<string, string | undefined>;
+      const where: Record<string, unknown> = {};
+      if (testId) where.testId = testId;
+      if (from || to) {
+        const d: Record<string, Date> = {};
+        if (from) d.gte = new Date(from);
+        if (to) d.lte = new Date(to);
+        where.runDate = d;
+      }
+      const entries = await prisma.labQCEntry.findMany({
+        where,
+        orderBy: { runDate: "desc" },
+        include: {
+          test: { select: { code: true, name: true } },
+          user: { select: { id: true, name: true, role: true } },
+        },
+        take: 500,
+      });
+      res.json({ success: true, data: entries, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/qc/summary",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+      const entries = await prisma.labQCEntry.findMany({
+        where: { runDate: { gte: since } },
+        select: {
+          testId: true,
+          withinRange: true,
+          test: { select: { code: true, name: true } },
+        },
+      });
+      const grouped: Record<
+        string,
+        { testId: string; code: string; name: string; total: number; pass: number }
+      > = {};
+      for (const e of entries) {
+        const k = e.testId;
+        if (!grouped[k]) {
+          grouped[k] = {
+            testId: e.testId,
+            code: e.test.code,
+            name: e.test.name,
+            total: 0,
+            pass: 0,
+          };
+        }
+        grouped[k].total += 1;
+        if (e.withinRange) grouped[k].pass += 1;
+      }
+      const rows = Object.values(grouped)
+        .map((r) => ({
+          ...r,
+          passRate:
+            r.total > 0 ? Math.round((r.pass / r.total) * 1000) / 10 : 100,
+        }))
+        .sort((a, b) => a.passRate - b.passRate);
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// SHARE LINK (patient-facing)
+// POST /api/v1/lab/orders/:id/share-link
+// ───────────────────────────────────────────────────────
+router.post(
+  "/orders/:id/share-link",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  validate(shareLinkSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const order = await prisma.labOrder.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!order) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Lab order not found" });
+        return;
+      }
+      const days = (req.body.days as number | undefined) ?? 7;
+      const token = crypto.randomBytes(24).toString("hex");
+      const expiresAt = new Date(Date.now() + days * 24 * 3600 * 1000);
+      const link = await prisma.sharedLink.create({
+        data: {
+          token,
+          resource: "lab_order",
+          resourceId: order.id,
+          expiresAt,
+          createdBy: req.user!.userId,
+        },
+      });
+      auditLog(req, "CREATE_SHARE_LINK", "shared_link", link.id, {
+        resource: "lab_order",
+        resourceId: order.id,
+        days,
+      }).catch(console.error);
+      res.status(201).json({
+        success: true,
+        data: {
+          token,
+          url: `/public/lab/${token}`,
+          expiresAt,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ───────────────────────────────────────────────────────
+// TAT BREACHES — ongoing orders past expected TAT
+// GET /api/v1/lab/tat-breaches
+// ───────────────────────────────────────────────────────
+router.get(
+  "/tat-breaches",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const openOrders = await prisma.labOrder.findMany({
+        where: { status: { notIn: ["COMPLETED", "CANCELLED"] } },
+        include: {
+          items: { include: { test: { select: { name: true, tatHours: true } } } },
+          patient: { select: { user: { select: { name: true } }, mrNumber: true } },
+          doctor: { select: { user: { select: { name: true } } } },
+        },
+        take: 500,
+      });
+      const now = Date.now();
+      const rows = openOrders
+        .map((o) => {
+          const elapsedH = (now - o.orderedAt.getTime()) / 3600000;
+          const expected = o.items
+            .map((i) => i.test.tatHours)
+            .filter((x): x is number => typeof x === "number");
+          const maxExpected = expected.length > 0 ? Math.max(...expected) : null;
+          return {
+            id: o.id,
+            orderNumber: o.orderNumber,
+            status: o.status,
+            patientName: o.patient?.user?.name,
+            mrNumber: o.patient?.mrNumber,
+            doctorName: o.doctor?.user?.name,
+            orderedAt: o.orderedAt,
+            elapsedHours: Math.round(elapsedH * 10) / 10,
+            expectedHours: maxExpected,
+            breached: maxExpected !== null ? elapsedH > maxExpected : false,
+            overdueBy:
+              maxExpected !== null
+                ? Math.round((elapsedH - maxExpected) * 10) / 10
+                : null,
+          };
+        })
+        .filter((r) => r.breached === true)
+        .sort((a, b) => (b.overdueBy ?? 0) - (a.overdueBy ?? 0));
+      res.json({
+        success: true,
+        data: { count: rows.length, rows },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as labRouter };
+
+// ───────────────────────────────────────────────────────
+// PUBLIC (no-auth) ROUTER — register BEFORE auth middleware in index.ts
+// ───────────────────────────────────────────────────────
+export const publicLabRouter = Router();
+
+publicLabRouter.get(
+  "/lab/:token",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const link = await prisma.sharedLink.findUnique({
+        where: { token: req.params.token },
+      });
+      if (!link || link.resource !== "lab_order") {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Link not found" });
+        return;
+      }
+      if (link.expiresAt < new Date()) {
+        res
+          .status(410)
+          .json({ success: false, data: null, error: "Link expired" });
+        return;
+      }
+
+      const order = await prisma.labOrder.findUnique({
+        where: { id: link.resourceId },
+        include: {
+          items: {
+            include: {
+              test: { select: { code: true, name: true, unit: true, normalRange: true, category: true } },
+              results: { orderBy: { reportedAt: "asc" } },
+            },
+          },
+          patient: {
+            select: {
+              mrNumber: true,
+              gender: true,
+              dateOfBirth: true,
+              user: { select: { name: true } },
+            },
+          },
+          doctor: { select: { user: { select: { name: true } } } },
+        },
+      });
+      if (!order) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Order not found" });
+        return;
+      }
+
+      // Increment view counter (fire-and-forget)
+      prisma.sharedLink
+        .update({
+          where: { id: link.id },
+          data: {
+            viewCount: { increment: 1 },
+            lastViewedAt: new Date(),
+          },
+        })
+        .catch(() => {});
+
+      res.json({
+        success: true,
+        data: {
+          expiresAt: link.expiresAt,
+          orderNumber: order.orderNumber,
+          orderedAt: order.orderedAt,
+          completedAt: order.completedAt,
+          status: order.status,
+          patient: {
+            name: order.patient.user.name,
+            mrNumber: order.patient.mrNumber,
+            gender: order.patient.gender,
+            dateOfBirth: order.patient.dateOfBirth,
+          },
+          doctor: order.doctor?.user?.name,
+          items: order.items,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);

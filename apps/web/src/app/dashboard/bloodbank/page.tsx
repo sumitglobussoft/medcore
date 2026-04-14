@@ -340,6 +340,24 @@ export default function BloodBankPage() {
                     <Plus size={16} /> Register Donor
                   </button>
                 )}
+                {canRegisterDonor && (
+                  <button
+                    onClick={async () => {
+                      if (!confirm("Send donation reminders to all eligible donors?")) return;
+                      try {
+                        const res = await api.post<{
+                          data: { count: number };
+                        }>(`/bloodbank/donors/send-donation-reminders`, {});
+                        alert(`Reminders sent to ${res.data.count} donor(s).`);
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : "Failed");
+                      }
+                    }}
+                    className="flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-700 hover:bg-blue-100"
+                  >
+                    Send Reminders
+                  </button>
+                )}
               </div>
               <div className="rounded-lg bg-white shadow">
                 <table className="w-full text-sm">

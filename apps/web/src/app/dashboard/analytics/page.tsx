@@ -144,6 +144,13 @@ interface NoShowData {
   byHour: Array<{ hour: number; total: number; noShow: number; rate: number }>;
 }
 
+interface QueueWalkoutsData {
+  totalLwbs: number;
+  byDoctor: Array<{ doctorId: string; doctorName: string; count: number }>;
+  byHour: Array<{ hour: number; count: number }>;
+  byReason: Array<{ reason: string; count: number }>;
+}
+
 interface DischargeTrends {
   totalAdmissions: number;
   discharged: number;
@@ -716,6 +723,7 @@ export default function AnalyticsPage() {
   const [patientGrowth, setPatientGrowth] = useState<PatientGrowthPoint[]>([]);
   const [retention, setRetention] = useState<Retention | null>(null);
   const [noShow, setNoShow] = useState<NoShowData | null>(null);
+  const [walkouts, setWalkouts] = useState<QueueWalkoutsData | null>(null);
   const [discharge, setDischarge] = useState<DischargeTrends | null>(null);
   const [erPerf, setErPerf] = useState<ErPerformance | null>(null);
   const [expiry, setExpiry] = useState<ExpiryData | null>(null);
@@ -774,6 +782,7 @@ export default function AnalyticsPage() {
         erRes,
         expiryRes,
         feedbackRes,
+        walkoutsRes,
       ] = await Promise.all([
         api
           .get<{ data: OverviewSnapshot | OverviewCompareResponse }>(overviewUrl)
@@ -794,6 +803,7 @@ export default function AnalyticsPage() {
         api.get<{ data: ErPerformance }>(`/analytics/er/performance?${qs}`).catch(() => null),
         api.get<{ data: ExpiryData }>(`/analytics/pharmacy/expiry?days=30`).catch(() => null),
         api.get<{ data: FeedbackTrends }>(`/analytics/feedback/trends?${qs}&groupBy=month`).catch(() => null),
+        api.get<{ data: QueueWalkoutsData }>(`/analytics/queue-walkouts?${qs}`).catch(() => null),
       ]);
 
       if (ovRes?.data) {
@@ -827,6 +837,7 @@ export default function AnalyticsPage() {
       setErPerf(erRes?.data || null);
       setExpiry(expiryRes?.data || null);
       setFeedback(feedbackRes?.data || null);
+      setWalkouts(walkoutsRes?.data || null);
     } finally {
       setLoading(false);
     }
@@ -1143,6 +1154,11 @@ export default function AnalyticsPage() {
             />
           )}
         </Card>
+      </div>
+
+      {/* Benchmarks + Forecast (Apr 2026) */}
+      <div className="mb-6">
+        <BenchmarkAndForecastPanel />
       </div>
 
       {/* Revenue breakdown + Demographics */}
@@ -1492,6 +1508,86 @@ export default function AnalyticsPage() {
               <StatRow label="No-Shows" value={noShow.noShowCount} color="text-red-600" />
               <p className="pt-2 text-xs font-medium text-gray-500">No-Show Rate by Hour</p>
               <HourHeatmap data={noShow.byHour} />
+            </div>
+          ) : (
+            <EmptyState />
+          )}
+        </Card>
+      </div>
+
+      {/* Queue Walkouts (LWBS) */}
+      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card
+          title="Queue Walkouts (LWBS)"
+          icon={AlertTriangle}
+          right={
+            walkouts ? (
+              <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700">
+                {walkouts.totalLwbs} total
+              </span>
+            ) : null
+          }
+        >
+          {loading ? (
+            <Loader />
+          ) : walkouts && walkouts.byDoctor.length > 0 ? (
+            <BarChart
+              categories={walkouts.byDoctor.slice(0, 8).map((d, i) => ({
+                key: d.doctorId,
+                label: d.doctorName,
+                color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+              }))}
+              values={Object.fromEntries(
+                walkouts.byDoctor.map((d) => [d.doctorId, d.count])
+              )}
+            />
+          ) : (
+            <EmptyState />
+          )}
+        </Card>
+
+        <Card title="Walkouts by Hour" icon={Calendar}>
+          {loading ? (
+            <Loader />
+          ) : walkouts && walkouts.byHour.some((h) => h.count > 0) ? (
+            <div className="flex h-40 items-end gap-1">
+              {walkouts.byHour.map((h) => {
+                const maxCount = Math.max(
+                  1,
+                  ...walkouts.byHour.map((x) => x.count)
+                );
+                const heightPct = (h.count / maxCount) * 100;
+                return (
+                  <div
+                    key={h.hour}
+                    className="flex-1 rounded-t bg-red-400"
+                    style={{ height: `${heightPct}%`, minHeight: h.count > 0 ? 4 : 0 }}
+                    title={`${h.hour}:00 · ${h.count} walkouts`}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState />
+          )}
+        </Card>
+
+        <Card title="Walkout Reasons" icon={ClipboardList}>
+          {loading ? (
+            <Loader />
+          ) : walkouts && walkouts.byReason.length > 0 ? (
+            <div className="space-y-2">
+              {walkouts.byReason.slice(0, 10).map((r, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded border-l-4 border-red-300 bg-red-50 px-3 py-1.5 text-sm"
+                >
+                  <span className="truncate pr-2" title={r.reason}>
+                    {r.reason}
+                  </span>
+                  <span className="font-semibold text-red-700">{r.count}</span>
+                </div>
+              ))}
             </div>
           ) : (
             <EmptyState />
@@ -2097,6 +2193,221 @@ function DrillDownModal({ data, onClose }: { data: DrillDown; onClose: () => voi
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Benchmarks & Forecasting Panel (Apr 2026) ─────────
+
+interface BenchmarkData {
+  metric: string;
+  period: string;
+  current: number;
+  prior: number;
+  yoy: number;
+  rolling3Avg: number;
+  percentile: number;
+  label: string;
+  deltaVsPriorPct: number;
+  deltaVsYoyPct: number;
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+  sampleCount: number;
+}
+
+interface ForecastData {
+  metric: string;
+  groupBy: string;
+  historical: Array<{ date: string; value: number }>;
+  forecast: Array<{ period: string; value: number; confidence: string }>;
+  model: { slope: number; intercept: number; r2: number };
+  confidence: string;
+}
+
+function BenchmarkAndForecastPanel() {
+  const [metric, setMetric] = useState<"revenue" | "appointments" | "admissions">(
+    "revenue"
+  );
+  const [period, setPeriod] = useState<"day" | "week" | "month">("day");
+  const [bench, setBench] = useState<BenchmarkData | null>(null);
+  const [forecast, setForecast] = useState<ForecastData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const b = await api.get<{ data: BenchmarkData }>(
+          `/analytics/benchmarks?metric=${metric}&period=${period}`
+        );
+        if (!cancelled) setBench(b.data);
+        if (metric !== "admissions") {
+          const f = await api.get<{ data: ForecastData }>(
+            `/analytics/forecast?metric=${metric}&periods=7&groupBy=day`
+          );
+          if (!cancelled) setForecast(f.data);
+        } else {
+          setForecast(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setBench(null);
+          setForecast(null);
+        }
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [metric, period]);
+
+  function fmtValue(n: number): string {
+    if (metric === "revenue") {
+      return `Rs. ${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+    }
+    return n.toLocaleString("en-IN");
+  }
+
+  const badgeColor = (pct: number) => {
+    if (pct >= 90) return "bg-emerald-100 text-emerald-800";
+    if (pct >= 75) return "bg-green-100 text-green-700";
+    if (pct <= 10) return "bg-red-100 text-red-700";
+    if (pct <= 25) return "bg-amber-100 text-amber-700";
+    return "bg-gray-100 text-gray-600";
+  };
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Benchmarks & Forecast</h2>
+          <p className="text-xs text-gray-500">
+            Compared vs prior periods and past year distribution
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <select
+            value={metric}
+            onChange={(e) => setMetric(e.target.value as typeof metric)}
+            className="rounded-lg border px-3 py-1.5 text-xs"
+          >
+            <option value="revenue">Revenue</option>
+            <option value="appointments">Appointments</option>
+            <option value="admissions">Admissions</option>
+          </select>
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as typeof period)}
+            className="rounded-lg border px-3 py-1.5 text-xs"
+          >
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+            <option value="month">Monthly</option>
+          </select>
+        </div>
+      </div>
+
+      {loading && <p className="text-sm text-gray-400">Loading...</p>}
+
+      {bench && !loading && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="rounded-lg bg-blue-50 p-4">
+            <p className="text-xs font-medium text-blue-600">Current</p>
+            <p className="mt-1 text-2xl font-bold text-blue-900">
+              {fmtValue(bench.current)}
+            </p>
+            <span
+              className={`mt-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${badgeColor(bench.percentile)}`}
+            >
+              {bench.label}
+            </span>
+            <p className="mt-1 text-xs text-gray-500">
+              {bench.percentile}th percentile · {bench.sampleCount} samples
+            </p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs font-medium text-gray-500">Prior Period</p>
+            <p className="mt-1 text-xl font-semibold">{fmtValue(bench.prior)}</p>
+            <p className="mt-1 text-xs">
+              <span
+                className={
+                  bench.deltaVsPriorPct >= 0 ? "text-green-600" : "text-red-600"
+                }
+              >
+                {bench.deltaVsPriorPct >= 0 ? "+" : ""}
+                {bench.deltaVsPriorPct}%
+              </span>{" "}
+              vs prior
+            </p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs font-medium text-gray-500">Year over Year</p>
+            <p className="mt-1 text-xl font-semibold">{fmtValue(bench.yoy)}</p>
+            <p className="mt-1 text-xs">
+              <span
+                className={
+                  bench.deltaVsYoyPct >= 0 ? "text-green-600" : "text-red-600"
+                }
+              >
+                {bench.deltaVsYoyPct >= 0 ? "+" : ""}
+                {bench.deltaVsYoyPct}%
+              </span>{" "}
+              YoY
+            </p>
+          </div>
+          <div className="rounded-lg bg-gray-50 p-4">
+            <p className="text-xs font-medium text-gray-500">3-Period Rolling</p>
+            <p className="mt-1 text-xl font-semibold">
+              {fmtValue(bench.rolling3Avg)}
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              P50: {fmtValue(bench.p50)} · P90: {fmtValue(bench.p90)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {forecast && !loading && (
+        <div className="mt-6 border-t pt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Next 7 Days Forecast</h3>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                forecast.confidence === "high"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : forecast.confidence === "medium"
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              Confidence: {forecast.confidence} (R²{" "}
+              {forecast.model.r2.toFixed(2)})
+            </span>
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {forecast.forecast.map((p) => (
+              <div
+                key={p.period}
+                className="rounded-lg border border-dashed border-blue-200 bg-blue-50/40 p-3 text-center"
+              >
+                <p className="text-xs text-gray-500">{p.period.slice(5)}</p>
+                <p className="mt-1 text-sm font-semibold text-blue-900">
+                  {fmtValue(p.value)}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Trend slope: {forecast.model.slope} per period · Based on 30-day linear
+            regression
+          </p>
+        </div>
+      )}
     </div>
   );
 }

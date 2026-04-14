@@ -89,6 +89,78 @@ export async function onTokenCalled(appointment: {
   });
 }
 
+// ─── Queue Position Notification ───────────────────────
+
+/**
+ * Compute queue position + estimated wait for an appointment and notify patient.
+ * Fires when a patient is CHECKED_IN and every ~15 mins thereafter (via cron).
+ */
+export async function notifyQueuePosition(appointmentId: string): Promise<void> {
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      patient: { include: { user: { select: { id: true, name: true } } } },
+      doctor: { include: { user: { select: { name: true } } } },
+    },
+  });
+  if (!appt) return;
+  if (!["BOOKED", "CHECKED_IN"].includes(appt.status)) return;
+
+  // Everyone on the same queue ahead of this appointment (active consultation + checked_in + booked with earlier token)
+  const queue = await prisma.appointment.findMany({
+    where: {
+      doctorId: appt.doctorId,
+      date: appt.date,
+      status: { in: ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"] },
+    },
+    select: { id: true, tokenNumber: true, priority: true, status: true },
+    orderBy: [{ priority: "desc" }, { tokenNumber: "asc" }],
+  });
+
+  const idx = queue.findIndex((q) => q.id === appt.id);
+  if (idx < 0) return;
+
+  const position = idx + 1;
+  const avgConsultMin = 15;
+  const ahead = idx; // number of patients ahead
+  const estimatedWaitMin = ahead * avgConsultMin;
+
+  await sendNotification({
+    userId: appt.patient.user.id,
+    type: NotificationType.TOKEN_CALLED,
+    title: "Your queue position",
+    message: `Hi ${appt.patient.user.name}, you are #${position} in queue for Dr. ${appt.doctor.user.name}. Estimated wait: ${estimatedWaitMin} minutes.`,
+    data: {
+      appointmentId,
+      position,
+      estimatedWaitMinutes: estimatedWaitMin,
+    },
+  });
+}
+
+/**
+ * Cron stub — re-send queue position SMS every 15 minutes to all waiting
+ * patients. Call this from a scheduled task. Safe to call periodically.
+ */
+export async function broadcastQueuePositions(): Promise<void> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const waiting = await prisma.appointment.findMany({
+    where: {
+      date: today,
+      status: { in: ["CHECKED_IN"] },
+    },
+    select: { id: true },
+  });
+  for (const a of waiting) {
+    try {
+      await notifyQueuePosition(a.id);
+    } catch (e) {
+      console.error("[broadcastQueuePositions]", e);
+    }
+  }
+}
+
 // ─── Prescription Trigger ──────────────────────────────
 
 export async function onPrescriptionReady(prescription: {

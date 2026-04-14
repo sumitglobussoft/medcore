@@ -255,3 +255,46 @@ export type UpdateAssetInput = z.infer<typeof updateAssetSchema>;
 export type AssignAssetInput = z.infer<typeof assignAssetSchema>;
 export type ReturnAssetInput = z.infer<typeof returnAssetSchema>;
 export type MaintenanceLogInput = z.infer<typeof maintenanceLogSchema>;
+
+// ───────────────────────────────────────────────────────
+// BLOOD BANK — DEFERRAL & COMPONENT SEPARATION (Apr 2026)
+// ───────────────────────────────────────────────────────
+
+export const DEFERRAL_TYPES = ["TEMPORARY", "PERMANENT"] as const;
+
+export const donorDeferralSchema = z.object({
+  reason: z.string().min(1),
+  deferralType: z.enum(DEFERRAL_TYPES),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD")
+    .optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "endDate must be YYYY-MM-DD")
+    .optional(),
+  notes: z.string().optional(),
+});
+
+export const SEPARATION_COMPONENTS = [
+  "PRBC",
+  "PLATELETS",
+  "FFP",
+  "CRYO",
+] as const;
+
+export const componentSeparationSchema = z.object({
+  components: z
+    .array(
+      z.object({
+        component: z.enum(SEPARATION_COMPONENTS),
+        unitsProduced: z.number().int().min(1).max(10),
+        volumeMl: z.number().int().positive().optional(),
+        notes: z.string().optional(),
+      })
+    )
+    .min(1),
+});
+
+export type DonorDeferralInput = z.infer<typeof donorDeferralSchema>;
+export type ComponentSeparationInput = z.infer<typeof componentSeparationSchema>;

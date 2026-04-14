@@ -7,6 +7,9 @@ import {
   updateAppointmentStatusSchema,
   rescheduleAppointmentSchema,
   recurringAppointmentSchema,
+  transferAppointmentSchema,
+  markLwbsSchema,
+  DEFAULT_SLOT_DURATION_MINUTES,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -14,8 +17,10 @@ import {
   onAppointmentBooked,
   onAppointmentCancelled,
   onTokenCalled,
+  notifyQueuePosition,
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
+import { notifyNextInWaitlist } from "../services/waitlist";
 
 const router = Router();
 router.use(authenticate);
@@ -29,6 +34,14 @@ async function getNextToken(doctorId: string, date: Date): Promise<number> {
   return (last?.tokenNumber ?? 0) + 1;
 }
 
+// Helper: read integer SystemConfig with fallback
+async function getConfigInt(key: string, fallback: number): Promise<number> {
+  const row = await prisma.systemConfig.findUnique({ where: { key } });
+  if (!row) return fallback;
+  const n = parseInt(row.value, 10);
+  return isNaN(n) ? fallback : n;
+}
+
 // POST /api/v1/appointments/book — book scheduled appointment
 router.post(
   "/book",
@@ -36,7 +49,52 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, doctorId, date, slotId, notes } = req.body;
+      const overrideNoShow: boolean = Boolean(req.body.overrideNoShow);
       const dateObj = new Date(date);
+
+      // ── No-show policy enforcement ──
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { noShowCount: true },
+      });
+      const threshold = await getConfigInt("no_show_threshold", 3);
+      if (
+        patient &&
+        patient.noShowCount >= threshold &&
+        !overrideNoShow
+      ) {
+        // Reception/Admin can override via flag; patients cannot.
+        if (req.user!.role === Role.PATIENT) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error:
+              "Patient has exceeded no-show threshold. Please contact reception.",
+          });
+          return;
+        }
+        if (
+          req.user!.role !== Role.ADMIN &&
+          req.user!.role !== Role.RECEPTION
+        ) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error:
+              "Patient has exceeded no-show threshold. Please contact reception.",
+          });
+          return;
+        }
+        // admin/reception without overrideNoShow flag also blocked — they must
+        // explicitly override.
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "Patient has exceeded no-show threshold. Please contact reception.",
+        });
+        return;
+      }
 
       // slotId is actually the slot start time passed from frontend
       // Check if slot is already booked
@@ -223,6 +281,12 @@ router.patch(
       if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
       if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
 
+      // Capture previous state to only fire side-effects on state transitions
+      const prev = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { status: true, patientId: true },
+      });
+
       const appointment = await prisma.appointment.update({
         where: { id: req.params.id },
         data: extraData,
@@ -256,11 +320,65 @@ router.patch(
       }
 
       // Fire-and-forget notifications based on status
-      if (req.body.status === "CANCELLED") {
+      if (req.body.status === "CANCELLED" && prev?.status !== "CANCELLED") {
         onAppointmentCancelled(appointment as any).catch(console.error);
+        // Auto-notify next waitlisted patient for this doctor
+        notifyNextInWaitlist(appointment.doctorId).catch(console.error);
       }
       if (req.body.status === "IN_CONSULTATION") {
         onTokenCalled(appointment as any).catch(console.error);
+      }
+      if (req.body.status === "CHECKED_IN" && prev?.status !== "CHECKED_IN") {
+        notifyQueuePosition(appointment.id).catch(console.error);
+      }
+
+      // No-show policy: increment counter + add fee when transitioning to NO_SHOW
+      if (req.body.status === "NO_SHOW" && prev?.status !== "NO_SHOW") {
+        try {
+          await prisma.patient.update({
+            where: { id: appointment.patientId },
+            data: { noShowCount: { increment: 1 } },
+          });
+        } catch (e) {
+          console.error("Failed to increment noShowCount", e);
+        }
+        // Add ₹500 no-show fee to an open invoice for this patient (or create a new one)
+        try {
+          const feeRow = await prisma.systemConfig.findUnique({
+            where: { key: "no_show_fee" },
+          });
+          const fee = feeRow ? parseFloat(feeRow.value) : 500;
+          if (!isNaN(fee) && fee > 0) {
+            const openInvoice = await prisma.invoice.findFirst({
+              where: {
+                patientId: appointment.patientId,
+                paymentStatus: { in: ["PENDING", "PARTIAL"] },
+              },
+              orderBy: { createdAt: "desc" },
+            });
+            if (openInvoice) {
+              await prisma.invoiceItem.create({
+                data: {
+                  invoiceId: openInvoice.id,
+                  description: `No-show fee (appt ${appointment.id.slice(0, 8)})`,
+                  category: "FEE",
+                  quantity: 1,
+                  unitPrice: fee,
+                  amount: fee,
+                },
+              });
+              await prisma.invoice.update({
+                where: { id: openInvoice.id },
+                data: {
+                  subtotal: { increment: fee },
+                  totalAmount: { increment: fee },
+                },
+              });
+            }
+          }
+        } catch (e) {
+          console.error("Failed to add no-show fee", e);
+        }
       }
 
       auditLog(req, "UPDATE_APPOINTMENT_STATUS", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
@@ -746,6 +864,11 @@ router.get(
 router.get(
   "/:id",
   async (req: Request, res: Response, next: NextFunction) => {
+    // Avoid capturing static route names as an appointment id
+    if (req.params.id === "next-available") {
+      next();
+      return;
+    }
     try {
       const appointment = await prisma.appointment.findUnique({
         where: { id: req.params.id },
@@ -837,6 +960,377 @@ router.post(
   }
 );
 
+// ─── CALENDAR INVITE (.ics) ─────────────────────────────
+// GET /api/v1/appointments/:id/calendar.ics — return iCalendar file
+router.get(
+  "/:id/calendar.ics",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appointment = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        include: {
+          patient: {
+            include: { user: { select: { name: true, email: true } } },
+          },
+          doctor: {
+            include: { user: { select: { name: true } } },
+          },
+        },
+      });
+      if (!appointment) {
+        res.status(404).json({ success: false, data: null, error: "Not found" });
+        return;
+      }
+
+      // Patients can only download their own
+      if (req.user!.role === Role.PATIENT) {
+        const self = await prisma.patient.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (!self || self.id !== appointment.patientId) {
+          res.status(403).json({ success: false, data: null, error: "Forbidden" });
+          return;
+        }
+      }
+
+      const slotStart = appointment.slotStart ?? "09:00";
+      const [sh, sm] = slotStart.split(":").map((n) => parseInt(n, 10));
+      const durationMin = 15;
+      const startUtc = new Date(
+        Date.UTC(
+          appointment.date.getUTCFullYear(),
+          appointment.date.getUTCMonth(),
+          appointment.date.getUTCDate(),
+          sh,
+          sm,
+          0
+        )
+      );
+      const endUtc = new Date(startUtc.getTime() + durationMin * 60 * 1000);
+      const fmtUtc = (d: Date): string =>
+        `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(
+          d.getUTCDate()
+        ).padStart(2, "0")}T${String(d.getUTCHours()).padStart(2, "0")}${String(
+          d.getUTCMinutes()
+        ).padStart(2, "0")}${String(d.getUTCSeconds()).padStart(2, "0")}Z`;
+
+      const dtStart = fmtUtc(startUtc);
+      const dtEnd = fmtUtc(endUtc);
+      const dtStamp = fmtUtc(new Date());
+
+      const uid = `${appointment.id}@medcore`;
+      const doctorName = appointment.doctor.user.name;
+      const patientName = appointment.patient.user.name;
+      const summary = `Appointment with Dr. ${doctorName}`;
+      const description = `Token #${appointment.tokenNumber}. Patient: ${patientName}. Status: ${appointment.status}.`;
+
+      const esc = (s: string): string =>
+        s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+
+      const ics = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//MedCore//Appointment//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        `UID:${uid}`,
+        `DTSTAMP:${dtStamp}`,
+        `DTSTART:${dtStart}`,
+        `DTEND:${dtEnd}`,
+        `SUMMARY:${esc(summary)}`,
+        `DESCRIPTION:${esc(description)}`,
+        "LOCATION:MedCore Hospital",
+        "STATUS:CONFIRMED",
+        "END:VEVENT",
+        "END:VCALENDAR",
+      ].join("\r\n");
+
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="appointment-${appointment.id.slice(0, 8)}.ics"`
+      );
+      res.send(ics);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── NEXT AVAILABLE SLOT ────────────────────────────────
+// GET /api/v1/appointments/next-available?fromDate=YYYY-MM-DD&specialty=&anyDoctor=true
+router.get(
+  "/next-available",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const fromDateStr = (req.query.fromDate as string) || undefined;
+      const specialty = (req.query.specialty as string) || undefined;
+      const fromDate = fromDateStr ? new Date(fromDateStr) : new Date();
+      fromDate.setHours(0, 0, 0, 0);
+
+      const doctorWhere: Record<string, unknown> = {};
+      if (specialty) doctorWhere.specialization = specialty;
+      const doctors = await prisma.doctor.findMany({
+        where: doctorWhere,
+        include: {
+          schedules: true,
+          user: { select: { name: true } },
+        },
+      });
+
+      if (doctors.length === 0) {
+        res.json({
+          success: true,
+          data: { slot: null, reason: "No doctors found" },
+          error: null,
+        });
+        return;
+      }
+
+      const DAYS = 14;
+      let best: {
+        doctorId: string;
+        doctorName: string;
+        specialization: string | null;
+        date: string;
+        startTime: string;
+        endTime: string;
+      } | null = null;
+
+      const todayIso = new Date().toISOString().split("T")[0];
+      const nowMin = (() => {
+        const n = new Date();
+        return n.getHours() * 60 + n.getMinutes();
+      })();
+
+      for (const doc of doctors) {
+        for (let i = 0; i < DAYS; i++) {
+          const d = new Date(fromDate);
+          d.setDate(fromDate.getDate() + i);
+          const dayOfWeek = d.getDay();
+          const daySchedules = doc.schedules.filter((s) => s.dayOfWeek === dayOfWeek);
+          if (daySchedules.length === 0) continue;
+
+          const override = await prisma.scheduleOverride.findUnique({
+            where: { doctorId_date: { doctorId: doc.id, date: d } },
+          });
+          if (override?.isBlocked) continue;
+
+          const booked = await prisma.appointment.findMany({
+            where: {
+              doctorId: doc.id,
+              date: d,
+              status: { notIn: ["CANCELLED", "NO_SHOW"] },
+            },
+            select: { slotStart: true },
+          });
+          const bookedSet = new Set(booked.map((b) => b.slotStart));
+          const dIso = d.toISOString().split("T")[0];
+
+          let foundForDay: { startStr: string; endStr: string } | null = null;
+          for (const sch of daySchedules) {
+            const startTime = override?.startTime || sch.startTime;
+            const endTime = override?.endTime || sch.endTime;
+            const duration = sch.slotDurationMinutes || DEFAULT_SLOT_DURATION_MINUTES;
+            const buffer = sch.bufferMinutes || 0;
+            const step = duration + buffer;
+
+            const [ssh, ssm] = startTime.split(":").map(Number);
+            const [eh, em] = endTime.split(":").map(Number);
+            const startMin = ssh * 60 + ssm;
+            const endMin = eh * 60 + em;
+
+            for (let m = startMin; m + duration <= endMin; m += step) {
+              const startStr = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(
+                m % 60
+              ).padStart(2, "0")}`;
+              const endM = m + duration;
+              const endStr = `${String(Math.floor(endM / 60)).padStart(2, "0")}:${String(
+                endM % 60
+              ).padStart(2, "0")}`;
+
+              if (dIso === todayIso && m < nowMin) continue;
+              if (!bookedSet.has(startStr)) {
+                foundForDay = { startStr, endStr };
+                break;
+              }
+            }
+            if (foundForDay) break;
+          }
+
+          if (foundForDay) {
+            const candidate = {
+              doctorId: doc.id,
+              doctorName: doc.user.name,
+              specialization: doc.specialization,
+              date: dIso,
+              startTime: foundForDay.startStr,
+              endTime: foundForDay.endStr,
+            };
+            if (
+              !best ||
+              candidate.date < best.date ||
+              (candidate.date === best.date && candidate.startTime < best.startTime)
+            ) {
+              best = candidate;
+            }
+            break; // earliest day for this doctor found
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { slot: best, searchedDoctors: doctors.length, windowDays: DAYS },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── TRANSFER APPOINTMENT TO ANOTHER DOCTOR ─────────────
+// PATCH /api/v1/appointments/:id/transfer-doctor
+router.patch(
+  "/:id/transfer-doctor",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  validate(transferAppointmentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { newDoctorId, reason } = req.body as {
+        newDoctorId: string;
+        reason: string;
+      };
+
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Not found" });
+        return;
+      }
+      if (existing.doctorId === newDoctorId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Appointment is already with this doctor",
+        });
+        return;
+      }
+      if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(existing.status)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Cannot transfer an appointment with status ${existing.status}`,
+        });
+        return;
+      }
+
+      const newToken = await getNextToken(newDoctorId, existing.date);
+
+      const oldDoctorId = existing.doctorId;
+      const appointment = await prisma.appointment.update({
+        where: { id: req.params.id },
+        data: {
+          doctorId: newDoctorId,
+          tokenNumber: newToken,
+          notes: existing.notes
+            ? `${existing.notes}\n[TRANSFERRED] ${reason}`
+            : `[TRANSFERRED] ${reason}`,
+        },
+        include: {
+          patient: { include: { user: { select: { name: true, phone: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        const dateStr = appointment.date.toISOString().split("T")[0];
+        io.to(`queue:${oldDoctorId}`).emit("queue-updated", {
+          doctorId: oldDoctorId,
+          date: dateStr,
+        });
+        io.to(`queue:${newDoctorId}`).emit("queue-updated", {
+          doctorId: newDoctorId,
+          date: dateStr,
+        });
+      }
+
+      auditLog(req, "TRANSFER_APPOINTMENT", "appointment", appointment.id, {
+        oldDoctorId,
+        newDoctorId,
+        reason,
+      }).catch(console.error);
+
+      res.json({ success: true, data: appointment, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── LWBS (Left Without Being Seen) ─────────────────────
+// PATCH /api/v1/appointments/:id/mark-lwbs
+router.patch(
+  "/:id/mark-lwbs",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  validate(markLwbsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { reason } = req.body as { reason?: string };
+
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { status: true, patientId: true, doctorId: true },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Not found" });
+        return;
+      }
+
+      const appointment = await prisma.appointment.update({
+        where: { id: req.params.id },
+        data: {
+          status: "NO_SHOW",
+          lwbsReason: reason ?? "Left without being seen",
+        },
+        include: {
+          patient: { include: { user: { select: { name: true, phone: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+
+      if (existing.status !== "NO_SHOW") {
+        prisma.patient
+          .update({
+            where: { id: existing.patientId },
+            data: { noShowCount: { increment: 1 } },
+          })
+          .catch(console.error);
+      }
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`queue:${appointment.doctorId}`).emit("queue-updated", {
+          doctorId: appointment.doctorId,
+          date: appointment.date.toISOString().split("T")[0],
+        });
+      }
+
+      auditLog(req, "MARK_LWBS", "appointment", appointment.id, { reason }).catch(
+        console.error
+      );
+
+      res.json({ success: true, data: appointment, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/appointments/group/:groupId — all members
 router.get(
   "/group/:groupId",
@@ -855,6 +1349,272 @@ router.get(
         data: { groupId: req.params.groupId, members },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── BULK OPERATIONS ─────────────────────────────────
+// POST /api/v1/appointments/bulk-action
+// Body: { appointmentIds: string[], action: "CANCEL" | "NO_SHOW" | "SEND_REMINDER" }
+router.post(
+  "/bulk-action",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { appointmentIds, action } = req.body as {
+        appointmentIds?: string[];
+        action?: string;
+      };
+
+      if (
+        !Array.isArray(appointmentIds) ||
+        appointmentIds.length === 0 ||
+        !appointmentIds.every((id) => typeof id === "string")
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "appointmentIds must be a non-empty string array",
+        });
+        return;
+      }
+
+      const allowed = ["CANCEL", "NO_SHOW", "SEND_REMINDER"];
+      if (!action || !allowed.includes(action)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `action must be one of: ${allowed.join(", ")}`,
+        });
+        return;
+      }
+
+      // Fetch existing appointments to validate & filter
+      const found = await prisma.appointment.findMany({
+        where: { id: { in: appointmentIds } },
+        include: {
+          patient: { include: { user: { select: { name: true, phone: true, email: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+
+      const results: Array<{ id: string; status: "ok" | "skipped" | "error"; message?: string }> = [];
+
+      if (action === "CANCEL") {
+        for (const apt of found) {
+          if (["COMPLETED", "CANCELLED"].includes(apt.status)) {
+            results.push({ id: apt.id, status: "skipped", message: "already finalized" });
+            continue;
+          }
+          try {
+            await prisma.appointment.update({
+              where: { id: apt.id },
+              data: { status: "CANCELLED" },
+            });
+            onAppointmentCancelled(apt as any).catch(console.error);
+            results.push({ id: apt.id, status: "ok" });
+          } catch (e) {
+            results.push({
+              id: apt.id,
+              status: "error",
+              message: e instanceof Error ? e.message : "failed",
+            });
+          }
+        }
+      } else if (action === "NO_SHOW") {
+        for (const apt of found) {
+          if (!["BOOKED", "CHECKED_IN"].includes(apt.status)) {
+            results.push({ id: apt.id, status: "skipped", message: "not active" });
+            continue;
+          }
+          try {
+            await prisma.$transaction([
+              prisma.appointment.update({
+                where: { id: apt.id },
+                data: { status: "NO_SHOW" },
+              }),
+              prisma.patient.update({
+                where: { id: apt.patientId },
+                data: { noShowCount: { increment: 1 } },
+              }),
+            ]);
+            results.push({ id: apt.id, status: "ok" });
+          } catch (e) {
+            results.push({
+              id: apt.id,
+              status: "error",
+              message: e instanceof Error ? e.message : "failed",
+            });
+          }
+        }
+      } else if (action === "SEND_REMINDER") {
+        // Fire-and-forget reminder notifications (re-use onAppointmentBooked path which
+        // queues an SMS/email via notification-triggers). If you have a dedicated
+        // reminder function, call it here instead.
+        for (const apt of found) {
+          try {
+            onAppointmentBooked(apt as any).catch(console.error);
+            results.push({ id: apt.id, status: "ok" });
+          } catch (e) {
+            results.push({
+              id: apt.id,
+              status: "error",
+              message: e instanceof Error ? e.message : "failed",
+            });
+          }
+        }
+      }
+
+      // Audit log
+      auditLog(
+        req,
+        `APPOINTMENT_BULK_${action}`,
+        "appointment",
+        undefined,
+        { count: appointmentIds.length, action, results }
+      ).catch(console.error);
+
+      const okCount = results.filter((r) => r.status === "ok").length;
+      const skippedCount = results.filter((r) => r.status === "skipped").length;
+      const errorCount = results.filter((r) => r.status === "error").length;
+
+      res.json({
+        success: true,
+        data: {
+          requested: appointmentIds.length,
+          processed: okCount,
+          skipped: skippedCount,
+          errors: errorCount,
+          results,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── TRANSFER APPOINTMENT TO ANOTHER DOCTOR (Apr 2026) ──
+router.post(
+  "/:id/transfer",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION),
+  validate(transferAppointmentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Appointment not found" });
+        return;
+      }
+      if (existing.status === "COMPLETED" || existing.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot transfer ${existing.status} appointment`,
+        });
+        return;
+      }
+
+      const { newDoctorId, reason } = req.body as { newDoctorId: string; reason: string };
+      const newDoctor = await prisma.doctor.findUnique({
+        where: { id: newDoctorId },
+      });
+      if (!newDoctor) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Target doctor not found",
+        });
+        return;
+      }
+      if (newDoctorId === existing.doctorId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Target doctor is the same as current doctor",
+        });
+        return;
+      }
+
+      const last = await prisma.appointment.findFirst({
+        where: { doctorId: newDoctorId, date: existing.date },
+        orderBy: { tokenNumber: "desc" },
+        select: { tokenNumber: true },
+      });
+      const nextToken = (last?.tokenNumber ?? 0) + 1;
+
+      const transferNote = `[TRANSFERRED from ${existing.doctorId} by ${req.user!.userId}] ${reason}`;
+
+      const updated = await prisma.appointment.update({
+        where: { id: existing.id },
+        data: {
+          doctorId: newDoctorId,
+          tokenNumber: nextToken,
+          status: "BOOKED",
+          notes: existing.notes
+            ? `${existing.notes}\n${transferNote}`
+            : transferNote,
+        },
+        include: {
+          patient: { include: { user: { select: { name: true, phone: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+
+      auditLog(req, "TRANSFER_APPOINTMENT", "appointment", updated.id, {
+        fromDoctorId: existing.doctorId,
+        toDoctorId: newDoctorId,
+        reason,
+      }).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── MARK LWBS (Left Without Being Seen) (Apr 2026) ─────
+router.patch(
+  "/:id/lwbs",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION),
+  validate(markLwbsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!existing) {
+        res.status(404).json({ success: false, data: null, error: "Appointment not found" });
+        return;
+      }
+      if (existing.status === "COMPLETED" || existing.status === "CANCELLED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot mark ${existing.status} appointment as LWBS`,
+        });
+        return;
+      }
+
+      const updated = await prisma.appointment.update({
+        where: { id: existing.id },
+        data: {
+          status: "NO_SHOW",
+          lwbsReason: req.body.reason ?? "Left without being seen",
+        },
+      });
+
+      auditLog(req, "MARK_LWBS", "appointment", updated.id, {
+        reason: req.body.reason,
+      }).catch(console.error);
+
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

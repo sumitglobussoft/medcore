@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { api } from "@/lib/api";
+import { SkeletonCard } from "@/components/Skeleton";
 import {
   Calendar,
   Users,
@@ -94,13 +95,13 @@ function StatCard({
   trend?: "up" | "down" | "neutral";
 }) {
   const content = (
-    <div className="h-full rounded-xl bg-white p-5 shadow-sm transition hover:shadow-md">
+    <div className="h-full rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm transition hover:shadow-md">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
             {title}
           </p>
-          <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
           {subtitle && (
             <p className="mt-1 text-xs text-gray-500">{subtitle}</p>
           )}
@@ -128,13 +129,13 @@ function ModuleSection({
   viewAllHref?: string;
 }) {
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
+    <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className={`rounded-lg p-1.5 ${iconColor}`}>
             <Icon size={16} className="text-white" />
           </div>
-          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
         </div>
         {viewAllHref && (
           <Link
@@ -150,10 +151,162 @@ function ModuleSection({
   );
 }
 
+// ── Widget preference helpers ──────────────────────────
+
+type WidgetKey =
+  | "kpi_top"
+  | "clinical_today"
+  | "diagnostics"
+  | "operations"
+  | "nurse_meds"
+  | "reception"
+  | "quick_actions";
+
+interface DashboardWidget {
+  type: WidgetKey;
+  visible?: boolean;
+  order?: number;
+}
+
+const DEFAULT_WIDGETS: DashboardWidget[] = [
+  { type: "kpi_top", visible: true },
+  { type: "clinical_today", visible: true },
+  { type: "diagnostics", visible: true },
+  { type: "operations", visible: true },
+  { type: "nurse_meds", visible: true },
+  { type: "reception", visible: true },
+  { type: "quick_actions", visible: true },
+];
+
+const WIDGET_LABELS: Record<WidgetKey, string> = {
+  kpi_top: "Top KPI Cards",
+  clinical_today: "Clinical Today",
+  diagnostics: "Diagnostics & Labs",
+  operations: "Operations",
+  nurse_meds: "Nurse Medications",
+  reception: "Reception Highlights",
+  quick_actions: "Quick Actions",
+};
+
+function isWidgetVisible(
+  prefs: DashboardWidget[] | null,
+  type: WidgetKey
+): boolean {
+  if (!prefs) return true;
+  const w = prefs.find((p) => p.type === type);
+  if (!w) return true;
+  return w.visible !== false;
+}
+
+function CustomizeDashboardModal({
+  open,
+  initial,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  initial: DashboardWidget[];
+  onClose: () => void;
+  onSave: (widgets: DashboardWidget[]) => void;
+}) {
+  const [widgets, setWidgets] = useState<DashboardWidget[]>(initial);
+
+  useEffect(() => {
+    setWidgets(initial);
+  }, [initial, open]);
+
+  if (!open) return null;
+
+  function toggle(k: WidgetKey) {
+    setWidgets((ws) => {
+      const existing = ws.find((w) => w.type === k);
+      if (existing) {
+        return ws.map((w) =>
+          w.type === k ? { ...w, visible: w.visible === false ? true : false } : w
+        );
+      }
+      return [...ws, { type: k, visible: false }];
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
+        <h2 className="mb-4 text-lg font-semibold">Customize Dashboard</h2>
+        <p className="mb-4 text-sm text-gray-500">
+          Toggle sections on or off. Your preferences are saved.
+        </p>
+        <div className="mb-6 space-y-2">
+          {(Object.keys(WIDGET_LABELS) as WidgetKey[]).map((k) => {
+            const w = widgets.find((x) => x.type === k);
+            const visible = !w || w.visible !== false;
+            return (
+              <label
+                key={k}
+                className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-gray-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={visible}
+                  onChange={() => toggle(k)}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm">{WIDGET_LABELS[k]}</span>
+              </label>
+            );
+          })}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              onSave(widgets);
+              onClose();
+            }}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            Save Preferences
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const [data, setData] = useState<DashboardData>({});
   const [loading, setLoading] = useState(true);
+  const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
+  const [showCustomize, setShowCustomize] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<{ data: { layout: { widgets: DashboardWidget[] } } }>(
+        "/users/me/dashboard-preferences"
+      )
+      .then((r) => {
+        const w = r.data?.layout?.widgets;
+        if (Array.isArray(w) && w.length > 0) setWidgets(w);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function saveWidgets(next: DashboardWidget[]) {
+    setWidgets(next);
+    try {
+      await api.put("/users/me/dashboard-preferences", {
+        layout: { widgets: next },
+      });
+    } catch {
+      // silent
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -282,7 +435,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             Welcome, {user?.name}
           </h1>
           <p className="text-sm text-gray-500">
@@ -294,16 +447,38 @@ export default function DashboardPage() {
             })}
           </p>
         </div>
-        {role && (
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-            {role}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {!isPatient && (
+            <button
+              onClick={() => setShowCustomize(true)}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Customize Dashboard
+            </button>
+          )}
+          {role && (
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              {role}
+            </span>
+          )}
+        </div>
       </div>
 
+      <CustomizeDashboardModal
+        open={showCustomize}
+        initial={widgets}
+        onClose={() => setShowCustomize(false)}
+        onSave={saveWidgets}
+      />
+
       {loading && (
-        <div className="mb-6 rounded-xl bg-white p-6 text-center text-gray-400 shadow-sm">
-          Loading dashboard data...
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       )}
 
@@ -313,6 +488,7 @@ export default function DashboardPage() {
       {!isPatient && (
         <>
           {/* Top KPI strip */}
+          {isWidgetVisible(widgets, "kpi_top") && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <StatCard
               title="Today's Appts"
@@ -366,9 +542,10 @@ export default function DashboardPage() {
               href="/dashboard/billing"
             />
           </div>
+          )}
 
           {/* Role-specific primary sections */}
-          {(isDoctor || isAdmin) && (
+          {(isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
                 title="Clinical — Today"
@@ -624,7 +801,7 @@ export default function DashboardPage() {
 
           {/* Quick Actions by role */}
           <div className="mt-8">
-            <h2 className="mb-4 text-base font-semibold text-gray-900">
+            <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
               Quick Actions
             </h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -774,7 +951,7 @@ function PatientHome() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Upcoming appointment */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
             <Calendar size={14} /> My Upcoming Appointment
           </h2>
@@ -830,7 +1007,7 @@ function PatientHome() {
         </div>
 
         {/* Pending bills */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
               <CreditCard size={14} /> My Pending Bills
@@ -875,7 +1052,7 @@ function PatientHome() {
         </div>
 
         {/* Prescriptions */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
               <FileText size={14} /> Recent Prescriptions
@@ -932,7 +1109,7 @@ function PatientHome() {
         </div>
 
         {/* Lab results */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
               <FlaskConical size={14} /> Recent Lab Results
@@ -982,7 +1159,7 @@ function PatientHome() {
         </div>
 
         {/* Notifications */}
-        <div className="rounded-xl bg-white p-5 shadow-sm lg:col-span-2">
+        <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm lg:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
               <Bell size={14} /> Notifications

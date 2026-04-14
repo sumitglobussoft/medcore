@@ -32,6 +32,7 @@ export const doctorScheduleSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   slotDurationMinutes: z.number().int().min(5).max(120).default(15),
+  bufferMinutes: z.number().int().min(0).max(60).default(0),
 });
 
 export const scheduleOverrideSchema = z.object({
@@ -58,6 +59,44 @@ export const recurringAppointmentSchema = z.object({
   notes: z.string().optional(),
 });
 
+// ─── Waitlist (Apr 2026) ─────────────────────────────
+export const waitlistEntrySchema = z.object({
+  patientId: z.string().uuid(),
+  doctorId: z.string().uuid(),
+  preferredDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional(),
+  reason: z.string().max(500).optional(),
+});
+
+// ─── Coordinated multi-doctor visit (Apr 2026) ───────
+export const coordinatedVisitSchema = z.object({
+  patientId: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  visitDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  doctorIds: z.array(z.string().uuid()).min(1).max(10),
+  notes: z.string().optional(),
+});
+
+// ─── Transfer between doctors (Apr 2026) ─────────────
+export const transferAppointmentSchema = z.object({
+  newDoctorId: z.string().uuid(),
+  reason: z.string().min(1).max(500),
+});
+
+// ─── LWBS (Left Without Being Seen) (Apr 2026) ───────
+export const markLwbsSchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+
+// ─── Booking w/ override for no-show policy (Apr 2026) ─
+export const bookAppointmentWithOverrideSchema = bookAppointmentSchema.extend({
+  overrideNoShow: z.boolean().optional(),
+});
+
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 export type WalkInInput = z.infer<typeof walkInSchema>;
 export type UpdateAppointmentStatusInput = z.infer<typeof updateAppointmentStatusSchema>;
@@ -65,3 +104,7 @@ export type DoctorScheduleInput = z.infer<typeof doctorScheduleSchema>;
 export type ScheduleOverrideInput = z.infer<typeof scheduleOverrideSchema>;
 export type RescheduleAppointmentInput = z.infer<typeof rescheduleAppointmentSchema>;
 export type RecurringAppointmentInput = z.infer<typeof recurringAppointmentSchema>;
+export type WaitlistEntryInput = z.infer<typeof waitlistEntrySchema>;
+export type CoordinatedVisitInput = z.infer<typeof coordinatedVisitSchema>;
+export type TransferAppointmentInput = z.infer<typeof transferAppointmentSchema>;
+export type MarkLwbsInput = z.infer<typeof markLwbsSchema>;

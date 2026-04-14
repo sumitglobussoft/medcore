@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { FREQUENCY_OPTIONS } from "@medcore/shared";
+import { toast } from "@/lib/toast";
 
 interface PrescriptionRecord {
   id: string;
@@ -75,6 +76,76 @@ export default function PrescriptionsPage() {
   const [showInteractionModal, setShowInteractionModal] = useState(false);
   const [checkingInteractions, setCheckingInteractions] = useState(false);
 
+  // Generic substitution
+  interface GenericAlt {
+    id: string;
+    name: string;
+    brand?: string | null;
+    strength?: string | null;
+    form?: string | null;
+    availableStock: number;
+    sellingPrice: number | null;
+    savingsVsBrand: number | null;
+  }
+  const [genericRowIdx, setGenericRowIdx] = useState<number | null>(null);
+  const [genericData, setGenericData] = useState<{
+    base: { id: string; name: string; brand?: string | null };
+    basePrice: number | null;
+    alternatives: GenericAlt[];
+  } | null>(null);
+  const [genericLoading, setGenericLoading] = useState(false);
+
+  async function openGenericsModal(idx: number, medicineName: string) {
+    setGenericRowIdx(idx);
+    setGenericData(null);
+    setGenericLoading(true);
+    try {
+      // First resolve medicine by autocomplete
+      const ac = await api.get<{ data: Array<{ id: string; name: string }> }>(
+        `/medicines/search/autocomplete?q=${encodeURIComponent(medicineName)}`
+      );
+      const match = (ac.data ?? []).find(
+        (m) => m.name.toLowerCase() === medicineName.toLowerCase()
+      );
+      if (!match) {
+        alert("Could not resolve medicine for substitution lookup");
+        return;
+      }
+      const resp = await api.get<{ data: typeof genericData }>(
+        `/medicines/${match.id}/generics`
+      );
+      setGenericData(resp.data ?? null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGenericLoading(false);
+    }
+  }
+
+  // Patient renal function banner
+  interface RenalStatus {
+    crClMlPerMin: number | null;
+    ckdStage: string | null;
+    latestCreatinine: { value: number; reportedAt: string } | null;
+  }
+  const [renalStatus, setRenalStatus] = useState<RenalStatus | null>(null);
+  useEffect(() => {
+    if (!form.patientId) {
+      setRenalStatus(null);
+      return;
+    }
+    (async () => {
+      try {
+        const resp = await api.get<{ data: RenalStatus }>(
+          `/patients/${form.patientId}/renal-function`
+        );
+        setRenalStatus(resp.data ?? null);
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  }, [form.patientId]);
+
   useEffect(() => {
     loadPrescriptions();
     api
@@ -116,10 +187,10 @@ export default function PrescriptionsPage() {
   async function shareVia(id: string, channel: "WHATSAPP" | "EMAIL" | "SMS") {
     try {
       await api.post(`/prescriptions/${id}/share`, { channel });
-      alert(`Prescription shared via ${channel}`);
+      toast.success(`Prescription shared via ${channel}`);
       loadPrescriptions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to share");
+      toast.error(err instanceof Error ? err.message : "Failed to share");
     }
   }
 
@@ -177,7 +248,7 @@ export default function PrescriptionsPage() {
         setShowInteractionModal(true);
         return;
       }
-      alert(err instanceof Error ? err.message : "Failed to create prescription");
+      toast.error(err instanceof Error ? err.message : "Failed to create prescription");
     }
   }
 
@@ -186,7 +257,7 @@ export default function PrescriptionsPage() {
     if (!form.patientId) return;
     const items = medicines.filter((m) => m.medicineName);
     if (items.length === 0) {
-      alert("Add at least one medicine");
+      toast.warning("Add at least one medicine");
       return;
     }
     // Preview interaction check before saving
@@ -334,9 +405,30 @@ export default function PrescriptionsPage() {
                 >
                   Remove
                 </button>
+                {med.medicineName ? (
+                  <button
+                    type="button"
+                    onClick={() => openGenericsModal(idx, med.medicineName)}
+                    className="col-span-6 mt-1 self-start text-left text-xs text-emerald-700 hover:underline"
+                  >
+                    💰 Check for cheaper generics
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>
+
+          {renalStatus &&
+          renalStatus.crClMlPerMin !== null &&
+          renalStatus.crClMlPerMin < 60 ? (
+            <div className="mb-4 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-800">
+              <strong>⚠️ Renal dose adjustment needed</strong>
+              <div className="mt-1">
+                Patient CrCl {renalStatus.crClMlPerMin} mL/min ({renalStatus.ckdStage}).
+                Review dosing for renally-cleared medicines before prescribing.
+              </div>
+            </div>
+          ) : null}
 
           <div className="mb-4 grid grid-cols-2 gap-4">
             <textarea
@@ -555,6 +647,91 @@ export default function PrescriptionsPage() {
       {checkingInteractions && (
         <div className="fixed bottom-6 right-6 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-lg">
           Checking drug interactions...
+        </div>
+      )}
+
+      {genericRowIdx !== null && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
+            <div className="mb-3 flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">Cheaper Generic Alternatives</h3>
+                {genericData?.base ? (
+                  <p className="text-sm text-gray-500">
+                    Base: {genericData.base.name}
+                    {genericData.basePrice ? ` — ₹${genericData.basePrice}` : ""}
+                  </p>
+                ) : null}
+              </div>
+              <button
+                onClick={() => {
+                  setGenericRowIdx(null);
+                  setGenericData(null);
+                }}
+                className="text-gray-400 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            {genericLoading ? (
+              <p className="text-gray-500">Loading...</p>
+            ) : !genericData || genericData.alternatives.length === 0 ? (
+              <p className="text-gray-500">No cheaper generics in stock.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+                  <tr>
+                    <th className="p-2">Brand</th>
+                    <th className="p-2">Strength/Form</th>
+                    <th className="p-2">Stock</th>
+                    <th className="p-2">Price</th>
+                    <th className="p-2">Savings</th>
+                    <th className="p-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {genericData.alternatives.map((alt) => (
+                    <tr key={alt.id} className="border-t">
+                      <td className="p-2">
+                        {alt.name}
+                        {alt.brand ? (
+                          <span className="ml-1 text-xs text-gray-500">({alt.brand})</span>
+                        ) : null}
+                      </td>
+                      <td className="p-2 text-xs text-gray-600">
+                        {alt.strength ?? ""} {alt.form ?? ""}
+                      </td>
+                      <td className="p-2">{alt.availableStock}</td>
+                      <td className="p-2">₹{alt.sellingPrice ?? "—"}</td>
+                      <td className="p-2 text-green-700">
+                        {alt.savingsVsBrand !== null && alt.savingsVsBrand > 0
+                          ? `₹${alt.savingsVsBrand}`
+                          : "—"}
+                      </td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => {
+                            if (genericRowIdx === null) return;
+                            const updated = [...medicines];
+                            updated[genericRowIdx] = {
+                              ...updated[genericRowIdx],
+                              medicineName: alt.name,
+                            };
+                            setMedicines(updated);
+                            setGenericRowIdx(null);
+                            setGenericData(null);
+                          }}
+                          className="rounded bg-primary px-3 py-1 text-xs text-white"
+                        >
+                          Switch
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
     </div>

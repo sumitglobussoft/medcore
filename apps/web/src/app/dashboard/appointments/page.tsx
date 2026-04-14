@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -256,6 +258,10 @@ export default function AppointmentsPage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   // Recurring booking options
   const [isRecurring, setIsRecurring] = useState(false);
   const [recFrequency, setRecFrequency] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
@@ -391,7 +397,7 @@ export default function AppointmentsPage() {
           frequency: recFrequency,
           occurrences: recOccurrences,
         });
-        alert(`Created ${recOccurrences} recurring appointments.`);
+        toast.success(`Created ${recOccurrences} recurring appointments.`);
       } else {
         await api.post("/appointments/book", {
           patientId,
@@ -399,13 +405,13 @@ export default function AppointmentsPage() {
           date: selectedDate,
           slotId: slotStartTime,
         });
-        alert("Appointment booked!");
+        toast.success("Appointment booked!");
       }
       setShowBooking(false);
       setIsRecurring(false);
       loadAppointments();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Booking failed");
+      toast.error(err instanceof Error ? err.message : "Booking failed");
     }
   }
 
@@ -415,7 +421,7 @@ export default function AppointmentsPage() {
       loadAppointments();
       if (view === "calendar") loadCalendar();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Update failed");
+      toast.error(err instanceof Error ? err.message : "Update failed");
     }
   }
 
@@ -433,7 +439,7 @@ export default function AppointmentsPage() {
       loadAppointments();
       if (view === "calendar") loadCalendar();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
       setCancellingId(null);
     }
   }
@@ -471,13 +477,13 @@ export default function AppointmentsPage() {
         date: reschedDate,
         slotStart,
       });
-      alert("Appointment rescheduled.");
+      toast.success("Appointment rescheduled.");
       setReschedTarget(null);
       setReschedSlots([]);
       loadAppointments();
       if (view === "calendar") loadCalendar();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Reschedule failed");
+      toast.error(err instanceof Error ? err.message : "Reschedule failed");
     }
   }
 
@@ -517,6 +523,68 @@ export default function AppointmentsPage() {
 
   // ─── CSV export ───────────────────
 
+  async function downloadCalendarInvite(appointmentId: string) {
+    try {
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("medcore_token")
+          : null;
+      const base =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+      const res = await fetch(`${base}/appointments/${appointmentId}/calendar.ics`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error("Failed to download .ics");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `appointment-${appointmentId.slice(0, 8)}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Download failed");
+    }
+  }
+
+  async function findNextAvailable() {
+    try {
+      const res = await api.get<{
+        data: {
+          slot: {
+            doctorId: string;
+            doctorName: string;
+            specialization: string | null;
+            date: string;
+            startTime: string;
+          } | null;
+        };
+      }>("/appointments/next-available");
+      if (!res.data.slot) {
+        alert("No slots available in the next 14 days.");
+        return;
+      }
+      const s = res.data.slot;
+      if (
+        !confirm(
+          `Next available: Dr. ${s.doctorName}${
+            s.specialization ? ` (${s.specialization})` : ""
+          } on ${s.date} at ${s.startTime}. Proceed to book?`
+        )
+      )
+        return;
+      // Pre-fill the booking form
+      setSelectedDoctor(s.doctorId);
+      setSelectedDate(s.date);
+      setShowBooking(true);
+      // The form auto-loads slots when doctor + date change; the user picks the slot.
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not find next slot");
+    }
+  }
+
   function exportCSV() {
     const rows = [
       ["Token", "Patient", "Phone", "Doctor", "Date", "Time", "Type", "Status", "Priority"],
@@ -554,6 +622,58 @@ export default function AppointmentsPage() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  // ─── Bulk actions ────────────────
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filteredAppointments.length && filteredAppointments.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAppointments.map((a) => a.id)));
+    }
+  }
+
+  async function runBulkAction(action: "CANCEL" | "NO_SHOW" | "SEND_REMINDER") {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const labels: Record<typeof action, string> = {
+      CANCEL: "cancel",
+      NO_SHOW: "mark as no-show",
+      SEND_REMINDER: "send reminder for",
+    } as const;
+    if (action !== "SEND_REMINDER") {
+      if (!window.confirm(`${labels[action]} ${ids.length} appointment(s)?`)) return;
+    }
+    setBulkBusy(true);
+    try {
+      const res = await api.post<{
+        data: {
+          requested: number;
+          processed: number;
+          skipped: number;
+          errors: number;
+        };
+      }>("/appointments/bulk-action", { appointmentIds: ids, action });
+      const d = res.data;
+      toast.success(
+        `${action.replace(/_/g, " ")}: ${d.processed} processed, ${d.skipped} skipped, ${d.errors} errors`
+      );
+      setSelectedIds(new Set());
+      loadAppointments();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Bulk action failed");
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
   // ─── Calendar grid helpers ────────
@@ -867,6 +987,13 @@ export default function AppointmentsPage() {
               >
                 Export CSV
               </button>
+              <button
+                onClick={findNextAvailable}
+                className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                title="Find the earliest open appointment slot across all doctors"
+              >
+                Next Available
+              </button>
             </div>
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
               <button
@@ -1031,10 +1158,53 @@ export default function AppointmentsPage() {
             </div>
           )}
 
+          {/* Bulk action bar */}
+          {!isPatient && selectedIds.size > 0 && (
+            <div
+              className="no-print mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3"
+              role="region"
+              aria-label="Bulk actions"
+            >
+              <span className="text-sm font-medium text-primary">
+                {selectedIds.size} selected
+              </span>
+              <button
+                onClick={() => runBulkAction("CANCEL")}
+                disabled={bulkBusy}
+                className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                Cancel selected
+              </button>
+              <button
+                onClick={() => runBulkAction("NO_SHOW")}
+                disabled={bulkBusy}
+                className="rounded-lg bg-slate-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2"
+              >
+                Mark as No-Show
+              </button>
+              <button
+                onClick={() => runBulkAction("SEND_REMINDER")}
+                disabled={bulkBusy}
+                className="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                Send reminder
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                disabled={bulkBusy}
+                className="ml-auto rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           {/* Appointments table */}
           <div className="rounded-xl bg-white shadow-sm">
             {loading ? (
-              <div className="p-8 text-center text-gray-500">Loading...</div>
+              <div className="p-4">
+                <SkeletonTable rows={5} columns={isPatient ? 7 : 9} />
+              </div>
             ) : filteredAppointments.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 {isPatient
@@ -1049,6 +1219,20 @@ export default function AppointmentsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b text-left text-sm text-gray-500">
+                    {!isPatient && (
+                      <th className="px-4 py-3 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all appointments"
+                          checked={
+                            filteredAppointments.length > 0 &&
+                            selectedIds.size === filteredAppointments.length
+                          }
+                          onChange={toggleSelectAll}
+                          className="h-4 w-4 cursor-pointer accent-primary"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3">Token</th>
                     {!isPatient && <th className="px-4 py-3">Patient</th>}
                     <th className="px-4 py-3">Doctor</th>
@@ -1062,6 +1246,17 @@ export default function AppointmentsPage() {
                 <tbody>
                   {filteredAppointments.map((apt) => (
                     <tr key={apt.id} className="border-b last:border-0">
+                      {!isPatient && (
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select appointment ${apt.tokenNumber}`}
+                            checked={selectedIds.has(apt.id)}
+                            onChange={() => toggleSelect(apt.id)}
+                            className="h-4 w-4 cursor-pointer accent-primary"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3 font-bold">{apt.tokenNumber}</td>
                       {!isPatient && (
                         <td className="px-4 py-3">
@@ -1119,6 +1314,15 @@ export default function AppointmentsPage() {
                                 Cancel
                               </button>
                             )}
+                          {["BOOKED", "CHECKED_IN"].includes(apt.status) && (
+                            <button
+                              onClick={() => downloadCalendarInvite(apt.id)}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
+                              title="Download .ics file"
+                            >
+                              Calendar Invite
+                            </button>
+                          )}
                           {!isPatient && apt.status === "BOOKED" && (
                             <button
                               onClick={() => updateStatus(apt.id, "CHECKED_IN")}

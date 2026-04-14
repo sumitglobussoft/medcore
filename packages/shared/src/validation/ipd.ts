@@ -147,3 +147,50 @@ export type UpdateMedicationOrderInput = z.infer<typeof updateMedicationOrderSch
 export type AdministerMedicationInput = z.infer<typeof administerMedicationSchema>;
 export type NurseRoundInput = z.infer<typeof nurseRoundSchema>;
 export type IntakeOutputInput = z.infer<typeof intakeOutputSchema>;
+
+// ─── ISOLATION STATUS ───────────────────────────────────
+
+export const IsolationTypeEnum = z.enum([
+  "STANDARD",
+  "CONTACT",
+  "DROPLET",
+  "AIRBORNE",
+  "REVERSE_ISOLATION",
+]);
+
+export const isolationStatusSchema = z.object({
+  isolationType: IsolationTypeEnum.nullable().optional(),
+  isolationReason: z.string().optional(),
+  isolationStartDate: z.string().optional(),
+  isolationEndDate: z.string().optional(),
+  clear: z.boolean().optional(),
+});
+
+export type IsolationStatusInput = z.infer<typeof isolationStatusSchema>;
+
+// ─── PATIENT BELONGINGS ─────────────────────────────────
+
+export const BelongingItemSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  value: z.number().nonnegative().optional(),
+  checkedIn: z.boolean().default(true),
+  checkedInAt: z.string().optional(),
+  checkedOutAt: z.string().optional(),
+});
+
+export const belongingsSchema = z.object({
+  items: z.array(BelongingItemSchema).default([]),
+  notes: z.string().optional(),
+});
+
+export const updateBelongingsSchema = belongingsSchema.partial();
+
+export const checkoutBelongingsSchema = z.object({
+  items: z.array(BelongingItemSchema).optional(),
+  notes: z.string().optional(),
+});
+
+export type BelongingItemInput = z.infer<typeof BelongingItemSchema>;
+export type BelongingsInput = z.infer<typeof belongingsSchema>;
+export type UpdateBelongingsInput = z.infer<typeof updateBelongingsSchema>;

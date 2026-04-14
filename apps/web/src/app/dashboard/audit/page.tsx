@@ -4,18 +4,31 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
-import { Shield } from "lucide-react";
+import { Shield, Download, Info } from "lucide-react";
 
 interface AuditEntry {
   id: string;
   timestamp: string;
-  userId: string;
+  userId: string | null;
   userName: string;
   userEmail: string;
   action: string;
   entity: string;
-  entityId: string;
-  ipAddress: string;
+  entityId: string | null;
+  ipAddress: string | null;
+  details?: unknown;
+}
+
+interface AuditFilters {
+  actions: string[];
+  users: Array<{ id: string; name: string; email: string }>;
+}
+
+interface RetentionStats {
+  totalEntries: number;
+  byYear: Array<{ year: string; count: number }>;
+  retentionDays: number;
+  oldestEntry: string | null;
 }
 
 interface AuditResponse {
@@ -29,6 +42,10 @@ const entityTypes = [
   "Payment",
   "Prescription",
   "User",
+  "Patient",
+  "Admission",
+  "Vitals",
+  "scheduled_report",
 ];
 
 const actionColors: Record<string, string> = {
@@ -60,9 +77,14 @@ export default function AuditPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [entity, setEntity] = useState("");
-  const [userSearch, setUserSearch] = useState("");
+  const [action, setAction] = useState("");
+  const [userId, setUserId] = useState("");
+  const [ipContains, setIpContains] = useState("");
+  const [freeText, setFreeText] = useState("");
 
-  // Redirect non-admins
+  const [filterOpts, setFilterOpts] = useState<AuditFilters | null>(null);
+  const [retention, setRetention] = useState<RetentionStats | null>(null);
+
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
       router.push("/dashboard");
@@ -77,19 +99,21 @@ export default function AuditPage() {
       if (fromDate) params.set("from", fromDate);
       if (toDate) params.set("to", toDate);
       if (entity) params.set("entity", entity);
-      if (userSearch.trim()) params.set("userId", userSearch.trim());
+      if (action) params.set("action", action);
+      if (userId) params.set("userId", userId);
+      if (ipContains.trim()) params.set("ipContains", ipContains.trim());
+      if (freeText.trim()) params.set("q", freeText.trim());
       return params.toString();
     },
-    [fromDate, toDate, entity, userSearch]
+    [fromDate, toDate, entity, action, userId, ipContains, freeText]
   );
 
   const loadEntries = useCallback(
     async (pageNum: number, append = false) => {
       setLoading(true);
       try {
-        const res = await api.get<AuditResponse>(
-          `/audit?${buildQuery(pageNum)}`
-        );
+        const endpoint = freeText.trim() ? "/audit/search" : "/audit";
+        const res = await api.get<AuditResponse>(`${endpoint}?${buildQuery(pageNum)}`);
         if (append) {
           setEntries((prev) => [...prev, ...res.data]);
         } else {
@@ -103,13 +127,24 @@ export default function AuditPage() {
       }
       setLoading(false);
     },
-    [buildQuery]
+    [buildQuery, freeText]
   );
 
+  // Initial load + filter options + retention stats
   useEffect(() => {
     if (user?.role === "ADMIN") {
       setPage(1);
       loadEntries(1);
+
+      api
+        .get<{ data: AuditFilters }>("/audit/filters")
+        .then((r) => setFilterOpts(r.data))
+        .catch(() => undefined);
+
+      api
+        .get<{ data: RetentionStats }>("/audit/retention-stats")
+        .then((r) => setRetention(r.data))
+        .catch(() => undefined);
     }
   }, [user, loadEntries]);
 
@@ -122,6 +157,26 @@ export default function AuditPage() {
     const next = page + 1;
     setPage(next);
     loadEntries(next, true);
+  }
+
+  function handleExport() {
+    const token = localStorage.getItem("medcore_token");
+    const qs = buildQuery(1);
+    const API_BASE =
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+    // Fetch CSV with auth header
+    fetch(`${API_BASE}/audit/export.csv?${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.blob())
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `audit-${new Date().toISOString().split("T")[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
   }
 
   function formatTimestamp(dateStr: string) {
@@ -140,13 +195,45 @@ export default function AuditPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6 flex items-center gap-3">
-        <Shield size={24} className="text-gray-700" />
-        <h1 className="text-2xl font-bold">Audit Log</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Shield size={24} className="text-gray-700" />
+          <h1 className="text-2xl font-bold">Audit Log</h1>
+        </div>
+        <button
+          onClick={handleExport}
+          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <Download size={14} /> Export CSV
+        </button>
       </div>
 
+      {/* Retention banner */}
+      {retention && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
+          <Info size={18} className="mt-0.5 text-blue-600" />
+          <div>
+            <p className="font-medium">
+              Retention: {retention.retentionDays} days ·{" "}
+              {retention.totalEntries.toLocaleString()} entries stored
+              {retention.oldestEntry
+                ? ` · oldest ${new Date(retention.oldestEntry).toLocaleDateString()}`
+                : ""}
+            </p>
+            {retention.byYear.length > 0 && (
+              <p className="mt-1 text-xs">
+                By year:{" "}
+                {retention.byYear
+                  .map((b) => `${b.year}: ${b.count.toLocaleString()}`)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4">
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">
             From
@@ -155,7 +242,7 @@ export default function AuditPage() {
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border px-3 py-2 text-sm"
           />
         </div>
         <div>
@@ -166,7 +253,7 @@ export default function AuditPage() {
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border px-3 py-2 text-sm"
           />
         </div>
         <div>
@@ -176,9 +263,9 @@ export default function AuditPage() {
           <select
             value={entity}
             onChange={(e) => setEntity(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border px-3 py-2 text-sm"
           >
-            <option value="">All Entities</option>
+            <option value="">All</option>
             {entityTypes.map((et) => (
               <option key={et} value={et}>
                 {et}
@@ -188,22 +275,70 @@ export default function AuditPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">
-            User (ID or email)
+            Action
+          </label>
+          <select
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          >
+            <option value="">All</option>
+            {filterOpts?.actions.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">
+            User
+          </label>
+          <select
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          >
+            <option value="">All</option>
+            {filterOpts?.users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.email})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">
+            IP Contains
           </label>
           <input
             type="text"
-            value={userSearch}
-            onChange={(e) => setUserSearch(e.target.value)}
-            placeholder="Search by user..."
-            className="rounded-lg border px-3 py-2 text-sm"
+            value={ipContains}
+            onChange={(e) => setIpContains(e.target.value)}
+            placeholder="e.g. 192.168."
+            className="w-full rounded-lg border px-3 py-2 text-sm"
           />
         </div>
-        <button
-          onClick={handleFilter}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          Apply Filters
-        </button>
+        <div className="md:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-gray-500">
+            Free-text search (entity, action, details)
+          </label>
+          <input
+            type="text"
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="Search..."
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="md:col-span-4 flex justify-end">
+          <button
+            onClick={handleFilter}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            Apply Filters
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -251,12 +386,14 @@ export default function AuditPage() {
                       </td>
                       <td className="px-4 py-3 text-sm">{entry.entity}</td>
                       <td className="px-4 py-3">
-                        <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
-                          {entry.entityId}
-                        </code>
+                        {entry.entityId && (
+                          <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                            {entry.entityId}
+                          </code>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">
-                        {entry.ipAddress}
+                        {entry.ipAddress ?? ""}
                       </td>
                     </tr>
                   ))}

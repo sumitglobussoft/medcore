@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { useAuthStore } from "@/lib/store";
 
 interface QueueDoctor {
   doctorId: string;
@@ -39,10 +40,42 @@ interface DoctorQueue {
 }
 
 export default function QueuePage() {
+  const user = useAuthStore((s) => s.user);
+  const canTransfer = user?.role === "ADMIN" || user?.role === "RECEPTION";
   const [display, setDisplay] = useState<QueueDoctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<string | null>(null);
   const [doctorQueue, setDoctorQueue] = useState<DoctorQueue | null>(null);
   const [loading, setLoading] = useState(true);
+  const [transferTarget, setTransferTarget] = useState<{
+    appointmentId: string;
+    patientName: string;
+    currentDoctorId: string;
+  } | null>(null);
+  const [transferDoctorId, setTransferDoctorId] = useState("");
+  const [transferReason, setTransferReason] = useState("");
+  const [transferring, setTransferring] = useState(false);
+
+  async function handleTransfer() {
+    if (!transferTarget || !transferDoctorId || !transferReason.trim()) {
+      alert("Please select a doctor and enter a reason.");
+      return;
+    }
+    setTransferring(true);
+    try {
+      await api.post(
+        `/appointments/${transferTarget.appointmentId}/transfer`,
+        { newDoctorId: transferDoctorId, reason: transferReason }
+      );
+      setTransferTarget(null);
+      setTransferDoctorId("");
+      setTransferReason("");
+      loadDisplay();
+      if (selectedDoctor) loadDoctorQueue(selectedDoctor);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Transfer failed");
+    }
+    setTransferring(false);
+  }
 
   useEffect(() => {
     loadDisplay();
@@ -213,11 +246,119 @@ export default function QueuePage() {
                     <p className="text-xs text-gray-400">
                       {entry.hasVitals ? "Vitals recorded" : "No vitals"}
                     </p>
+                    {canTransfer &&
+                      ["BOOKED", "CHECKED_IN"].includes(entry.status) &&
+                      selectedDoctor && (
+                        <div className="mt-2 flex justify-end gap-1">
+                          <button
+                            onClick={() =>
+                              setTransferTarget({
+                                appointmentId: entry.appointmentId,
+                                patientName: entry.patientName,
+                                currentDoctorId: selectedDoctor,
+                              })
+                            }
+                            className="rounded border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                          >
+                            Transfer
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const reason = prompt(
+                                "LWBS reason (e.g., Long wait, Emergency, Patient left):"
+                              );
+                              if (!reason) return;
+                              try {
+                                await api.patch(
+                                  `/appointments/${entry.appointmentId}/lwbs`,
+                                  { reason }
+                                );
+                                loadDisplay();
+                                if (selectedDoctor) loadDoctorQueue(selectedDoctor);
+                              } catch (err) {
+                                alert(
+                                  err instanceof Error ? err.message : "Failed"
+                                );
+                              }
+                            }}
+                            className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                          >
+                            LWBS
+                          </button>
+                        </div>
+                      )}
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Transfer modal */}
+      {transferTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-800">
+              Transfer to another doctor
+            </h3>
+            <p className="mt-1 text-sm text-gray-600">
+              Patient: <span className="font-medium">{transferTarget.patientName}</span>
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  New Doctor
+                </label>
+                <select
+                  value={transferDoctorId}
+                  onChange={(e) => setTransferDoctorId(e.target.value)}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                >
+                  <option value="">Select a doctor</option>
+                  {display
+                    .filter((d) => d.doctorId !== transferTarget.currentDoctorId)
+                    .map((d) => (
+                      <option key={d.doctorId} value={d.doctorId}>
+                        {d.doctorName}
+                        {d.specialization ? ` — ${d.specialization}` : ""}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Reason
+                </label>
+                <textarea
+                  value={transferReason}
+                  onChange={(e) => setTransferReason(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  placeholder="Why transfer?"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setTransferTarget(null);
+                  setTransferDoctorId("");
+                  setTransferReason("");
+                }}
+                className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleTransfer}
+                disabled={transferring}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {transferring ? "Transferring…" : "Confirm Transfer"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
