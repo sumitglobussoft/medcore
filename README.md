@@ -4,264 +4,503 @@
 
 **Live demo:** https://medcore.globusdemos.com
 **Repository:** https://github.com/Globussoft-Technologies/medcore
+**Current version:** v1.2.0
 
 ---
 
 ## Highlights
 
-- **65+ web pages** across 4 major phases + 6 deepening/re-audit passes
-- **250+ API endpoints** with role-based access control
-- **85+ Prisma models** covering every hospital workflow
+- **73+ web pages** across 4 major phases + 7 enhancement/deepening passes
+- **350+ API endpoints** with role-based access control
+- **110+ Prisma models** covering every hospital workflow
 - **Real-time WebSocket** for queue & chat updates
 - **Mobile app** (React Native + Expo) for patients
 - **Production-ready**: PM2 auto-restart, daily DB backups, health monitoring
 - **Full audit trail** + rate limiting + input sanitization
-- **Complete clinical system** — OPD, IPD, ER, Surgery, ICU, Maternity, Pediatric
-- **Complete operations** — Pharmacy, Lab, Blood Bank, Assets, Ambulance, Visitors
-- **Complete finance** — Billing, GST, Refunds, Packages, Expenses, Purchase Orders
-- **Complete HR** — Duty roster, leaves, shifts, payroll calculation
+- **Complete clinical system** — OPD, IPD, ER, Surgery, ICU, Maternity, Pediatric, Telemedicine
+- **Clinical safety layer** — Drug interactions, delta checks, controlled-substance register, renal dose calc, medication reconciliation
+- **Complete operations** — Pharmacy (FEFO, FIFO, returns), Lab (QC, TAT alerts), Blood Bank (ABO matching, screening, component separation), Assets (depreciation), Ambulance, Visitors
+- **Complete finance** — Billing with GST (CGST+SGST), EMI plans, refunds, credit notes, pre-authorization, discount approval workflow, late fees, patient pricing tiers, health packages, purchase orders with GRN, expense tracking with budgets
+- **Complete HR** — Duty roster, shifts with check-in/out + LATE detection, leaves with approval + balances + calendar, holidays, payroll, overtime, certifications with expiry tracking
+- **Engagement** — Feedback with NPS + sentiment, complaints with SLA countdown, internal chat with reactions + pins + mentions, visitor management with photo capture
+- **UX polish** — Dark mode, WCAG AA accessibility, PWA, Hindi i18n, print layouts, keyboard shortcuts (Ctrl+K global search), toast notifications, loading skeletons
 
 ---
 
 ## Table of Contents
 
-1. [Feature Overview](#feature-overview)
+1. [Feature Catalog](#feature-catalog)
 2. [Tech Stack](#tech-stack)
-3. [Project Structure](#project-structure)
+3. [Architecture & Project Structure](#architecture--project-structure)
 4. [Roles & Permissions](#roles--permissions)
 5. [Module Reference](#module-reference)
 6. [Local Setup](#local-setup)
 7. [Deployment](#deployment)
 8. [Operations](#operations)
 9. [Demo Accounts](#demo-accounts)
-10. [Development History](#development-history)
+10. [Version History](#version-history)
 
 ---
 
-## Feature Overview
+## Feature Catalog
 
-### OPD / Outpatient (Phase 1)
+### 🏥 Outpatient / OPD
 
-- **Appointment booking** — slot-based scheduling with live availability
-- **Walk-in registration** — quick intake with token assignment and priority flags
-- **Queue management** — real-time live queue with WebSocket updates, waiting-area token display
-- **Reschedule / Cancel** — with patient confirmation dialogs and audit trail
-- **Recurring appointments** — daily / weekly / monthly up to 52 occurrences
-- **Calendar view** — 7-day grid with status-colored appointment blocks
-- **OPD vitals** — BP, temp, pulse, SpO2, weight, height, pain scale
-- **Consultation workflow** — check-in → vitals → consultation → prescription → billing
-- **Digital prescriptions** — with medicine items, advice, follow-up, e-sign
-- **PDF generation** — printable prescriptions with hospital letterhead
-- **Prescription templates** — reusable templates for common diagnoses
-- **Refill tracking** — per-item refill count with refill endpoints
+**Appointments**
+- Slot-based booking with live availability
+- Walk-in registration with priority flags
+- Waitlist with auto-notify on cancellation
+- Calendar invite download (.ics)
+- First-available slot finder across all doctors
+- Buffer settings between slots
+- Multi-doctor coordinated visits (see 3 specialists same day)
+- Reschedule with audit trail
+- Recurring appointments (daily/weekly/monthly, up to 52)
+- Group appointments (training sessions)
+- Calendar view, list view, stats view
+- CSV export, bulk operations
+- No-show policy enforcement with threshold
+- No-show fee auto-billing
+- Conflict detection for double-booking
 
-### Patient Management
+**Queue**
+- Real-time live queue via WebSocket
+- Waiting-area token display (dark theme, high contrast)
+- Queue position SMS to patients
+- LWBS (Left Without Being Seen) tracking
+- Queue transfer between doctors
+- Vulnerable-group priority boost (seniors 65+, children under 5, ANC patients)
+- Estimated wait time prediction
 
-- **Registration** — full demographics including Aadhaar, ABHA ID, marital status, occupation, religion, language, photo
-- **MR Number** — auto-generated (MR######)
-- **Search** — fuzzy matching across name, phone, MR number
-- **Patient merge** — combine duplicate records
-- **Unified timeline** — chronological feed of all appointments, consultations, prescriptions, vitals, admissions, labs, surgeries, invoices, emergency visits
-- **Visit history** — expandable per-visit details
-- **Quick actions** — Book appointment, Record vitals, Start consultation, Write prescription, Create invoice, Admit
+**Consultation Workflow**
+- Check-in → Vitals → Consultation → Prescription → Billing → Checkout
+- Consultation duration auto-tracking
+- Doctor notes + diagnosis (ICD-10 coded)
 
-### Electronic Health Records (EHR)
+**Vitals**
+- BP, temperature (°F/°C toggle), pulse, respiratory rate, SpO2, weight, height, pain scale
+- Auto-calculated BMI with category
+- Abnormal flags (server-side `computeVitalsFlagsWithBaseline`)
+- Patient-specific baseline (not just population normal)
+- Sudden change alerts (>20% deviation triggers doctor notification)
+- Critical value SMS to patient
+- PDF export of vitals history
 
-- **Allergies** — with severity (MILD / MODERATE / SEVERE / LIFE_THREATENING), reaction, notes
-- **Alert banner** — severe allergies highlighted prominently on patient chart
-- **Chronic conditions** — with ICD-10 codes, diagnosis date, status tracking
-- **Family history** — relations, conditions, notes
-- **Immunizations** — vaccine records with dose tracking and next-due dates
-- **Immunization schedule** — overdue / due-soon dashboard
-- **Document upload** — base64 files with types (LAB_REPORT, IMAGING, CONSENT, etc.)
-- **Vitals trends** — SVG line charts for BP, temperature, pulse, SpO2, weight over time with abnormal-range bands
+**Prescriptions**
+- Digital prescriptions with diagnosis, medicines, advice, follow-up
+- Doctor e-signature support
+- PDF generation with hospital letterhead
+- Prescription templates (10 pre-seeded for common diagnoses)
+- Copy-from-previous prescription
+- Refill tracking per item
+- Print/share tracking (WhatsApp/Email/SMS)
+- **Drug interaction check on write** — blocks SEVERE/CONTRAINDICATED unless overridden
+- Generic substitution suggestions with cost comparison
+- Patient education leaflets (20 pre-seeded)
+- Renal dosage calculator (Cockcroft-Gault)
 
-### IPD / Inpatient (Phase 2)
+### 🛏️ Inpatient / IPD
 
-- **Wards & Beds** — ward types (GENERAL, PRIVATE, ICU, NICU, HDU, etc.), bed status tracking
-- **Admissions** — admit / transfer / discharge workflow with transaction safety
-- **IPD Vitals** — continuous monitoring records
-- **Medication Orders** — with auto-generated administration schedule
-- **Medication Administration Record (MAR)** — nurse dashboard of due meds with administer / miss / refuse actions
-- **Nurse rounds** — rounding notes per admission
-- **Discharge summary** — structured template with final diagnosis, treatment, medications, follow-up
-- **Daily IPD bill** — auto-accumulating bed charges
+**Admissions**
+- Admit / transfer / discharge workflow with transaction safety
+- Admission types (ELECTIVE / EMERGENCY / TRANSFER / MATERNITY / DAY_CARE)
+- Auto-generated admission number (IPD######)
+- **Structured discharge summary** with conditionAtDischarge enum
+- **Discharge-readiness checklist** (outstanding bills, pending labs, pending meds, discharge summary, follow-up, medications-on-discharge)
+- **Force-discharge** guard if bills outstanding
+- **Bed occupancy forecast** (next 7 days)
+- **Length-of-stay prediction** based on historical data
+- **Isolation status tracking** (CONTACT / DROPLET / AIRBORNE / REVERSE)
+- **Patient belongings inventory**
+- **Daily census report** (admits, discharges, transfers, deaths)
+- Running daily bill with bed charges
 
-### Emergency / Triage
+**IPD Clinical**
+- IPD vitals (continuous monitoring)
+- Medication orders with auto-scheduled administration
+- Medication Administration Record (MAR) grid view
+- Nurse rounds with structured notes
+- Intake/Output charting (8 categories — oral, IV, NG, urine, stool, vomit, drain, other)
+- Medication reconciliation at admission + discharge
 
-- **Emergency case intake** — registered or unknown patients (John/Jane Doe)
-- **5-level triage** (RESUSCITATION / EMERGENT / URGENT / LESS_URGENT / NON_URGENT) with color coding
-- **MEWS & GCS scoring**
-- **Live ER board** — column layout by status (Waiting / Triaged / In Treatment / Disposition Pending)
-- **Wait-time tracking** — overdue highlighting against triage-level targets
-- **Doctor assignment** — with seen-time tracking
-- **Case closure** — with disposition (discharged / admitted / transferred / LWBS / deceased)
-- **Mass casualty mode**
+**Wards & Beds**
+- Ward types (GENERAL / PRIVATE / SEMI_PRIVATE / ICU / NICU / HDU / EMERGENCY / MATERNITY)
+- Bed status tracking (AVAILABLE / OCCUPIED / CLEANING / MAINTENANCE / RESERVED)
+- Per-bed daily rates
 
-### Surgery / OT
+### 🚨 Emergency / Triage
 
-- **Operating theater management** — multiple OTs with daily rates
-- **Surgery scheduling** — with surgeon, OT, duration, anaesthetist, assistants
-- **Pre-op checklist** — consent, NPO, allergies, antibiotics
-- **Status workflow** — SCHEDULED → IN_PROGRESS → COMPLETED
-- **OT calendar** — weekly view of scheduled surgeries
-- **Post-op notes** — diagnosis, notes, complications
-- **OT utilization analytics**
+- Emergency case intake (registered patients or John/Jane Doe)
+- 5-level triage (RESUSCITATION / EMERGENT / URGENT / LESS_URGENT / NON_URGENT)
+- MEWS score + Glasgow Coma Scale
+- **Revised Trauma Score (RTS)** calculator
+- Live ER board (4-column status layout)
+- Wait-time tracking with triage-level targets
+- Door-to-doctor time analytics
+- **MLC / Police case** tracking
+- Repeat visit detection (within 72h)
+- Mass casualty mode (bulk register unknowns)
+- **ER-to-admission conversion** (creates IPD admission in one click)
 
-### Maternity / Antenatal
+### 🔪 Surgery / Operating Theater
 
-- **ANC case** — one active case per pregnancy
-- **EDD auto-calculation** — LMP + 280 days
+- OT management with daily rates
+- Surgery scheduling with surgeon, OT, duration, anesthesiologist, assistants
+- Auto-generated case number (SRG######)
+- **Pre-op checklist** (consent, NPO, allergies, antibiotics, site-mark, blood reserved) — enforced at /start
+- **Intra-op timing** (anesthesia start/end, incision, closure)
+- **Post-op checklist** (sponge count, instrument count, specimen labeled, patient stable)
+- **Post-op PACU recovery** tracking (vitals timeline)
+- **Complications** tracking with severity
+- **Surgical site infection (SSI)** tracking + analytics
+- **Anesthesia record** (type, agents, vitals log, IV fluids, blood loss)
+- **Blood requirement** cross-check with auto-reserve
+- **OT utilization** analytics
+- **OT turnaround time** tracking
+- Weekly OT calendar view
+- Consent form support
+
+### 🤰 Maternity / Antenatal
+
+- ANC case management (one active per pregnancy)
+- EDD auto-calculation (LMP + 280 days)
 - **Trimester tracking**
-- **Visit types** — FIRST_VISIT, ROUTINE, HIGH_RISK_FOLLOWUP, SCAN_REVIEW, DELIVERY, POSTNATAL
-- **Per-visit data** — weeks gestation, weight, BP, fundal height, FHR, urine tests, hemoglobin
-- **High-risk flagging** — risk factors and alerts
-- **Delivery outcome** — delivery type, baby gender/weight, outcome notes
-- **Visit timeline** — SVG visualization LMP → today → EDD
+- Visit types (FIRST / ROUTINE / HIGH_RISK / SCAN / DELIVERY / POSTNATAL)
+- Per-visit data (gestation weeks, weight, BP, fundal height, FHR, urine tests, hemoglobin)
+- **ACOG risk scoring** algorithm with auto-flagging
+- **Partograph** for labor monitoring with SVG chart
+- **Ultrasound records**
+- Delivery outcome (type, baby gender/weight, outcome notes)
+- **Postnatal visit checklist** (lochia, involution, breastfeeding, mental health, baby exam)
+- Visit timeline visualization (LMP → today → EDD)
 
-### Pediatric Growth
+### 👶 Pediatric
 
-- **Growth records** — weight, height, head circumference, BMI
-- **Percentiles** — WHO-style median lookup with linear interpolation
-- **Growth charts** — SVG line charts with milestone markers at 2/4/6/9/12/18/24 months
-- **Developmental notes** — per visit
+- Growth records (weight, height, head circumference, BMI)
+- WHO percentile calculation with linear interpolation
+- Growth charts with milestone markers (2/4/6/9/12/18/24 months)
+- **Failure-to-thrive (FTT) alerts** (percentile drops, velocity)
+- **Interactive milestone checklist** (GROSS_MOTOR / FINE_MOTOR / LANGUAGE / SOCIAL / COGNITIVE across 39 milestones)
+- **Feeding log** (breast, bottle, solids) with daily totals
+- **Immunization compliance** checker (India UIP schedule)
 
-### Diagnostics & Lab
+### 📋 Electronic Health Records
 
-- **Test catalog** — 30+ pre-seeded tests (CBC, LFT, KFT, Lipid Profile, etc.)
-- **Lab orders** — multi-test orders with auto-generated order number
-- **Sample tracking** — COLLECTED → IN_PROGRESS → COMPLETED
-- **Result entry** — per-test parameter / value / unit / normal range / flag
-- **Critical flagging** — NORMAL / LOW / HIGH / CRITICAL with color-coded display
-- **Auto-completion** — order completes when all items have results
-- **Turnaround time (TAT)** — ordered vs completed tracking
-- **Result trends** — compare current with previous results for same test
+- **Allergies** with 4 severity levels + alert banners for SEVERE/LIFE_THREATENING
+- **Chronic conditions** with ICD-10 codes
+- **Family history**
+- **Immunizations** with UIP schedule, next-due tracking, overdue alerts
+- **Patient documents** (base64 upload: LAB_REPORT, IMAGING, CONSENT, INSURANCE, etc.)
+- **Consolidated problem list** (unified view across conditions, diagnoses, allergies, active admissions)
+- **Medication reconciliation** at admission and discharge
+- **Advance directives / DNR** orders with patient chart banner
+- **CCDA / Continuity of Care** JSON export
+- **Patient 360° view** with timeline, sparklines, key metrics
+- **Patient merge** (combine duplicates)
+- **Family linking** (parent/child/spouse/sibling)
+
+### 💉 Immunizations
+
+- Full India UIP pediatric schedule (BCG, OPV, Pentavalent, Rotavirus, IPV, MR, JE, DPT boosters)
+- Adult vaccines (Influenza, Hep B, Typhoid, Tdap, HPV, Pneumococcal, COVID, MMR, Varicella)
+- Compliance dashboard with overdue alerts
+- Batch number + manufacturer tracking
+- Next-due date calculations
+
+### 🩸 Blood Bank
+
+- **Donor registry** with eligibility tracking
+- **Donations** with unit numbers, approval workflow, screening notes
+- **Screening tests** (HIV, HCV, HBsAg, Syphilis, Malaria) — auto-discards units on fail
+- **Donor deferral** tracking (malaria area, piercing, pregnancy, medication)
+- **Blood units** by component (WHOLE / PRBC / PLATELETS / FFP / CRYO)
+- **Component separation** (1 whole blood → multiple components with component-specific expiry)
+- **Inventory** by blood group + component with expiry
+- **Blood requests** with urgency levels
+- **ABO/Rh compatibility matrix** + donor eligibility check
+- **Unit reservation** with 24h expiry + auto-release cron
+- **Cross-match history**
+- **Temperature logs** for storage compliance
+- **Low-stock alerts**
+- **Next-donation reminders** (90-day rule)
+
+### 🚑 Ambulance
+
+- Fleet management (BLS / ALS / ICU / Patient Transport)
+- Trip lifecycle (REQUESTED → DISPATCHED → ARRIVED_SCENE → EN_ROUTE_HOSPITAL → COMPLETED)
+- Driver + paramedic tracking
+- **GPS coordinates** for trip tracking
+- **Dispatch priority** (RED / YELLOW / GREEN)
+- **Equipment check** before trip
+- **Fuel logs**
+- Distance & cost logging
+- Trip billing integration
+
+### 🏗️ Assets
+
+- Asset registry (Medical Equipment / IT / Furniture / Vehicles)
+- Status tracking (IN_USE / IDLE / UNDER_MAINTENANCE / RETIRED / LOST)
+- Assignment history per staff
+- **Maintenance logs** (SCHEDULED / BREAKDOWN / CALIBRATION / INSPECTION)
+- **Calibration schedule** with due-date tracking
+- **Depreciation** calculation (straight-line method)
+- **Warranty expiry** alerts (next 30 days)
+- **AMC** tracking with renewal alerts
+- **Transfer history** between departments
+- **Disposal workflow** (sold / scrapped / donated)
+- **QR code payload** for asset tags
+
+### 🧪 Laboratory
+
+- Test catalog (40+ tests across Hematology, Biochemistry, Microbiology, Imaging)
+- Lab orders with multi-test support
+- **STAT priority** with auto-notify to lab tech + ordering doctor
+- Sample tracking (ORDERED → SAMPLE_COLLECTED → IN_PROGRESS → COMPLETED / SAMPLE_REJECTED)
 - **Reference ranges by age/gender**
+- **Panic value** flagging with critical alerts
+- **Delta check** — auto-compare with patient's previous results (>25% flagged)
+- **Result verification workflow** (tech enters → doctor verifies)
+- **Batch result entry**
+- **Sample rejection** workflow
+- **TAT (turnaround time)** tracking + breach alerts
+- **QC tracking** with Levey-Jennings chart (mean ± 2SD/3SD)
+- **Lab report PDF** generation
+- **Patient-facing result sharing** (signed URL, 7-day expiry)
+- **Result trends** (sparklines per parameter)
+- Flag colors (NORMAL / LOW / HIGH / CRITICAL)
 
-### Pharmacy
+### 💊 Pharmacy
 
-- **Medicine catalog** — 40+ pre-seeded medicines (generic names, brand, form, strength, category)
-- **Drug interactions** — severity levels (MILD / MODERATE / SEVERE / CONTRAINDICATED)
-- **Interaction check** — bulk-check endpoint for prescription safety
-- **Inventory** — batch tracking with quantity, unit cost, selling price, expiry
-- **Stock movements** — PURCHASE / DISPENSED / EXPIRED / RETURNED / DAMAGED / ADJUSTMENT
+- Medicine catalog (60+ medicines with generic names, brands, forms, strengths, categories)
+- **Drug interactions** with severity levels (MILD / MODERATE / SEVERE / CONTRAINDICATED)
+- Inventory with batch tracking, expiry, cost
+- **Barcode lookup**
+- Stock movements (PURCHASE / DISPENSED / EXPIRED / RETURNED / DAMAGED / ADJUSTMENT)
+- **Batch recall** and quarantine
+- **Reorder suggestions** based on consumption rate
 - **Low stock alerts**
-- **Expiry tracking** — items expiring within 30/60/90 days
-- **Dispense from prescription** — FEFO (First Expiry First Out) batch selection
-- **Purchase orders** — DRAFT → PENDING → APPROVED → RECEIVED workflow
-- **Supplier management** — contacts, GST numbers, payment terms
+- **Expiry tracking** (30/60/90 days)
+- **Dispense from prescription** (FEFO batch selection)
+- **Auto-billing on dispense** (adds line items to PENDING invoice)
+- **Returns / exchanges** workflow
+- **Stock transfers** between departments
+- **Low-stock supplier email** (stub with draft PO creation)
+- **Narcotics / Schedule H/X** ledger
+- **Controlled Substance Register** with running balance + auto-entry on dispense
+- **Valuation methods** (FIFO / LIFO / Weighted Average)
+- **Purchase orders** (DRAFT → PENDING → APPROVED → RECEIVED)
+- **GRN** (Goods Receipt Note) with partial receipts
 
-### Blood Bank
+### 💰 Billing & Finance
 
-- **Donor registry** — with blood group, eligibility tracking
-- **Donations** — unit numbers, approval workflow, screening notes
-- **Blood units** — by component (WHOLE / PRBC / PLATELETS / FFP / CRYO)
-- **Inventory** — by blood group + component with expiry
-- **Blood requests** — with urgency (ROUTINE / URGENT / EMERGENCY)
-- **ABO/Rh matching** — compatibility-aware unit allocation
-- **Issue tracking** — transactional unit issuance
+**Invoicing**
+- Line items with categories (Consultation / Procedure / Medicine / Lab / Other)
+- **GST breakdown** (CGST 9% + SGST 9% + total 18%)
+- Hospital GSTIN on invoice
+- **Discount application** (percentage or flat)
+- **Discount approval workflow** (>threshold requires admin approval)
+- **Invoice watermarks** (CANCELLED / PAID / DRAFT) in print view
+- **Tax invoice** print format
+- Add / remove line items on pending invoices
+- **Credit notes** for post-payment adjustments
+- **Consolidated IPD bill** (aggregates all services)
+- **Late-fee automation** (configurable grace days + flat/percent)
+- **Patient pricing tiers** (STANDARD / EMPLOYEE / SENIOR_CITIZEN / BPL / VIP) with auto-discount
 
-### Ambulance
-
-- **Fleet management** — BLS / ALS / ICU / Patient Transport types
-- **Trip lifecycle** — REQUESTED → DISPATCHED → ARRIVED_SCENE → EN_ROUTE_HOSPITAL → COMPLETED
-- **Driver & paramedic tracking**
-- **Distance & cost logging**
-- **Trip history**
-
-### Billing & Finance
-
-- **Invoice generation** — line items with categories (Consultation, Procedure, Medicine, Lab, Other)
-- **Tax calculation** — GST-aware
-- **Discount application** — percentage or flat amount with reason
-- **Payment recording** — CASH / CARD / UPI / ONLINE / INSURANCE
+**Payments**
+- CASH / CARD / UPI / ONLINE / INSURANCE modes
+- **Razorpay** integration (order + verification)
 - **Partial payments**
-- **Razorpay integration** — online payment order creation + verification
-- **Refunds** — with reason tracking
-- **Bulk payments** — across multiple invoices for patient reconciliation
-- **Outstanding reports** — with days-overdue highlighting
-- **Insurance claims** — SUBMITTED → APPROVED / REJECTED → SETTLED
-- **Health packages** — Master Health Checkup, Diabetes Care, Cardiac Wellness, Pregnancy Care, Senior Citizen
-- **Package purchases** — with validity tracking
-- **Expenses** — 8 categories (Salary, Utilities, Equipment, etc.)
-- **Purchase orders** — full procurement workflow
+- **Refunds** with reason tracking
+- **Bulk payments** across multiple invoices
+- **Advance deposits** with auto-consumption on invoice
+- **Payment plans / EMI** (multi-installment with auto-reminders)
+- Payment timeline visualization
 
-### Staff HR
+**Insurance**
+- **Pre-authorization** requests with status workflow
+- Insurance claims (SUBMITTED → APPROVED / REJECTED → SETTLED)
+- Claim reference number tracking
 
-- **Duty roster** — daily grid by shift type (Morning / Afternoon / Night / On-Call)
-- **Shift management** — per-user scheduling
-- **Check-in / Check-out** — with auto LATE detection (>15 min)
-- **Leave requests** — 6 types (CASUAL, SICK, EARNED, MATERNITY, PATERNITY, UNPAID)
-- **Approval workflow** — PENDING → APPROVED / REJECTED with reason
-- **Leave balance** — per-type tracking
-- **My Schedule** — 7-day forward view for staff
-- **Bulk scheduling** — multi-staff multi-day assignment
+**Health Packages**
+- 5 pre-seeded packages (Master Checkup, Diabetes Care, Cardiac Wellness, Pregnancy Care, Senior Citizen)
+- Patient purchases with validity tracking
+- Service consumption tracking
+- Package-based auto-discount on matching services
+- Package renewal
+- Family packages (multiple patients per purchase)
 
-### Patient Engagement
+**Suppliers & Procurement**
+- Supplier registry with GST, payment terms
+- **Contracts** with expiry alerts
+- **Performance metrics** (on-time delivery, variance, rating)
+- **Supplier payments** tracking
+- **Supplier catalog** (preferred items with pricing)
+- Purchase orders with multi-step approval
+- **GRN** (Goods Receipt Note) with partial receipts
+- **Recurring POs** for monthly items
 
-- **Notifications** — WhatsApp / SMS / Email / Push (stubs for real API integration)
-- **Notification preferences** — per-channel toggles
-- **Notification log** — full audit trail of all notifications sent
-- **Feedback** — 5-star ratings per category (Doctor, Nurse, Food, Cleanliness, Overall)
-- **NPS scoring** — 0-10 with promoter / detractor calculation
-- **Public feedback link** — `/feedback/[patientId]` accessible via SMS/WhatsApp
-- **Complaints** — ticket system with assignment, priority, resolution
-- **Internal chat** — 1-on-1 and group rooms, real-time via Socket.IO
-- **Visitor management** — check-in / check-out with ID proof, printable passes
+**Expenses**
+- 8 categories (Salary / Utilities / Equipment / Maintenance / Consumables / Rent / Marketing / Other)
+- **Approval workflow** for amounts > threshold
+- **Monthly budgets** per category with variance tracking
+- **Recurring expenses** (rent, utilities auto-creation)
+- Attachments for receipts
 
-### Telemedicine
+### 👥 Staff HR
 
-- **Video sessions** — auto-generated Jitsi Meet URLs
-- **Session workflow** — SCHEDULED → WAITING → IN_PROGRESS → COMPLETED
-- **"Join Call" button** — active within 15 min of scheduled time
-- **Session notes & ratings**
-- **Integration with prescription creation**
+- **Duty roster** grid by shift type (Morning / Afternoon / Night / On-Call)
+- **Shift check-in/out** with LATE detection (>15 min)
+- **Bulk shift assignment**
+- **My Schedule** 7-day view for staff
+- **Leave requests** with 6 types (CASUAL / SICK / EARNED / MATERNITY / PATERNITY / UNPAID)
+- **Leave approval workflow** with auto-shift update on approval
+- **Leave balances** per type per year
+- **Leave calendar** (month view of who's on leave)
+- **Holiday calendar** with Indian holidays template
+- **Attendance summary** (monthly per user)
+- **Payroll calculation** (basic + allowances + overtime - deductions)
+- **Overtime tracking** with approval workflow
+- **Staff certifications** with expiry tracking (medical license, nursing cert, BLS, ACLS)
+- Timesheet management
 
-### Referrals
+### 👨‍⚕️ Telemedicine
 
-- **Internal referrals** — doctor-to-doctor
-- **External referrals** — to outside providers
-- **Status workflow** — PENDING → ACCEPTED → COMPLETED / DECLINED
-- **Inbox view** — for receiving doctor
+- Video sessions with auto-generated Jitsi Meet URLs
+- Session workflow (SCHEDULED → WAITING → IN_PROGRESS → COMPLETED)
+- "Join Call" active within 15 min of scheduled time
+- **In-session chat**
+- **Tech issues** tracking
+- **Patient waiting room** indicator
+- **Session ratings** (1-5 stars)
+- **Prescription creation** during session
+- Follow-up scheduling
+- Integration with billing
 
-### Asset Management
+### 🔔 Notifications
 
-- **Asset registry** — medical equipment, IT, furniture, vehicles
-- **Status tracking** — IN_USE / IDLE / UNDER_MAINTENANCE / RETIRED / LOST
-- **Assignment history** — staff to asset linkage
-- **Maintenance logs** — SCHEDULED / BREAKDOWN / CALIBRATION / INSPECTION
-- **Warranty alerts** — expiring within 30 days
-- **AMC tracking** — renewal alerts
-- **Depreciation calculation**
+- Multi-channel: WhatsApp / SMS / Email / Push (stubs for real API keys)
+- **Notification preferences** per channel per user
+- **Notification templates** customizable per event
+- **Notification schedule** (quiet hours / DND)
+- **Admin broadcasts** with audience selector (all staff / role / specific users)
+- **Delivery tracking** (QUEUED / SENT / DELIVERED / READ / FAILED)
+- **Notification history** (200+ log entries)
+- 13 notification types (appointment, reminder, bill, payment, prescription, etc.)
 
-### Analytics & Reports
+### 🗣️ Patient Engagement
 
-- **Overview dashboard** — KPIs with period comparison (vs previous period / previous year)
-- **Appointment trends** — daily / weekly / monthly time series
-- **Revenue analytics** — by payment mode, by doctor, by category
-- **Doctor performance** — sortable: appointments, completion rate, avg consultation time, revenue
-- **Top diagnoses**
-- **Patient demographics** — gender split, age groups (donut charts)
-- **IPD occupancy** — per-ward bars
-- **Pharmacy insights** — low stock, top dispensed
-- **No-show analysis** — by doctor, day of week, hour
-- **ER performance** — wait times, dispositions
-- **Patient retention** — new vs returning, visit frequency distribution
-- **Feedback trends** — NPS over time, rating by category
-- **CSV exports** — revenue, appointments, patients
-- **Report builder** — custom report creation with saved configurations
-- **Audit log viewer** — admin-only full action trail with filters
+**Feedback**
+- 5-star ratings per category (Doctor / Nurse / Reception / Cleanliness / Food / Waiting / Billing / Overall)
+- NPS scoring (0-10)
+- **Auto sentiment analysis** (POSITIVE / NEUTRAL / NEGATIVE)
+- **Public feedback link** for SMS/WhatsApp (/feedback/[patientId])
+- Feedback trend charts (NPS over time)
+- 12-month rating trends
 
-### Admin & System
+**Complaints**
+- Auto-generated ticket numbers
+- 4 priority levels with auto-SLA (CRITICAL 4h / HIGH 24h / MEDIUM 72h / LOW 168h)
+- **SLA countdown** with at-risk dashboard
+- Auto-escalation for overdue SLAs
+- Assignment workflow
+- Resolution tracking
+- Management response dashboard
 
-- **User management** — staff CRUD (Admin, Doctor, Reception, Nurse)
-- **Role-based access control** — fine-grained per-endpoint
-- **Audit logging** — all key actions with IP, user, entity
-- **Rate limiting** — 100 req/min global, 10 req/min on auth endpoints
-- **Input sanitization** — HTML tag stripping on all request bodies
-- **Password reset** — forgot-password flow with 6-digit code
-- **Change password** — for logged-in users
-- **Session management** — JWT with refresh tokens
+**Internal Chat**
+- 1-on-1 and group rooms
+- Real-time via Socket.IO
+- **Message reactions** (6 emojis)
+- **Pinning** with banner
+- **@mentions** with auto-notifications
+- **Department channels** (auto-populated by role)
+- Typing indicators
+- Message search
+- Threading support
+- Unread counts + read receipts
+
+**Visitors**
+- Check-in / check-out with ID proof
+- **Photo capture** (webcam + upload fallback)
+- Printable passes
+- **Blacklist** with reasons
+- **Per-patient limits** (max 2 active)
+- Visitor history per patient
+- **Peak-hour analytics**
+
+### 📊 Analytics & Reports
+
+**Analytics Dashboard**
+- Overview KPIs with **period comparison** (vs previous period / previous year)
+- **Date range presets** (Today / This Week / Last Month / This Year / Custom)
+- Appointment trends (scheduled vs walk-in)
+- Revenue analytics (by mode / doctor / category / ward)
+- Doctor performance (sortable)
+- Top diagnoses
+- Patient demographics (gender / age groups)
+- IPD occupancy
+- Patient retention (new vs returning)
+- **No-show analysis** (by doctor / day / hour heatmap)
+- **ER performance** (wait times / dispositions / LWBS rate)
+- **IPD trends** (avg LOS / readmission rate)
+- **Pharmacy expiry risk** (value at risk)
+- **Feedback trends** (NPS over time)
+- **Benchmarks** (current vs prior / YoY / percentile rank)
+- **Forecasting** (linear regression projection)
+
+**Reports**
+- Daily billing collection
+- Payment mode breakdown
+- Outstanding invoices
+- Insurance claim status
+- **Scheduled email reports** (daily / weekly / monthly)
+- **Report history** with snapshots
+- **Custom Report Builder** with saved configurations
+
+**Exports**
+- Revenue CSV
+- Appointments CSV
+- Patients CSV
+- Audit log CSV
+- Print-friendly dashboard
+
+**Dashboards per role**
+- **Admin Control Center** (system health + critical alerts + pending approvals + resource usage)
+- **Doctor Workspace** (queue + pending tasks + admitted patients)
+- **Nurse Workstation** (medications due + ER triage + assigned patients)
+- **Patient Portal** (upcoming appointments + bills + prescriptions)
+- **Unified Calendar** (all scheduled events across modules)
+
+### 🔐 Admin & System
+
+- **Global search palette** (Ctrl+K) across patients, appointments, invoices, prescriptions, admissions, surgeries, labs
+- User management (ADMIN / DOCTOR / RECEPTION / NURSE / PATIENT)
+- Role-based access control (RBAC) on every endpoint
+- **Audit logging** for all key actions (LOGIN, BOOK, UPDATE, PAY, etc.) with advanced search
+- Audit CSV export for compliance
+- **Rate limiting** (100 req/min global, 10 req/min on auth)
+- **Input sanitization** (HTML tag stripping)
+- **Password reset** with 6-digit code
+- **Change password** for logged-in users
+- JWT sessions with refresh tokens
+- **Dashboard widget preferences** (saved per user)
+
+### 🎨 UX & Accessibility
+
+- **Dark mode** with system preference detection
+- **Accessibility** (WCAG AA) — skip link, focus rings, aria labels
+- **Print layouts** optimized for invoice, prescription, admission, lab report, patient record
+- **i18n** (English + Hindi) for login/register/feedback
+- **PWA manifest** with icons (installable on mobile)
+- **Keyboard shortcuts**:
+  - `Ctrl+K` — global search
+  - `g h/a/p/q` — navigate to home/appointments/patients/queue
+  - `?` — keyboard shortcut help
+  - `Esc` — close modals
+- **Toast notifications** (replaces alerts)
+- **Loading skeletons**
+- **Bulk operations** on appointments
+- **Offline mode** for waiting-area token display
 
 ---
 
@@ -272,13 +511,13 @@
 - **PostgreSQL 16** via **Prisma 6** ORM
 - **JWT** + **bcryptjs** for auth
 - **Socket.IO** for real-time queue & chat
-- **Zod** for validation
-- **Multer-less file upload** (base64)
+- **Zod** for request validation
+- Base64 file upload (no multer dependency)
 
 ### Web Frontend
 - **Next.js 15** + **React 19** (App Router, TypeScript)
-- **Tailwind CSS v4** with `@theme` CSS variables (no tailwind.config)
-- **Zustand** for auth state
+- **Tailwind CSS v4** with `@theme` CSS variables + `@custom-variant dark`
+- **Zustand** for state (auth, theme, toast)
 - **lucide-react** icons
 - **socket.io-client**
 - Pure SVG charts (no chart library dependency)
@@ -294,24 +533,24 @@
 - **PM2** process manager with systemd startup
 - **Docker** for PostgreSQL
 - **nginx** reverse proxy + **Certbot** SSL
-- **Paramiko** (Python) for deployment
+- **Paramiko** (Python) for deployment automation
 
 ### Infrastructure
 - **Ubuntu 22.04** server
-- **Let's Encrypt** SSL
+- **Let's Encrypt** SSL (auto-renewed)
 - **Cron jobs** — nightly backups (2 AM), 5-min health checks
 - **Backup retention** — 30 days with gzip
 
 ---
 
-## Project Structure
+## Architecture & Project Structure
 
 ```
 medcore/
 ├── apps/
 │   ├── api/                    # Express.js backend
 │   │   └── src/
-│   │       ├── index.ts        # App entrypoint, router wiring
+│   │       ├── index.ts        # App entrypoint, router wiring, socket.io
 │   │       ├── middleware/
 │   │       │   ├── auth.ts     # JWT authentication + RBAC
 │   │       │   ├── audit.ts    # Action logging
@@ -319,50 +558,53 @@ medcore/
 │   │       │   ├── rate-limit.ts
 │   │       │   ├── sanitize.ts
 │   │       │   └── validate.ts # Zod schema validation
-│   │       ├── routes/         # 40+ API route files
+│   │       ├── routes/         # 60+ API route files
 │   │       └── services/
-│   │           ├── notification.ts    # Multi-channel notifications
+│   │           ├── notification.ts
 │   │           ├── notification-triggers.ts
-│   │           ├── pdf.ts             # Prescription PDF
-│   │           └── razorpay.ts        # Online payments
-│   ├── web/                    # Next.js frontend
+│   │           ├── pdf.ts                 # Prescription PDF
+│   │           ├── razorpay.ts
+│   │           ├── vitals-analysis.ts
+│   │           ├── vitals-baseline.ts
+│   │           ├── ops-helpers.ts         # GST, sentiment, SLA, mentions
+│   │           └── waitlist.ts
+│   ├── web/                    # Next.js frontend (73+ pages)
 │   │   └── src/
 │   │       ├── app/
-│   │       │   ├── dashboard/  # 45+ dashboard pages
-│   │       │   ├── login/
-│   │       │   ├── register/
-│   │       │   ├── forgot-password/
-│   │       │   ├── display/    # Waiting-area TV
-│   │       │   └── feedback/   # Public patient feedback
+│   │       │   ├── dashboard/             # 65+ dashboard pages
+│   │       │   ├── login/ register/ forgot-password/
+│   │       │   ├── display/               # Waiting-area TV
+│   │       │   └── feedback/              # Public patient feedback
+│   │       ├── components/
+│   │       │   ├── Toast.tsx
+│   │       │   ├── Skeleton.tsx
+│   │       │   ├── LanguageDropdown.tsx
+│   │       │   └── KeyboardShortcutsModal.tsx
 │   │       └── lib/
-│   │           ├── api.ts      # HTTP client
-│   │           ├── store.ts    # Zustand auth store
-│   │           └── socket.ts   # Socket.IO client
+│   │           ├── api.ts                 # HTTP client
+│   │           ├── store.ts               # Zustand auth store
+│   │           ├── theme.ts               # Dark mode store
+│   │           ├── toast.ts               # Toast store
+│   │           ├── i18n.ts                # Translation store
+│   │           └── socket.ts              # Socket.IO client
 │   └── mobile/                 # React Native (Expo)
-│       ├── app/
-│       │   ├── (tabs)/         # Home, Appointments, Queue, Rx, Profile
-│       │   ├── login.tsx
-│       │   └── register.tsx
-│       └── lib/
-│           ├── api.ts
-│           └── auth.tsx
 ├── packages/
 │   ├── shared/                 # Shared types & Zod validation
 │   │   └── src/
-│   │       ├── types/          # Role, Appointment, Patient, etc.
-│   │       └── validation/     # Zod schemas per domain
+│   │       ├── types/
+│   │       └── validation/     # 20+ validation files per domain
 │   └── db/                     # Prisma schema + seeds
 │       ├── prisma/
-│       │   └── schema.prisma   # 50+ models
+│       │   └── schema.prisma   # 110+ models
 │       └── src/
 │           ├── index.ts        # Prisma client export
-│           └── seed-*.ts       # Seed scripts per module
-├── scripts/
-│   ├── pm2-setup.sh            # PM2 systemd startup
-│   ├── backup-db.sh            # Daily PostgreSQL backup
-│   ├── restore-db.sh           # Interactive restore
-│   ├── deploy.sh               # One-command deployment
-│   └── healthcheck.sh          # Cron health check
+│           └── seed-*.ts       # 25+ seed scripts
+├── scripts/                    # Deployment & ops scripts
+│   ├── pm2-setup.sh
+│   ├── backup-db.sh
+│   ├── restore-db.sh
+│   ├── deploy.sh
+│   └── healthcheck.sh
 ├── backups/                    # Gzipped SQL backups (gitignored)
 ├── docs/
 │   └── PRD.md                  # Original product requirements
@@ -386,54 +628,99 @@ medcore/
 
 ## Module Reference
 
-| # | Module | Routes | Web Page |
-|---|--------|--------|----------|
-| 1 | Auth | `/api/v1/auth/*` | `/login`, `/register`, `/forgot-password` |
-| 2 | Appointments | `/api/v1/appointments/*` | `/dashboard/appointments` |
-| 3 | Patients | `/api/v1/patients/*` | `/dashboard/patients`, `/patients/[id]` |
-| 4 | Queue | `/api/v1/queue/*` | `/dashboard/queue`, `/display` |
-| 5 | Walk-in | `/api/v1/appointments/walk-in` | `/dashboard/walk-in` |
-| 6 | Doctors | `/api/v1/doctors/*` | `/dashboard/doctors` |
-| 7 | Schedule | `/api/v1/doctors/:id/schedule` | `/dashboard/schedule` |
-| 8 | Vitals | `/api/v1/patients/:id/vitals` | `/dashboard/vitals` |
-| 9 | Prescriptions | `/api/v1/prescriptions/*` | `/dashboard/prescriptions` |
-| 10 | Billing | `/api/v1/billing/*` | `/dashboard/billing`, `/billing/[id]`, `/billing/patient/[id]` |
-| 11 | Refunds | `/api/v1/billing/refunds` | `/dashboard/refunds` |
-| 12 | Notifications | `/api/v1/notifications/*` | `/dashboard/notifications` |
-| 13 | Users | `/api/v1/users/*` | `/dashboard/users` |
-| 14 | Reports | `/api/v1/billing/reports/*` | `/dashboard/reports` |
-| 15 | Analytics | `/api/v1/analytics/*` | `/dashboard/analytics` |
-| 16 | Audit | `/api/v1/audit/*` | `/dashboard/audit` |
-| 17 | Wards | `/api/v1/wards/*`, `/beds/*` | `/dashboard/wards` |
-| 18 | Admissions | `/api/v1/admissions/*` | `/dashboard/admissions`, `/admissions/[id]` |
-| 19 | Medication | `/api/v1/medication/*` | `/dashboard/medication-dashboard` |
-| 20 | Nurse Rounds | `/api/v1/nurse-rounds/*` | Integrated in admissions |
-| 21 | Medicines | `/api/v1/medicines/*` | `/dashboard/medicines` |
-| 22 | Pharmacy | `/api/v1/pharmacy/*` | `/dashboard/pharmacy` |
-| 23 | Lab | `/api/v1/lab/*` | `/dashboard/lab`, `/lab/[id]` |
-| 24 | EHR | `/api/v1/ehr/*` | Integrated in patient detail |
-| 25 | Immunizations | `/api/v1/ehr/immunizations/*` | `/dashboard/immunization-schedule` |
-| 26 | Referrals | `/api/v1/referrals/*` | `/dashboard/referrals` |
-| 27 | Surgery | `/api/v1/surgery/*` | `/dashboard/surgery`, `/surgery/[id]` |
-| 28 | OT | `/api/v1/surgery/ots/*` | `/dashboard/ot` |
-| 29 | HR Shifts | `/api/v1/shifts/*` | `/dashboard/my-schedule`, `/duty-roster` |
-| 30 | HR Leaves | `/api/v1/leaves/*` | `/dashboard/leave-management`, `/my-leaves` |
-| 31 | Packages | `/api/v1/packages/*` | `/dashboard/packages` |
-| 32 | Suppliers | `/api/v1/suppliers/*` | `/dashboard/suppliers` |
-| 33 | Purchase Orders | `/api/v1/purchase-orders/*` | `/dashboard/purchase-orders`, `/[id]` |
-| 34 | Expenses | `/api/v1/expenses/*` | `/dashboard/expenses` |
-| 35 | Uploads | `/api/v1/uploads/*` | Via patient documents |
-| 36 | Telemedicine | `/api/v1/telemedicine/*` | `/dashboard/telemedicine` |
-| 37 | Emergency | `/api/v1/emergency/*` | `/dashboard/emergency`, `/emergency/[id]` |
-| 38 | Blood Bank | `/api/v1/bloodbank/*` | `/dashboard/bloodbank` |
-| 39 | Ambulance | `/api/v1/ambulance/*` | `/dashboard/ambulance` |
-| 40 | Assets | `/api/v1/assets/*` | `/dashboard/assets` |
-| 41 | Antenatal | `/api/v1/antenatal/*` | `/dashboard/antenatal`, `/antenatal/[id]` |
-| 42 | Pediatric Growth | `/api/v1/growth/*` | `/dashboard/pediatric`, `/pediatric/[id]` |
-| 43 | Feedback | `/api/v1/feedback/*` | `/dashboard/feedback`, `/feedback/[id]` (public) |
-| 44 | Complaints | `/api/v1/complaints/*` | `/dashboard/complaints` |
-| 45 | Chat | `/api/v1/chat/*` | `/dashboard/chat` |
-| 46 | Visitors | `/api/v1/visitors/*` | `/dashboard/visitors` |
+Full list of 70+ modules with their API routes and web pages.
+
+### Clinical
+| Module | API | Web |
+|--------|-----|-----|
+| Appointments | `/api/v1/appointments/*` | `/dashboard/appointments` |
+| Queue | `/api/v1/queue/*` | `/dashboard/queue`, `/display` |
+| Walk-in | `/api/v1/appointments/walk-in` | `/dashboard/walk-in` |
+| Patients | `/api/v1/patients/*` | `/dashboard/patients`, `/patients/[id]`, `/patients/[id]/problem-list` |
+| Doctors | `/api/v1/doctors/*` | `/dashboard/doctors` |
+| Schedule | `/api/v1/doctors/:id/schedule` | `/dashboard/schedule` |
+| Vitals | `/api/v1/patients/:id/vitals` | `/dashboard/vitals` |
+| Prescriptions | `/api/v1/prescriptions/*` | `/dashboard/prescriptions` |
+| Controlled Substances | `/api/v1/controlled-substances/*` | `/dashboard/controlled-substances` |
+| Waitlist | `/api/v1/waitlist/*` | (integrated) |
+| Coordinated Visits | `/api/v1/coordinated-visits/*` | (integrated) |
+| Med Reconciliation | `/api/v1/med-reconciliation/*` | (integrated in admissions) |
+
+### Inpatient & Acute
+| Module | API | Web |
+|--------|-----|-----|
+| Wards | `/api/v1/wards/*`, `/beds/*` | `/dashboard/wards` |
+| Admissions | `/api/v1/admissions/*` | `/dashboard/admissions`, `/admissions/[id]` |
+| Medication | `/api/v1/medication/*` | `/dashboard/medication-dashboard` |
+| Nurse Rounds | `/api/v1/nurse-rounds/*` | (integrated) |
+| Census | `/api/v1/admissions/census/*` | `/dashboard/census` |
+| Emergency | `/api/v1/emergency/*` | `/dashboard/emergency`, `/emergency/[id]` |
+| Surgery | `/api/v1/surgery/*` | `/dashboard/surgery`, `/surgery/[id]` |
+| OT | `/api/v1/surgery/ots/*` | `/dashboard/ot` |
+
+### Specialty
+| Module | API | Web |
+|--------|-----|-----|
+| Telemedicine | `/api/v1/telemedicine/*` | `/dashboard/telemedicine` |
+| Antenatal | `/api/v1/antenatal/*` | `/dashboard/antenatal`, `/antenatal/[id]` |
+| Pediatric Growth | `/api/v1/growth/*` | `/dashboard/pediatric`, `/pediatric/[id]` |
+| EHR | `/api/v1/ehr/*` | (integrated in patient detail) |
+| Immunizations | `/api/v1/ehr/immunizations/*` | `/dashboard/immunization-schedule` |
+| Referrals | `/api/v1/referrals/*` | `/dashboard/referrals` |
+
+### Diagnostics & Pharmacy
+| Module | API | Web |
+|--------|-----|-----|
+| Medicines | `/api/v1/medicines/*` | `/dashboard/medicines` |
+| Pharmacy | `/api/v1/pharmacy/*` | `/dashboard/pharmacy` |
+| Lab | `/api/v1/lab/*` | `/dashboard/lab`, `/lab/[id]` |
+| Lab QC | `/api/v1/lab/qc/*` | `/dashboard/lab/qc` |
+| Blood Bank | `/api/v1/bloodbank/*` | `/dashboard/bloodbank` |
+| Ambulance | `/api/v1/ambulance/*` | `/dashboard/ambulance` |
+| Assets | `/api/v1/assets/*` | `/dashboard/assets` |
+
+### Finance
+| Module | API | Web |
+|--------|-----|-----|
+| Billing | `/api/v1/billing/*` | `/dashboard/billing`, `/billing/[id]`, `/billing/patient/[id]` |
+| Refunds | `/api/v1/billing/refunds` | `/dashboard/refunds` |
+| Payment Plans | `/api/v1/payment-plans/*` | `/dashboard/payment-plans` |
+| Pre-Auth | `/api/v1/preauth/*` | `/dashboard/preauth` |
+| Discount Approvals | `/api/v1/billing/discount-approvals/*` | `/dashboard/discount-approvals` |
+| Packages | `/api/v1/packages/*` | `/dashboard/packages` |
+| Suppliers | `/api/v1/suppliers/*` | `/dashboard/suppliers` |
+| Purchase Orders | `/api/v1/purchase-orders/*` | `/dashboard/purchase-orders` |
+| Expenses | `/api/v1/expenses/*` | `/dashboard/expenses` |
+| Budgets | (integrated in expenses) | `/dashboard/budgets` |
+
+### HR & Admin
+| Module | API | Web |
+|--------|-----|-----|
+| Shifts | `/api/v1/shifts/*` | `/dashboard/my-schedule`, `/duty-roster` |
+| Leaves | `/api/v1/leaves/*` | `/dashboard/leave-management`, `/my-leaves`, `/leave-calendar` |
+| Holidays | `/api/v1/hr-ops/holidays` | `/dashboard/holidays` |
+| Payroll | `/api/v1/hr-ops/payroll` | `/dashboard/payroll` |
+| Certifications | `/api/v1/hr-ops/certifications` | `/dashboard/certifications` |
+| Users | `/api/v1/users/*` | `/dashboard/users` |
+| Reports | `/api/v1/billing/reports/*` | `/dashboard/reports` |
+| Scheduled Reports | `/api/v1/scheduled-reports/*` | `/dashboard/scheduled-reports` |
+| Analytics | `/api/v1/analytics/*` | `/dashboard/analytics`, `/analytics/reports` |
+| Audit | `/api/v1/audit/*` | `/dashboard/audit` |
+| Admin Console | (aggregates) | `/dashboard/admin-console` |
+
+### Engagement
+| Module | API | Web |
+|--------|-----|-----|
+| Notifications | `/api/v1/notifications/*` | `/dashboard/notifications` |
+| Broadcasts | `/api/v1/notifications/broadcasts` | `/dashboard/broadcasts` |
+| Feedback | `/api/v1/feedback/*` | `/dashboard/feedback`, `/feedback/[id]` (public) |
+| Complaints | `/api/v1/complaints/*` | `/dashboard/complaints` |
+| Chat | `/api/v1/chat/*` | `/dashboard/chat` |
+| Visitors | `/api/v1/visitors/*` | `/dashboard/visitors` |
+| Calendar | (aggregates) | `/dashboard/calendar` |
+| Workspace (Doctor) | (aggregates) | `/dashboard/workspace` |
+| Workstation (Nurse) | (aggregates) | `/dashboard/workstation` |
+| Search | `/api/v1/search` | (palette via Ctrl+K) |
 
 ---
 
@@ -467,23 +754,39 @@ docker run -d --name medcore-postgres \
 cp apps/api/.env.example apps/api/.env
 # Edit apps/api/.env with your DATABASE_URL
 
-# Also create root .env for Prisma
 echo 'DATABASE_URL="postgresql://medcore:medcore_dev@localhost:5433/medcore?schema=public"' > .env
 
 # 5. Push schema + seed
 npx prisma generate --schema packages/db/prisma/schema.prisma
 npx prisma db push --schema packages/db/prisma/schema.prisma
 
-# Seed data
-npx tsx packages/db/src/seed-realistic.ts       # Core OPD data
-npx tsx packages/db/src/seed-pharmacy.ts         # Medicines, lab tests, inventory
-npx tsx packages/db/src/seed-ipd.ts              # Wards, beds, admissions
-npx tsx packages/db/src/seed-clinical.ts         # OTs, referrals, surgeries
-npx tsx packages/db/src/seed-hr.ts               # Shifts, leaves
-npx tsx packages/db/src/seed-finance.ts          # Packages, suppliers, POs, expenses
-npx tsx packages/db/src/seed-phase4-ops.ts       # Blood bank, ambulances, assets
-npx tsx packages/db/src/seed-phase4-specialty.ts # ANC cases, pediatric growth
-npx tsx packages/db/src/seed-phase4-engagement.ts # Feedback, complaints, chat, visitors
+# Core seed
+npx tsx packages/db/src/seed-realistic.ts
+
+# Module seeds (run in this order)
+npx tsx packages/db/src/seed-pharmacy.ts
+npx tsx packages/db/src/seed-ipd.ts
+npx tsx packages/db/src/seed-clinical.ts
+npx tsx packages/db/src/seed-hr.ts
+npx tsx packages/db/src/seed-finance.ts
+npx tsx packages/db/src/seed-phase4-ops.ts
+npx tsx packages/db/src/seed-phase4-specialty.ts
+npx tsx packages/db/src/seed-phase4-engagement.ts
+npx tsx packages/db/src/seed-clinical-enhancements.ts
+npx tsx packages/db/src/seed-acute-care-enhancements.ts
+npx tsx packages/db/src/seed-ancillary-enhancements.ts
+npx tsx packages/db/src/seed-ops-enhancements.ts
+npx tsx packages/db/src/seed-lab-data.ts
+npx tsx packages/db/src/seed-immunization-data.ts
+npx tsx packages/db/src/seed-pediatric-patients.ts
+npx tsx packages/db/src/seed-chat-conversations.ts
+npx tsx packages/db/src/seed-complaints-data.ts
+npx tsx packages/db/src/seed-asset-history.ts
+npx tsx packages/db/src/seed-doctor-ratings.ts
+npx tsx packages/db/src/seed-visitors-history.ts
+npx tsx packages/db/src/seed-notifications-history.ts
+npx tsx packages/db/src/seed-lab-panels.ts
+npx tsx packages/db/src/seed-medicine-leaflets.ts
 
 # 6. Run dev servers
 npm run dev
@@ -521,7 +824,7 @@ cd ~/medcore
 ### Paramiko-based deploy (local)
 
 ```bash
-python deploy_all.py           # Full deployment from local machine
+python deploy_v12.py           # Full deployment from local machine
 ```
 
 *Note: `deploy_*.py` files are gitignored — they contain server credentials.*
@@ -556,14 +859,6 @@ pm2 restart medcore-api medcore-web # Restart services
 pm2 save                            # Persist state
 ```
 
-### Nightly Checklist
-
-- [x] PostgreSQL container healthy (`docker ps`)
-- [x] PM2 services online (`pm2 list`)
-- [x] SSL certificate valid (`sudo certbot certificates`)
-- [x] Latest backup exists (`ls -lht backups/ | head`)
-- [x] Disk usage <80% (`df -h`)
-
 ---
 
 ## Demo Accounts
@@ -580,88 +875,31 @@ pm2 save                            # Persist state
 
 ---
 
-## Development History
+## Version History
 
-Development proceeded in 4 phases:
+| Version | Date | Highlights |
+|---------|------|------------|
+| **v1.2.0** | 2026-04-14 | Comprehensive feature pass: 70+ features across all modules via 7 parallel agents. Controlled Substance Register, EMI plans, bed forecast, partograph, ACOG risk scoring, audit advanced search, dark mode, PWA, i18n, bulk ops |
+| **v1.1.0** | 2026-04-14 | Deep re-audit: 30+ features. UI for hidden backends (SLA countdown, payroll, budgets, broadcasts, holidays), cross-module integrations (Ctrl+K search, Patient 360°, Admin Console, Unified Calendar), module-deep (Rx interaction check, STAT labs, discharge checklist, blood reservation) |
+| **v1.0.0** | 2026-04-13 | Initial complete release: Full Phase 1-4 hospital system. 54 pages, 200+ endpoints, 80+ Prisma models. OPD, IPD, ER, Surgery, Lab, Pharmacy, Blood Bank, Ambulance, HR, Finance, Analytics |
 
-### Phase 1 — OPD Foundation (Basic)
-- Monorepo setup, auth, appointments, walk-ins, patient management
-- OPD workflow, prescriptions, billing, notifications stubs
-- Live queue with WebSocket
-- Web app and mobile app
+### Development Phases
 
-### Phase 2 — Clinical & Diagnostics (Advanced)
-- IPD / inpatient management (wards, beds, admissions, medications)
-- Nurse medication administration record (MAR)
-- Lab ordering and results
-- Pharmacy inventory and dispensing
-- Medicine database with drug interactions
-- Analytics dashboard
+**Phase 1 — OPD Foundation** → Monorepo, auth, appointments, walk-ins, patients, OPD workflow, prescriptions, billing, notifications, live queue, web + mobile apps
 
-### Phase 3 — Extended Clinical & Ops
-- Electronic Health Records (allergies, conditions, family history, immunizations)
-- Document upload and management
-- Doctor-to-doctor referrals
-- Surgery and operating theater management
-- Staff HR (shifts, leaves, duty roster)
-- Purchase orders and supplier management
-- Health packages
-- Expense tracking
+**Phase 2 — Clinical & Diagnostics** → IPD, MAR, Lab ordering + results, Pharmacy inventory, Medicine database with interactions, Analytics dashboard
 
-### Phase 4 — Specialty Care & Engagement
-- Telemedicine with Jitsi Meet integration
-- Emergency / triage dashboard
-- Blood bank with donor management and ABO/Rh matching
-- Ambulance fleet management
-- Asset management with maintenance and warranty tracking
-- Antenatal care (ANC) with visit tracking
-- Pediatric growth charts
-- Patient feedback + public feedback link
-- Complaints management
-- Internal chat with Socket.IO real-time
-- Visitor management with pass printing
+**Phase 3 — Extended Clinical & Ops** → EHR (allergies, conditions, immunizations, documents), Referrals, Surgery/OT, HR (shifts, leaves), POs, Health packages, Expenses
 
-### Production Hardening
-- Password reset flow
-- Audit logging across all modules
-- Rate limiting on auth and global
-- Input sanitization
-- PM2 systemd startup
-- Automated daily backups
-- Cron-based health checks
+**Phase 4 — Specialty & Engagement** → Telemedicine, ER/Triage, Blood Bank, Ambulance, Asset management, Antenatal, Pediatric growth, Feedback, Complaints, Internal chat, Visitor management
 
-### Deepening Phase
-- Dashboard rebuilt with all-module summary per role
-- Appointments: calendar, reschedule, recurring, stats
-- Patient detail: timeline, vitals trends, billing/lab tabs, quick actions
-- Billing: refunds, bulk payments, discounts, outstanding reports
-- Analytics: period comparison, drill-down, CSV exports, report builder
+**Production Hardening** → Password reset, audit logging, rate limiting, input sanitization, PM2 systemd startup, automated daily backups, cron-based health checks
 
-### Deep Audit Pass (v1.0.0)
+**Deepening Pass (v1.0 internal)** → Enhanced dashboard with all-module summary, appointments calendar view, patient 360°, billing refunds, analytics drill-down
 
-Module-by-module deep analysis followed by feature enhancements and additional seed data.
+**Deep Re-Audit Pass (v1.1.0)** → UI for hidden backend features, cross-module integrations, module-specific deep features, 8 enhancement seed files
 
-**Clinical cluster** — ICD-10 coding (44 codes), prescription templates (10 templates), copy-from-previous, refill tracking, patient merge, fuzzy search, vitals BMI+abnormal flags, pediatric immunization scheduler, appointment timing capture, no-show analytics, conflict detection.
-
-**Acute care cluster** — Admission types, structured discharge summaries, running bill endpoint, IPD intake/output charting, Medication Administration Record (MAR), surgery pre-op checklist, intra-op timing, complications tracking, OT utilization, ER MLC/police tracking, ER-to-admission conversion, mass-casualty mode, telemedicine waiting room/tech-issues/prescription, ANC trimester/risk-score/USG, pediatric immunization compliance, milestone checklist, growth velocity.
-
-**Ancillary cluster** — Lab reference ranges by age/gender, panic value alerts, TAT tracking, batch result entry, sample rejection, result trends, pharmacy barcode lookup, batch recall, reorder suggestions, narcotics ledger, medicine autocomplete, pediatric dose calculator, contraindication checker, blood screening (HIV/HCV/HBsAg/Syphilis/Malaria), donor eligibility, compatibility matrix, temperature logs, cross-match history, ambulance GPS, dispatch priority, equipment check, fuel logs, asset depreciation, AMC/warranty/calibration alerts, transfer history, disposal workflow, QR codes.
-
-**Operations cluster** — GST split (CGST+SGST), package auto-discount, advance deposits, credit notes, consolidated IPD bill, supplier contracts, performance metrics, payments, catalogs, GRN with partial receipts, recurring POs, expense approval workflow, budgets, leave balances, holiday calendar, attendance summary, payroll calculation, feedback sentiment, complaint SLA, chat reactions/pinning/mentions/channels, visitor blacklist, photo, limits, notification templates, quiet hours, admin broadcasts, delivery tracking.
-
-**Analytics cluster** — Period comparison (previous period/year), date range presets, patient growth/retention, no-show analysis, ER performance metrics, IPD trends, pharmacy expiry risk, feedback trends, CSV exports, Report Builder with saved configs, print-friendly dashboard.
-
-### Deep Re-Audit Pass (v1.1.0)
-
-A second module-by-module pass adding UI for hidden backend features, cross-module integrations, and 30+ deep module features.
-
-**UI for hidden backend features** — Complaint SLA countdown with At-Risk dashboard, leave calendar month view, payroll calculator with CSV export, budget vs actual with variance charts, chat reactions + pinning UI, visitor photo capture (webcam + upload), notification broadcast composer with multi-channel preview, holiday calendar with Indian holidays, GST breakdown on invoice detail, lab result trend sparklines.
-
-**Cross-module integrations** — Global search palette (Ctrl+K), Patient 360° tab with sparklines + activity feed, Admin Control Center, Unified Calendar across appointments/surgeries/ANC/shifts, Doctor Workspace, Nurse Workstation, Patient self-service portal.
-
-**Module-specific deep additions** — Drug interaction check on Rx write (blocks SEVERE/CONTRAINDICATED), STAT lab priority with auto-notify, admission discharge-readiness checklist with bill settlement guard, blood unit reservation with 24h expiry + auto-release cron, group appointments (shared groupId), patient family linking (PatientFamilyLink model), queue vulnerable-group priority boost (seniors 65+, children under 5, ANC patients), surgery pre-op + post-op checklist enforcement, telemedicine in-session chat, ER trauma score (RTS) calculator, pharmacy auto-billing on dispense, OT turnaround-time tracking.
-
-**Enhanced seed data (8 files)** — 8 pediatric patients with growth + UIP immunizations, 40+ chat messages with reactions, 15 complaints at various SLA stages, asset maintenance history (2 years) with transfers + disposals, 30-50 doctor ratings per doctor, 50 visitor history + blacklist, 220 notification logs, 10 specialty lab panels with 20 orders.
+**Comprehensive Feature Pass (v1.2.0)** → 7 parallel agents covering high/medium/low-impact features across every module
 
 ---
 
