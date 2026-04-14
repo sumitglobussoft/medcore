@@ -218,7 +218,7 @@ export default function PurchaseOrdersPage() {
   );
 }
 
-export function statusBadge(status: string) {
+function statusBadge(status: string) {
   switch (status) {
     case "DRAFT":
       return "bg-gray-100 text-gray-700";
