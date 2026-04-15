@@ -19,3 +19,6 @@ backups/*.sql.gz
 *.tsbuildinfo
 playwright-report/
 test-results/
+diag_*.py
+run_*.py
+verify_cron*.py
