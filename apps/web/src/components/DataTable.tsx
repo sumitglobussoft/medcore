@@ -573,6 +573,7 @@ export function DataTable<T>({
           <div className="flex items-center gap-2">
             <span>Rows:</span>
             <select
+              aria-label="Rows per page"
               value={pageSize}
               onChange={(e) => {
                 setPageSize(Number(e.target.value));

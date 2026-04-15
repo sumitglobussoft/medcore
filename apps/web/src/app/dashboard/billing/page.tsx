@@ -577,13 +577,14 @@ export default function BillingPage() {
                   {isStaff && (
                     <td className="relative px-4 py-3">
                       <button
+                        aria-label={`Actions menu for invoice ${inv.invoiceNumber}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           setOpenActionsFor(openActionsFor === inv.id ? null : inv.id);
                         }}
                         className="rounded p-1.5 hover:bg-gray-100"
                       >
-                        <MoreHorizontal size={16} />
+                        <MoreHorizontal size={16} aria-hidden="true" />
                       </button>
                       {openActionsFor === inv.id && (
                         <div

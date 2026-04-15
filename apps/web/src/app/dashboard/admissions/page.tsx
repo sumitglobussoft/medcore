@@ -423,6 +423,7 @@ export default function AdmissionsPage() {
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Doctor</label>
                 <select
+                  aria-label="Doctor"
                   required
                   value={form.doctorId}
                   onChange={(e) =>
@@ -444,6 +445,7 @@ export default function AdmissionsPage() {
                   Available Bed
                 </label>
                 <select
+                  aria-label="Available Bed"
                   required
                   value={form.bedId}
                   onChange={(e) => setForm({ ...form, bedId: e.target.value })}
