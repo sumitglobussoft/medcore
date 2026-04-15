@@ -110,7 +110,7 @@ describe("QueuePage", () => {
   it("clicking a doctor card fetches queue detail", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/queue") return Promise.resolve({ data: doctorDisplay });
-      if (url.startsWith("/queue/doctor/"))
+      if (/^\/queue\/[^?]/.test(url) && url !== "/queue")
         return Promise.resolve({ data: doctorQueue });
       return Promise.resolve({ data: [] });
     });
@@ -120,14 +120,14 @@ describe("QueuePage", () => {
     await user.click(screen.getAllByText("Dr. Singh")[0]);
     await waitFor(() => {
       const urls = apiMock.get.mock.calls.map((c) => String(c[0]));
-      expect(urls.some((u) => u.startsWith("/queue/doctor/"))).toBe(true);
+      expect(urls.some((u) => u.startsWith("/queue/d1"))).toBe(true);
     });
   });
 
   it("renders without crashing when queue data is loaded", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/queue") return Promise.resolve({ data: doctorDisplay });
-      if (url.startsWith("/queue/doctor/"))
+      if (/^\/queue\/[^?]/.test(url) && url !== "/queue")
         return Promise.resolve({ data: doctorQueue });
       return Promise.resolve({ data: [] });
     });

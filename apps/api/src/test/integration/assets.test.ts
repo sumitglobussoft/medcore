@@ -151,7 +151,7 @@ describeIfDB("Assets API (integration)", () => {
     const res = await request(app)
       .post(`/api/v1/assets/${asset.id}/dispose`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ method: "SCRAP", disposalValue: 200 });
+      .send({ method: "SCRAPPED", disposalValue: 200 });
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.status).toBe("RETIRED");
   });
