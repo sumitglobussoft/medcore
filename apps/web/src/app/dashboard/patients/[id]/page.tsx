@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import {
   ArrowLeft,
   ChevronDown,
@@ -55,8 +56,25 @@ interface PatientDetail {
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
   noShowCount?: number;
+  pricingTier?: string | null;
   user: { id: string; name: string; email: string; phone: string };
 }
+
+const PRICING_TIERS = [
+  "STANDARD",
+  "EMPLOYEE",
+  "SENIOR_CITIZEN",
+  "BPL",
+  "VIP",
+] as const;
+
+const TIER_COLORS: Record<string, string> = {
+  STANDARD: "bg-gray-100 text-gray-700",
+  EMPLOYEE: "bg-blue-100 text-blue-700",
+  SENIOR_CITIZEN: "bg-teal-100 text-teal-700",
+  BPL: "bg-orange-100 text-orange-700",
+  VIP: "bg-purple-100 text-purple-700",
+};
 
 interface VisitRecord {
   id: string;
@@ -297,6 +315,7 @@ export default function PatientDetailPage() {
   const [quickModal, setQuickModal] = useState<
     "vitals" | "book" | null
   >(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const loadStats = useCallback(async () => {
     try {
@@ -482,6 +501,12 @@ export default function PatientDetailPage() {
               <span className="rounded-full bg-primary/10 px-3 py-0.5 font-mono text-sm font-medium text-primary">
                 {patient.mrNumber}
               </span>
+              <PricingTierBadge
+                patient={patient}
+                onUpdated={(tier) =>
+                  setPatient((p) => (p ? { ...p, pricingTier: tier } : p))
+                }
+              />
               {patient.noShowCount != null && patient.noShowCount > 0 && (
                 <span
                   className="rounded-full bg-red-100 px-3 py-0.5 text-xs font-semibold text-red-700"
@@ -519,6 +544,46 @@ export default function PatientDetailPage() {
                 className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
               >
                 <Download size={13} /> Export Medical Record
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setMergeOpen(true)}
+                  aria-label="Merge duplicate patient"
+                  className="no-print inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  <Users size={13} /> Merge Duplicate
+                </button>
+              )}
+              <button
+                onClick={() => openPrintEndpoint(`/patients/${patient.id}/id-card`)}
+                className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                title="Print patient ID card"
+              >
+                <Printer size={13} /> ID Card
+              </button>
+              <button
+                onClick={() => openPrintEndpoint(`/patients/${patient.id}/vitals/pdf`)}
+                className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                title="Print vitals history"
+              >
+                <Printer size={13} /> Vitals PDF
+              </button>
+              <button
+                onClick={() => {
+                  const purpose = window.prompt(
+                    "Purpose of fitness certificate:",
+                    "general employment"
+                  );
+                  if (purpose) {
+                    openPrintEndpoint(
+                      `/patients/${patient.id}/fitness-certificate?purpose=${encodeURIComponent(purpose)}`
+                    );
+                  }
+                }}
+                className="no-print inline-flex items-center gap-1.5 rounded-lg border border-green-300 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-800 hover:bg-green-100"
+                title="Issue fitness certificate"
+              >
+                <Printer size={13} /> Fitness Cert
               </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2 sm:grid-cols-4">
@@ -879,6 +944,12 @@ export default function PatientDetailPage() {
             setQuickModal(null);
             loadStats();
           }}
+        />
+      )}
+      {mergeOpen && (
+        <MergePatientModal
+          patient={patient}
+          onClose={() => setMergeOpen(false)}
         />
       )}
     </div>
@@ -2438,6 +2509,12 @@ function MedicalRecordsTab({
 
   return (
     <div className="space-y-6">
+      {/* Family Members (linked) */}
+      <FamilyLinksSection patientId={patientId} canEdit={canEdit} />
+
+      {/* Advance Directives */}
+      <AdvanceDirectivesSection patientId={patientId} canEdit={canEdit} />
+
       {/* Allergies */}
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
@@ -2867,15 +2944,15 @@ function ConditionForm({
   return (
     <Modal title="Add Chronic Condition" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
-        <div>
-          <label className="text-xs text-gray-600">Condition *</label>
-          <input
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            required
-            value={condition}
-            onChange={(e) => setCondition(e.target.value)}
-          />
-        </div>
+        <Icd10Autocomplete
+          condition={condition}
+          icd10Code={icd10Code}
+          onSelect={(c, code) => {
+            setCondition(c);
+            setIcd10(code);
+          }}
+          onConditionChange={setCondition}
+        />
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-600">ICD-10</label>
@@ -2883,6 +2960,7 @@ function ConditionForm({
               className="w-full rounded-md border px-3 py-2 text-sm"
               value={icd10Code}
               onChange={(e) => setIcd10(e.target.value)}
+              placeholder="Auto-filled"
             />
           </div>
           <div>
@@ -4162,5 +4240,935 @@ function Sparkline({
         />
       </svg>
     </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Merge Patient Modal
+// ───────────────────────────────────────────────────────
+
+interface PatientSearchResult {
+  id: string;
+  mrNumber: string;
+  age: number | null;
+  gender: string;
+  user: { name: string; phone: string };
+}
+
+function MergePatientModal({
+  patient,
+  onClose,
+}: {
+  patient: PatientDetail;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PatientSearchResult[]>([]);
+  const [selected, setSelected] = useState<PatientSearchResult | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [merging, setMerging] = useState(false);
+
+  useEffect(() => {
+    if (!query || query.length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await api.get<{ data: PatientSearchResult[] }>(
+          `/patients?search=${encodeURIComponent(query)}&limit=10`
+        );
+        setResults((res.data || []).filter((p) => p.id !== patient.id));
+      } catch {
+        setResults([]);
+      }
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, patient.id]);
+
+  async function confirmMerge() {
+    if (!selected) return;
+    if (
+      !confirm(
+        `Merge "${selected.user.name}" (${selected.mrNumber}) into "${patient.user.name}" (${patient.mrNumber})?\nThis cannot be undone.`
+      )
+    )
+      return;
+    setMerging(true);
+    try {
+      await api.post(`/patients/${patient.id}/merge`, {
+        otherPatientId: selected.id,
+      });
+      toast.success("Patients merged");
+      window.location.href = `/dashboard/patients/${patient.id}`;
+    } catch (e) {
+      toast.error((e as Error).message);
+      setMerging(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Merge Duplicate Patient</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+          All records (appointments, prescriptions, invoices, labs, conditions,
+          allergies...) from the source patient will be moved to this patient.
+          The source record will be marked as merged.
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-gray-600">
+            Search patient to merge INTO this one
+          </label>
+          <input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelected(null);
+            }}
+            placeholder="Name, phone, or MR number"
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        {searching && (
+          <p className="text-xs text-gray-500">Searching...</p>
+        )}
+        {results.length > 0 && !selected && (
+          <ul className="mb-3 max-h-52 divide-y divide-gray-100 overflow-y-auto rounded-lg border">
+            {results.map((r) => (
+              <li key={r.id}>
+                <button
+                  onClick={() => setSelected(r)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
+                >
+                  <div>
+                    <div className="font-medium">{r.user.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {r.mrNumber} · {r.user.phone}
+                      {r.age != null ? ` · ${r.age}y` : ""} · {r.gender}
+                    </div>
+                  </div>
+                  <span className="text-xs text-primary">Select</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {selected && (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-green-300 bg-green-50 p-3 text-sm">
+              <div className="mb-1 text-xs font-semibold text-green-700">
+                KEEP (surviving)
+              </div>
+              <div className="font-medium">{patient.user.name}</div>
+              <div className="text-xs text-gray-600">
+                {patient.mrNumber} · {patient.user.phone}
+              </div>
+            </div>
+            <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm">
+              <div className="mb-1 text-xs font-semibold text-red-700">
+                MERGE (will be archived)
+              </div>
+              <div className="font-medium">{selected.user.name}</div>
+              <div className="text-xs text-gray-600">
+                {selected.mrNumber} · {selected.user.phone}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!selected || merging}
+            onClick={confirmMerge}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {merging ? "Merging..." : "Confirm Merge"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// ICD-10 Autocomplete
+// ───────────────────────────────────────────────────────
+
+interface Icd10CodeResult {
+  code: string;
+  description: string;
+  category: string | null;
+}
+
+function Icd10Autocomplete({
+  condition,
+  onSelect,
+  onConditionChange,
+}: {
+  condition: string;
+  icd10Code: string;
+  onSelect: (condition: string, code: string) => void;
+  onConditionChange: (v: string) => void;
+}) {
+  const [results, setResults] = useState<Icd10CodeResult[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!condition || condition.length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await api.get<{ data: Icd10CodeResult[] }>(
+          `/icd10?q=${encodeURIComponent(condition)}&limit=10`
+        );
+        setResults(res.data || []);
+        setOpen(true);
+      } catch {
+        setResults([]);
+      }
+      setLoading(false);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [condition]);
+
+  return (
+    <div className="relative">
+      <label className="text-xs text-gray-600">Condition *</label>
+      <input
+        className="w-full rounded-md border px-3 py-2 text-sm"
+        required
+        value={condition}
+        onChange={(e) => {
+          onConditionChange(e.target.value);
+          setOpen(true);
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        placeholder="Type to search ICD-10 codes..."
+        autoComplete="off"
+      />
+      {open && (results.length > 0 || loading) && (
+        <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-white shadow-lg">
+          {loading && (
+            <li className="px-3 py-2 text-xs text-gray-400">Searching...</li>
+          )}
+          {results.map((r) => (
+            <li key={r.code}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(r.description, r.code);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+              >
+                <span className="flex-1">{r.description}</span>
+                <span className="font-mono text-xs text-primary">{r.code}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Family Links Section
+// ───────────────────────────────────────────────────────
+
+interface FamilyData {
+  guardian: {
+    id: string;
+    mrNumber: string;
+    user: { name: string; phone: string };
+  } | null;
+  dependents: Array<{
+    id: string;
+    mrNumber: string;
+    user: { name: string; phone: string };
+  }>;
+  familyLinks: Array<{
+    id: string;
+    relationship: string;
+    relatedPatientId: string;
+    relatedPatient: {
+      id: string;
+      mrNumber: string;
+      user: { name: string; phone: string };
+    };
+  }>;
+}
+
+const RELATIONSHIPS = ["PARENT", "CHILD", "SPOUSE", "SIBLING", "GUARDIAN"] as const;
+type Relationship = (typeof RELATIONSHIPS)[number];
+
+const relColors: Record<string, string> = {
+  PARENT: "bg-blue-100 text-blue-700",
+  CHILD: "bg-green-100 text-green-700",
+  SPOUSE: "bg-purple-100 text-purple-700",
+  SIBLING: "bg-amber-100 text-amber-700",
+  GUARDIAN: "bg-indigo-100 text-indigo-700",
+};
+
+function FamilyLinksSection({
+  patientId,
+  canEdit,
+}: {
+  patientId: string;
+  canEdit: boolean;
+}) {
+  const [data, setData] = useState<FamilyData | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: FamilyData }>(
+        `/patients/${patientId}/family`
+      );
+      setData(res.data);
+    } catch {
+      setData(null);
+    }
+  }, [patientId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function unlink(relatedId: string) {
+    if (!confirm("Unlink this family member?")) return;
+    try {
+      await api.delete(`/patients/${patientId}/link-family/${relatedId}`);
+      toast.success("Unlinked");
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const hasAny =
+    data &&
+    (data.guardian ||
+      data.dependents.length > 0 ||
+      data.familyLinks.length > 0);
+
+  return (
+    <section className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-lg font-semibold">
+          <Users size={18} className="text-indigo-500" /> Family
+        </h3>
+        {canEdit && (
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90"
+          >
+            <Plus size={14} /> Add Family Member
+          </button>
+        )}
+      </div>
+      {!hasAny ? (
+        <p className="text-sm text-gray-400">No linked family members.</p>
+      ) : (
+        <div className="space-y-3">
+          {data?.guardian && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+              <div className="mb-1 text-xs font-semibold text-indigo-700">
+                GUARDIAN
+              </div>
+              <Link
+                href={`/dashboard/patients/${data.guardian.id}`}
+                className="text-sm font-medium hover:underline"
+              >
+                {data.guardian.user.name}
+              </Link>
+              <div className="text-xs text-gray-600">
+                {data.guardian.mrNumber} · {data.guardian.user.phone}
+              </div>
+            </div>
+          )}
+          {data && data.dependents.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-gray-500">
+                DEPENDENTS
+              </div>
+              <ul className="space-y-1">
+                {data.dependents.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm"
+                  >
+                    <Link
+                      href={`/dashboard/patients/${d.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {d.user.name}
+                    </Link>
+                    <span className="text-xs text-gray-500">
+                      {d.mrNumber}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {data && data.familyLinks.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-gray-500">
+                FAMILY MEMBERS
+              </div>
+              <ul className="space-y-1">
+                {data.familyLinks.map((l) => (
+                  <li
+                    key={l.id}
+                    className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          relColors[l.relationship] || "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {l.relationship}
+                      </span>
+                      <Link
+                        href={`/dashboard/patients/${l.relatedPatient.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {l.relatedPatient.user.name}
+                      </Link>
+                      <span className="text-xs text-gray-500">
+                        {l.relatedPatient.mrNumber}
+                      </span>
+                    </div>
+                    {canEdit && (
+                      <button
+                        onClick={() => unlink(l.relatedPatientId)}
+                        className="text-gray-400 hover:text-red-600"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      {modalOpen && (
+        <LinkFamilyModal
+          patientId={patientId}
+          onClose={() => setModalOpen(false)}
+          onSaved={() => {
+            setModalOpen(false);
+            load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function LinkFamilyModal({
+  patientId,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PatientSearchResult[]>([]);
+  const [selected, setSelected] = useState<PatientSearchResult | null>(null);
+  const [relationship, setRelationship] = useState<Relationship>("PARENT");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!query || query.length < 2) {
+      setResults([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get<{ data: PatientSearchResult[] }>(
+          `/patients?search=${encodeURIComponent(query)}&limit=10`
+        );
+        setResults((res.data || []).filter((p) => p.id !== patientId));
+      } catch {
+        setResults([]);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query, patientId]);
+
+  async function submit() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await api.post(`/patients/${patientId}/link-family`, {
+        relatedPatientId: selected.id,
+        relationship,
+      });
+      toast.success("Family member linked");
+      onSaved();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal title="Add Family Member" onClose={onClose}>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-gray-600">Search patient *</label>
+          <input
+            className="w-full rounded-md border px-3 py-2 text-sm"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelected(null);
+            }}
+            placeholder="Name, phone, or MR number"
+          />
+        </div>
+        {results.length > 0 && !selected && (
+          <ul className="max-h-40 divide-y divide-gray-100 overflow-y-auto rounded-lg border">
+            {results.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(r)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
+                >
+                  <div>
+                    <div className="font-medium">{r.user.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {r.mrNumber} · {r.user.phone}
+                    </div>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {selected && (
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm">
+            <div className="font-medium">{selected.user.name}</div>
+            <div className="text-xs text-gray-600">
+              {selected.mrNumber} · {selected.user.phone}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              className="mt-1 text-xs text-primary"
+            >
+              Change
+            </button>
+          </div>
+        )}
+        <div>
+          <label className="text-xs text-gray-600">Relationship *</label>
+          <select
+            value={relationship}
+            onChange={(e) => setRelationship(e.target.value as Relationship)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          >
+            {RELATIONSHIPS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            onClick={onClose}
+            className="rounded-md border px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!selected || saving}
+            onClick={submit}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "Linking..." : "Link"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Advance Directives Section
+// ───────────────────────────────────────────────────────
+
+const DIRECTIVE_TYPES = [
+  "DNR",
+  "DNI",
+  "DNA",
+  "LIVING_WILL",
+  "ORGAN_DONATION",
+  "OTHER",
+] as const;
+
+const directiveColors: Record<string, string> = {
+  DNR: "bg-red-100 text-red-700",
+  DNI: "bg-red-100 text-red-700",
+  DNA: "bg-red-100 text-red-700",
+  LIVING_WILL: "bg-blue-100 text-blue-700",
+  ORGAN_DONATION: "bg-green-100 text-green-700",
+  OTHER: "bg-gray-100 text-gray-700",
+};
+
+function AdvanceDirectivesSection({
+  patientId,
+  canEdit,
+}: {
+  patientId: string;
+  canEdit: boolean;
+}) {
+  const [directives, setDirectives] = useState<AdvanceDirective[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: AdvanceDirective[] }>(
+        `/ehr/patients/${patientId}/advance-directives?includeInactive=true`
+      );
+      setDirectives(res.data || []);
+    } catch {
+      setDirectives([]);
+    }
+  }, [patientId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function softDelete(id: string) {
+    if (!confirm("Mark this directive inactive?")) return;
+    try {
+      await api.delete(`/ehr/advance-directives/${id}`);
+      toast.success("Directive inactivated");
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <section className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-lg font-semibold">
+          <AlertTriangle size={18} className="text-amber-600" /> Advance Directives
+        </h3>
+        {canEdit && (
+          <button
+            onClick={() => setModalOpen(true)}
+            className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90"
+          >
+            <Plus size={14} /> Add Directive
+          </button>
+        )}
+      </div>
+      {directives.length === 0 ? (
+        <p className="text-sm text-gray-400">No advance directives recorded.</p>
+      ) : (
+        <ul className="space-y-2">
+          {directives.map((d) => (
+            <li
+              key={d.id}
+              className={`rounded-lg border p-3 ${
+                d.active
+                  ? "border-gray-200"
+                  : "border-gray-100 bg-gray-50 opacity-70"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        directiveColors[d.type] || "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {d.type.replace("_", " ")}
+                    </span>
+                    {!d.active && (
+                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-600">
+                        INACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Effective: {d.effectiveDate.slice(0, 10)}
+                    {d.expiryDate ? ` · Expires: ${d.expiryDate.slice(0, 10)}` : ""}
+                  </div>
+                  {d.notes && (
+                    <div className="mt-1 text-sm text-gray-700">{d.notes}</div>
+                  )}
+                </div>
+                {canEdit && d.active && (
+                  <button
+                    onClick={() => softDelete(d.id)}
+                    className="text-gray-400 hover:text-red-600"
+                    title="Mark inactive"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {modalOpen && (
+        <AdvanceDirectiveForm
+          patientId={patientId}
+          onClose={() => setModalOpen(false)}
+          onSaved={() => {
+            setModalOpen(false);
+            load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function AdvanceDirectiveForm({
+  patientId,
+  onClose,
+  onSaved,
+}: {
+  patientId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [type, setType] = useState<(typeof DIRECTIVE_TYPES)[number]>("DNR");
+  const [effectiveDate, setEffectiveDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [expiryDate, setExpiryDate] = useState("");
+  const [witnessedBy, setWitnessedBy] = useState("");
+  const [notes, setNotes] = useState("");
+  const [active, setActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.post(`/ehr/patients/${patientId}/advance-directives`, {
+        type,
+        effectiveDate,
+        expiryDate: expiryDate || undefined,
+        witnessedBy: witnessedBy || undefined,
+        notes,
+        active,
+      });
+      toast.success("Directive added");
+      onSaved();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal title="Add Advance Directive" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <div>
+          <label className="text-xs text-gray-600">Type *</label>
+          <select
+            value={type}
+            onChange={(e) =>
+              setType(e.target.value as (typeof DIRECTIVE_TYPES)[number])
+            }
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          >
+            {DIRECTIVE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t.replace("_", " ")}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-600">Effective Date *</label>
+            <input
+              type="date"
+              required
+              value={effectiveDate}
+              onChange={(e) => setEffectiveDate(e.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Expiry Date</label>
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-gray-600">Witnessed By</label>
+          <input
+            value={witnessedBy}
+            onChange={(e) => setWitnessedBy(e.target.value)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-gray-600">Notes *</label>
+          <textarea
+            required
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={active}
+            onChange={(e) => setActive(e.target.checked)}
+          />
+          Active
+        </label>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Pricing Tier Badge + Edit ─────────────────────────
+
+function PricingTierBadge({
+  patient,
+  onUpdated,
+}: {
+  patient: PatientDetail;
+  onUpdated: (tier: string) => void;
+}) {
+  const { user } = useAuthStore();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(patient.pricingTier || "STANDARD");
+  const [saving, setSaving] = useState(false);
+  const tier = patient.pricingTier || "STANDARD";
+  const isAdmin = user?.role === "ADMIN";
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.patch(`/patients/${patient.id}`, { pricingTier: value });
+      onUpdated(value);
+      setEditing(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Update failed");
+    }
+    setSaving(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="rounded border px-2 py-0.5 text-xs"
+        >
+          {PRICING_TIERS.map((t) => (
+            <option key={t} value={t}>
+              {t.replace("_", " ")}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded bg-primary px-2 py-0.5 text-xs text-white disabled:opacity-50"
+        >
+          {saving ? "..." : "Save"}
+        </button>
+        <button
+          onClick={() => {
+            setEditing(false);
+            setValue(patient.pricingTier || "STANDARD");
+          }}
+          className="rounded border px-2 py-0.5 text-xs"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span
+        className={`rounded-full px-3 py-0.5 text-xs font-semibold ${
+          TIER_COLORS[tier] || TIER_COLORS.STANDARD
+        }`}
+        title="Pricing tier"
+      >
+        {tier.replace("_", " ")}
+      </span>
+      {isAdmin && (
+        <button
+          onClick={() => setEditing(true)}
+          className="rounded border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50"
+          aria-label="Edit pricing tier"
+        >
+          Edit Tier
+        </button>
+      )}
+    </span>
   );
 }

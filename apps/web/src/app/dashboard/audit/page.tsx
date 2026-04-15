@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { Shield, Download, Info } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface AuditEntry {
   id: string;
@@ -344,7 +345,7 @@ export default function AuditPage() {
       {/* Table */}
       <div className="rounded-xl bg-white shadow-sm">
         {loading && entries.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-4"><SkeletonTable rows={8} columns={6} /></div>
         ) : entries.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No audit entries found

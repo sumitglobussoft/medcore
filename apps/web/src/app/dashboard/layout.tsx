@@ -6,6 +6,13 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { Tooltip } from "@/components/Tooltip";
+import { HelpPanel } from "@/components/HelpPanel";
+import {
+  OnboardingTour,
+  hasCompletedTour,
+  resetTour,
+} from "@/components/OnboardingTour";
 import {
   LayoutDashboard,
   Calendar,
@@ -61,6 +68,8 @@ import {
   Sun,
   Moon,
   Keyboard,
+  Menu,
+  Settings as SettingsIcon,
   Award,
   ClipboardList,
   FileCheck,
@@ -69,6 +78,48 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchPalette } from "./_components/search-palette";
+
+// Role-based bottom nav shortcuts (5 items, mobile only)
+const bottomNavByRole: Record<
+  string,
+  Array<{ href: string; label: string; icon: React.ElementType }>
+> = {
+  ADMIN: [
+    { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+    { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/analytics", label: "Stats", icon: TrendingUp },
+    { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
+  ],
+  DOCTOR: [
+    { href: "/dashboard/workspace", label: "Workspace", icon: Briefcase },
+    { href: "/dashboard/queue", label: "Queue", icon: Monitor },
+    { href: "/dashboard/prescriptions", label: "Rx", icon: FileText },
+    { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
+    { href: "/dashboard/settings", label: "Profile", icon: SettingsIcon },
+  ],
+  NURSE: [
+    { href: "/dashboard/workstation", label: "Work", icon: Activity },
+    { href: "/dashboard/medication-dashboard", label: "Meds", icon: Syringe },
+    { href: "/dashboard/vitals", label: "Vitals", icon: Activity },
+    { href: "/dashboard/patients", label: "Patients", icon: Users },
+    { href: "/dashboard/settings", label: "Profile", icon: SettingsIcon },
+  ],
+  RECEPTION: [
+    { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+    { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
+    { href: "/dashboard/walk-in", label: "Walk-in", icon: UserPlus },
+    { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+    { href: "/dashboard/visitors", label: "Visitors", icon: UserCheck },
+  ],
+  PATIENT: [
+    { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+    { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
+    { href: "/dashboard/prescriptions", label: "Rx", icon: FileText },
+    { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
+    { href: "/dashboard/settings", label: "Profile", icon: SettingsIcon },
+  ],
+};
 
 const navByRole: Record<
   string,
@@ -230,6 +281,8 @@ export default function DashboardLayout({
   const { user, isLoading, loadSession, logout } = useAuthStore();
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const resolvedTheme = useThemeStore((s) => s.resolved);
   const toggleTheme = useThemeStore((s) => s.toggle);
 
@@ -245,6 +298,23 @@ export default function DashboardLayout({
       router.push("/login");
     }
   }, [user, isLoading, router]);
+
+  // Auto-launch first-time tour after session loads
+  useEffect(() => {
+    if (!isLoading && user && !hasCompletedTour(user.role)) {
+      setTourOpen(true);
+    }
+  }, [isLoading, user]);
+
+  // Glossary tooltips for jargon abbreviations in the sidebar
+  const SIDEBAR_TIPS: Record<string, string> = {
+    "/dashboard/admissions":
+      "Admissions — IPD (In-Patient Department): patients admitted to a bed.",
+    "/dashboard/queue":
+      "Queue — OPD (Out-Patient Department) live token queue.",
+    "/dashboard/ot": "OT — Operating Theatre live status board.",
+    "/dashboard/walk-in": "Walk-in OPD — register patients without an appointment.",
+  };
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -350,12 +420,26 @@ export default function DashboardLayout({
   }
 
   const nav = navByRole[user.role] || navByRole.PATIENT;
+  const bottomNav = bottomNavByRole[user.role] || bottomNavByRole.PATIENT;
 
   return (
     <div className="flex h-screen">
+      {/* Mobile drawer overlay */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Sidebar */}
       <aside
-        className="no-print flex w-64 flex-col bg-sidebar text-white"
+        className={clsx(
+          "no-print flex w-64 flex-col bg-sidebar text-white transition-transform duration-200",
+          "fixed inset-y-0 left-0 z-50 md:static md:translate-x-0",
+          drawerOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
         aria-label="Primary navigation"
       >
         <div className="border-b border-white/10 p-5">
@@ -393,13 +477,16 @@ export default function DashboardLayout({
         >
           {nav.map(({ href, label, icon: Icon }) => {
             const isActive = pathname === href;
+            const tip = SIDEBAR_TIPS[href];
             return (
               <Link
                 key={href}
                 href={href}
+                onClick={() => setDrawerOpen(false)}
                 aria-current={isActive ? "page" : undefined}
+                title={tip}
                 className={clsx(
-                  "mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar",
+                  "mb-1 flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar",
                   isActive
                     ? "bg-primary font-medium text-white"
                     : "text-gray-300 hover:bg-sidebar-hover hover:text-white"
@@ -410,6 +497,18 @@ export default function DashboardLayout({
               </Link>
             );
           })}
+          {user && (
+            <button
+              type="button"
+              onClick={() => {
+                resetTour(user.role);
+                setTourOpen(true);
+              }}
+              className="mt-2 flex w-full items-center gap-3 rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-300 hover:bg-sidebar-hover hover:text-white"
+            >
+              Take the tour
+            </button>
+          )}
         </nav>
 
         <div className="flex items-center gap-2 border-t border-white/10 p-3">
@@ -441,6 +540,14 @@ export default function DashboardLayout({
           >
             <Keyboard size={18} aria-hidden="true" />
           </button>
+          <Link
+            href="/dashboard/settings"
+            aria-label="Settings"
+            title="Settings"
+            className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+          >
+            <SettingsIcon size={18} aria-hidden="true" />
+          </Link>
           <button
             onClick={() => {
               logout();
@@ -460,14 +567,72 @@ export default function DashboardLayout({
         id="main-content"
         className="flex-1 overflow-y-auto bg-bg dark:bg-gray-900"
       >
-        <div className="p-6">{children}</div>
+        {/* Mobile top bar */}
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-800 md:hidden">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open menu"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            <Menu size={20} aria-hidden="true" />
+          </button>
+          <span className="font-semibold text-gray-900 dark:text-gray-100">
+            MedCore
+          </span>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Open search"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            <Search size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="p-4 pb-20 md:p-6 md:pb-6">{children}</div>
       </main>
+
+      {/* Mobile bottom nav */}
+      <nav
+        aria-label="Bottom navigation"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800 md:hidden"
+      >
+        {bottomNav.map(({ href, label, icon: Icon }) => {
+          const isActive =
+            pathname === href ||
+            (href !== "/dashboard" && pathname.startsWith(href));
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={isActive ? "page" : undefined}
+              className={clsx(
+                "flex flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium transition",
+                isActive
+                  ? "text-primary"
+                  : "text-gray-500 dark:text-gray-400"
+              )}
+            >
+              <Icon size={20} aria-hidden="true" />
+              <span className="truncate">{label}</span>
+            </Link>
+          );
+        })}
+      </nav>
 
       <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
       <KeyboardShortcutsModal
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
       />
+      <HelpPanel onStartTour={() => setTourOpen(true)} />
+      {user && (
+        <OnboardingTour
+          role={user.role}
+          open={tourOpen}
+          onClose={() => setTourOpen(false)}
+        />
+      )}
     </div>
   );
 }

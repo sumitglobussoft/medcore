@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Check, X, PlaneTakeoff } from "lucide-react";
+import { Check, X, PlaneTakeoff, Printer } from "lucide-react";
 
 interface Leave {
   id: string;
@@ -253,7 +253,13 @@ export default function LeaveManagementPage() {
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <button
+                        onClick={() => openPrintEndpoint(`/leaves/${l.id}/letter`)}
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        title="Print leave letter"
+                      >
+                        <Printer size={12} /> Letter
+                      </button>
                     )}
                   </td>
                 </tr>

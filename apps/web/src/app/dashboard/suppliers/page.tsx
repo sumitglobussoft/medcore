@@ -15,6 +15,8 @@ interface SupplierRecord {
   paymentTerms?: string | null;
   isActive: boolean;
   createdAt: string;
+  contractStart?: string | null;
+  contractEnd?: string | null;
   _count?: { purchaseOrders: number };
 }
 
@@ -194,6 +196,13 @@ export default function SuppliersPage() {
                     </div>
                   )}
                 </div>
+
+                <SupplierContractPanel
+                  supplier={detail}
+                  onUpdated={(s) => {
+                    setDetail({ ...detail, ...s });
+                  }}
+                />
 
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-gray-700">
@@ -402,6 +411,133 @@ function AddSupplierModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function SupplierContractPanel({
+  supplier,
+  onUpdated,
+}: {
+  supplier: SupplierDetail;
+  onUpdated: (s: Partial<SupplierDetail>) => void;
+}) {
+  const [edit, setEdit] = useState(false);
+  const [start, setStart] = useState(
+    supplier.contractStart ? supplier.contractStart.slice(0, 10) : ""
+  );
+  const [end, setEnd] = useState(
+    supplier.contractEnd ? supplier.contractEnd.slice(0, 10) : ""
+  );
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.patch(`/suppliers/${supplier.id}`, {
+        contractStart: start || undefined,
+        contractEnd: end || undefined,
+      });
+      onUpdated({ contractStart: start || null, contractEnd: end || null });
+      setEdit(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Save failed");
+    }
+    setSaving(false);
+  }
+
+  const daysLeft = supplier.contractEnd
+    ? Math.ceil(
+        (new Date(supplier.contractEnd).getTime() - Date.now()) /
+          (24 * 60 * 60 * 1000)
+      )
+    : null;
+  const expiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
+  const expired = daysLeft !== null && daysLeft < 0;
+
+  return (
+    <div className="mb-4 rounded-lg border bg-gray-50 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700">Contract</h3>
+        {!edit && (
+          <button
+            onClick={() => setEdit(true)}
+            className="rounded border px-2 py-0.5 text-xs hover:bg-white"
+          >
+            {supplier.contractStart || supplier.contractEnd ? "Edit" : "Add"}
+          </button>
+        )}
+      </div>
+      {edit ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Start</label>
+              <input
+                type="date"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="w-full rounded border px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">End</label>
+              <input
+                type="date"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="w-full rounded border px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEdit(false)}
+              className="rounded border px-3 py-1 text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded bg-primary px-3 py-1 text-xs text-white disabled:opacity-50"
+            >
+              {saving ? "..." : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="text-xs text-gray-700">
+          {supplier.contractStart || supplier.contractEnd ? (
+            <>
+              <p>
+                <span className="text-gray-500">Start:</span>{" "}
+                {supplier.contractStart
+                  ? new Date(supplier.contractStart).toLocaleDateString()
+                  : "—"}
+              </p>
+              <p>
+                <span className="text-gray-500">End:</span>{" "}
+                {supplier.contractEnd
+                  ? new Date(supplier.contractEnd).toLocaleDateString()
+                  : "—"}
+                {expiringSoon && (
+                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    Expiring Soon ({daysLeft}d)
+                  </span>
+                )}
+                {expired && (
+                  <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                    Expired
+                  </span>
+                )}
+              </p>
+            </>
+          ) : (
+            <p className="text-gray-500">No contract dates set.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

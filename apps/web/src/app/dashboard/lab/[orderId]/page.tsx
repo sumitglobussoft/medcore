@@ -2,7 +2,8 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
 
 interface LabTest {
@@ -92,7 +93,7 @@ export default function LabOrderPage({
       await api.patch(`/lab/orders/${orderId}/status`, { status: "COMPLETED" });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : "Failed to update");
     }
   }
 
@@ -129,7 +130,7 @@ export default function LabOrderPage({
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.print()}
+              onClick={() => openPrintEndpoint(`/lab/orders/${order.id}/pdf`)}
               aria-label="Print lab report"
               className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
@@ -225,7 +226,7 @@ function OrderItemCard({
       });
       onSaved();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save result");
+      toast.error(err instanceof Error ? err.message : "Failed to save result");
     }
   }
 

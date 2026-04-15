@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { getSocket } from "@/lib/socket";
 import { Plus, Building, Power, PowerOff, Edit2 } from "lucide-react";
 
 interface OT {
@@ -95,6 +96,20 @@ export default function OTPage() {
   useEffect(() => {
     loadWeekSchedule();
   }, [loadWeekSchedule]);
+
+  // Live updates as surgeries change status
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    const handler = () => {
+      loadOts();
+      loadWeekSchedule();
+    };
+    socket.on("surgery:status", handler);
+    return () => {
+      socket.off("surgery:status", handler);
+    };
+  }, [loadOts, loadWeekSchedule]);
 
   function openAdd() {
     setEditing(null);

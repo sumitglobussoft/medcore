@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface Visitor {
   id: string;
@@ -159,7 +160,7 @@ export default function VisitorsPage() {
 
   async function checkIn() {
     if (!form.name) {
-      alert("Name is required");
+      toast.error("Name is required");
       return;
     }
     try {
@@ -205,7 +206,7 @@ export default function VisitorsPage() {
       load();
       setPrintVisitor(newVisitor);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -215,7 +216,7 @@ export default function VisitorsPage() {
       await api.patch(`/visitors/${id}/checkout`, {});
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 

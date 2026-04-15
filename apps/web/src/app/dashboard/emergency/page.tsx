@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { getSocket } from "@/lib/socket";
+import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Siren, AlertTriangle, UserCheck, X } from "lucide-react";
 
 interface PatientLite {
@@ -145,6 +147,17 @@ export default function EmergencyPage() {
     loadData();
     const t = setInterval(loadData, 30000);
     return () => clearInterval(t);
+  }, []);
+
+  // Realtime emergency updates
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    const handler = () => loadData();
+    socket.on("emergency:update", handler);
+    return () => {
+      socket.off("emergency:update", handler);
+    };
   }, []);
 
   useEffect(() => {
@@ -778,22 +791,36 @@ export default function EmergencyPage() {
                       }
                       className="rounded-lg border px-3 py-2"
                     />
-                    <input
-                      placeholder="GCS (3-15)"
-                      value={triageForm.glasgowComa}
-                      onChange={(e) =>
-                        setTriageForm({ ...triageForm, glasgowComa: e.target.value })
-                      }
-                      className="rounded-lg border px-3 py-2"
-                    />
-                    <input
-                      placeholder="MEWS (0-14)"
-                      value={triageForm.mewsScore}
-                      onChange={(e) =>
-                        setTriageForm({ ...triageForm, mewsScore: e.target.value })
-                      }
-                      className="col-span-2 rounded-lg border px-3 py-2"
-                    />
+                    <div>
+                      <label className="mb-1 flex items-center text-xs text-gray-600">
+                        GCS
+                        <InfoIcon tooltip="GCS — Glasgow Coma Scale. Scores consciousness from 3 (deep coma) to 15 (fully alert). Sums eye, verbal, and motor response." />
+                      </label>
+                      <input
+                        placeholder="GCS (3-15)"
+                        value={triageForm.glasgowComa}
+                        onChange={(e) =>
+                          setTriageForm({ ...triageForm, glasgowComa: e.target.value })
+                        }
+                        className="w-full rounded-lg border px-3 py-2"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="mb-1 flex items-center text-xs text-gray-600">
+                        MEWS
+                        <InfoIcon tooltip="MEWS — Modified Early Warning Score. Range 0–14. Based on vitals to flag deteriorating patients. >4 indicates urgent review." />
+                        <span className="ml-3">RTS</span>
+                        <InfoIcon tooltip="RTS — Revised Trauma Score. Uses GCS, SBP and respiratory rate. Lower scores indicate more severe trauma." />
+                      </label>
+                      <input
+                        placeholder="MEWS (0-14)"
+                        value={triageForm.mewsScore}
+                        onChange={(e) =>
+                          setTriageForm({ ...triageForm, mewsScore: e.target.value })
+                        }
+                        className="w-full rounded-lg border px-3 py-2"
+                      />
+                    </div>
                   </div>
                   <button
                     onClick={submitTriage}

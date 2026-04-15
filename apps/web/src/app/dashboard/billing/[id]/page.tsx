@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import {
   Printer,
   ArrowLeft,
@@ -138,7 +139,20 @@ export default function InvoiceDetailPage() {
   }, [loadInvoice]);
 
   async function addItem() {
-    if (!newDesc || !newPrice) return;
+    if (!newDesc.trim()) {
+      toast.error("Description is required for the line item");
+      return;
+    }
+    const qty = parseInt(newQty || "0", 10);
+    const price = parseFloat(newPrice || "0");
+    if (Number.isNaN(qty) || qty < 1) {
+      toast.error("Quantity must be at least 1");
+      return;
+    }
+    if (Number.isNaN(price) || price <= 0) {
+      toast.error("Unit price must be greater than 0");
+      return;
+    }
     setAdding(true);
     try {
       await api.post(`/billing/invoices/${id}/items`, {
@@ -152,7 +166,7 @@ export default function InvoiceDetailPage() {
       setNewPrice("");
       loadInvoice();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add item");
+      toast.error(err instanceof Error ? err.message : "Failed to add item");
     }
     setAdding(false);
   }
@@ -163,7 +177,7 @@ export default function InvoiceDetailPage() {
       await api.delete(`/billing/invoices/${id}/items/${itemId}`);
       loadInvoice();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to remove item");
+      toast.error(err instanceof Error ? err.message : "Failed to remove item");
     }
   }
 
@@ -179,7 +193,7 @@ export default function InvoiceDetailPage() {
       setDiscReason("");
       loadInvoice();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Discount failed");
+      toast.error(err instanceof Error ? err.message : "Discount failed");
     }
     setDiscSubmitting(false);
   }
@@ -197,7 +211,7 @@ export default function InvoiceDetailPage() {
       setPayMode("CASH");
       loadInvoice();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Payment failed");
+      toast.error(err instanceof Error ? err.message : "Payment failed");
     }
     setPaySubmitting(false);
   }
@@ -217,7 +231,7 @@ export default function InvoiceDetailPage() {
       setRefundMode("CASH");
       loadInvoice();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Refund failed");
+      toast.error(err instanceof Error ? err.message : "Refund failed");
     }
     setRefundSubmitting(false);
   }
@@ -334,7 +348,7 @@ export default function InvoiceDetailPage() {
             </button>
           )}
           <button
-            onClick={() => window.print()}
+            onClick={() => openPrintEndpoint(`/billing/invoices/${invoice.id}/pdf`)}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
             <Printer size={16} /> Print Invoice
@@ -970,7 +984,7 @@ function CreatePlanModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setSaving(false);
   }

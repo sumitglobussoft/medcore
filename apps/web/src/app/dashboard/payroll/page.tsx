@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Calculator, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 
 interface Staff {
@@ -363,6 +363,17 @@ export default function PayrollPage() {
                               <Calculator size={12} />
                             )}
                             Calculate
+                          </button>
+                          <button
+                            onClick={() =>
+                              openPrintEndpoint(
+                                `/hr-ops/payroll/${s.id}/slip?month=${month}`
+                              )
+                            }
+                            className="flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                            title="Print pay slip"
+                          >
+                            <Download size={12} /> Slip
                           </button>
                         </div>
                       </td>

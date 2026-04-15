@@ -49,6 +49,7 @@ export default function PurchaseOrderDetailPage() {
   const [po, setPo] = useState<PORecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [showReceiveModal, setShowReceiveModal] = useState(false);
 
   useEffect(() => {
     load();
@@ -67,12 +68,11 @@ export default function PurchaseOrderDetailPage() {
     setLoading(false);
   }
 
-  async function act(action: "submit" | "approve" | "receive" | "cancel") {
+  async function act(action: "submit" | "approve" | "cancel") {
     if (!po) return;
     const msgs: Record<string, string> = {
       submit: "Submit this PO for approval?",
       approve: "Approve this PO?",
-      receive: "Mark as received? This will update inventory.",
       cancel: "Cancel this PO? This cannot be undone.",
     };
     if (!confirm(msgs[action])) return;
@@ -143,7 +143,7 @@ export default function PurchaseOrderDetailPage() {
           )}
           {po.status === "APPROVED" && (
             <button
-              onClick={() => act("receive")}
+              onClick={() => setShowReceiveModal(true)}
               disabled={acting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 disabled:opacity-50"
             >
@@ -312,6 +312,155 @@ export default function PurchaseOrderDetailPage() {
             <p className="whitespace-pre-line text-sm text-gray-600">{po.notes}</p>
           </div>
         )}
+      </div>
+
+      {showReceiveModal && (
+        <ReceiveGrnModal
+          po={po}
+          onClose={() => setShowReceiveModal(false)}
+          onSaved={() => {
+            setShowReceiveModal(false);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReceiveGrnModal({
+  po,
+  onClose,
+  onSaved,
+}: {
+  po: PORecord;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [quantities, setQuantities] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    for (const it of po.items) m[it.id] = String(it.quantity);
+    return m;
+  });
+  const [notes, setNotes] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setSaving(true);
+    try {
+      const receivedItems = po.items.map((it) => ({
+        itemId: it.id,
+        receivedQuantity: Number(quantities[it.id] || 0),
+      }));
+      await api.post(`/purchase-orders/${po.id}/receive`, {
+        receivedItems,
+        notes: notes || undefined,
+        invoiceNumber: invoiceNumber || undefined,
+      });
+      onSaved();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Receipt failed");
+    }
+    setSaving(false);
+  }
+
+  const hasShortfall = po.items.some(
+    (it) => Number(quantities[it.id] || 0) < it.quantity
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Receive Goods (GRN)</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            ✕
+          </button>
+        </div>
+        <p className="mb-4 text-xs text-gray-500">
+          Enter quantities received. If less than ordered, the PO remains
+          APPROVED for further partial receipts.
+        </p>
+
+        <table className="mb-4 w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-gray-500">
+              <th className="py-2">Item</th>
+              <th className="w-24 py-2 text-right">Ordered</th>
+              <th className="w-32 py-2 text-right">Received Now</th>
+            </tr>
+          </thead>
+          <tbody>
+            {po.items.map((it) => (
+              <tr key={it.id} className="border-b last:border-0">
+                <td className="py-2">
+                  <p>{it.description}</p>
+                  {it.medicine && (
+                    <p className="text-xs text-gray-500">{it.medicine.name}</p>
+                  )}
+                </td>
+                <td className="py-2 text-right">{it.quantity}</td>
+                <td className="py-2 text-right">
+                  <input
+                    type="number"
+                    min={0}
+                    max={it.quantity}
+                    value={quantities[it.id]}
+                    onChange={(e) =>
+                      setQuantities((q) => ({ ...q, [it.id]: e.target.value }))
+                    }
+                    className="w-24 rounded border px-2 py-1 text-right"
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">
+              Supplier Invoice #
+            </label>
+            <input
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">Notes</label>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full rounded border px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+
+        {hasShortfall && (
+          <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Partial receipt: PO will remain APPROVED so more deliveries can be
+            recorded.
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : hasShortfall ? "Record Partial Receipt" : "Receive All"}
+          </button>
+        </div>
       </div>
     </div>
   );

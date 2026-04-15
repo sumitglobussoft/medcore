@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
-import { Plus, Shield, ShieldAlert } from "lucide-react";
+import { Plus, Shield, ShieldAlert, Printer } from "lucide-react";
 
 interface StaffUser {
   id: string;
@@ -194,6 +194,7 @@ export default function UsersPage() {
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Joined</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -229,6 +230,17 @@ export default function UsersPage() {
                     {u.createdAt
                       ? new Date(u.createdAt).toLocaleDateString("en-IN")
                       : "---"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() =>
+                        openPrintEndpoint(`/users/${u.id}/service-certificate`)
+                      }
+                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                      title="Service / Experience certificate"
+                    >
+                      <Printer size={12} /> Service Cert
+                    </button>
                   </td>
                 </tr>
               ))}

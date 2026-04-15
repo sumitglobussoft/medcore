@@ -122,20 +122,20 @@ export default function QueuePage() {
   }
 
   const statusColors: Record<string, string> = {
-    BOOKED: "bg-blue-50 border-blue-200",
-    CHECKED_IN: "bg-yellow-50 border-yellow-200",
-    IN_CONSULTATION: "bg-green-50 border-green-300",
-    COMPLETED: "bg-gray-50 border-gray-200",
+    BOOKED: "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800",
+    CHECKED_IN: "bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800",
+    IN_CONSULTATION: "bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-800",
+    COMPLETED: "bg-gray-50 border-gray-200 dark:bg-gray-900/40 dark:border-gray-700",
   };
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Live Queue</h1>
+      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Live Queue</h1>
 
       {/* Token display board */}
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {loading ? (
-          <div className="col-span-3 text-center text-gray-500">
+          <div className="col-span-3 text-center text-gray-500 dark:text-gray-400">
             Loading...
           </div>
         ) : (
@@ -148,22 +148,22 @@ export default function QueuePage() {
               }}
               className={`rounded-xl border-2 p-6 text-left transition ${
                 selectedDoctor === doc.doctorId
-                  ? "border-primary bg-blue-50"
-                  : "border-gray-200 bg-white hover:border-primary/50"
+                  ? "border-primary bg-blue-50 dark:bg-blue-900/30"
+                  : "border-gray-200 bg-white hover:border-primary/50 dark:border-gray-700 dark:bg-gray-800"
               }`}
             >
-              <p className="font-semibold text-gray-900">{doc.doctorName}</p>
-              <p className="text-sm text-gray-500">{doc.specialization}</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{doc.doctorName}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{doc.specialization}</p>
               <div className="mt-4 flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500">Current Token</p>
-                  <p className="text-4xl font-bold text-primary">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Current Token</p>
+                  <p className="text-4xl font-bold text-primary dark:text-blue-400">
                     {doc.currentToken ?? "—"}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-500">Waiting</p>
-                  <p className="text-2xl font-bold text-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Waiting</p>
+                  <p className="text-2xl font-bold text-gray-700 dark:text-gray-200">
                     {doc.waitingCount}
                   </p>
                 </div>
@@ -175,16 +175,16 @@ export default function QueuePage() {
 
       {/* Doctor queue detail */}
       {doctorQueue && (
-        <div className="rounded-xl bg-white p-6 shadow-sm">
-          <h2 className="mb-4 font-semibold">Queue Detail</h2>
+        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Queue Detail</h2>
           {doctorQueue.queue.length === 0 ? (
-            <p className="text-gray-500">No patients in queue</p>
+            <p className="text-gray-500 dark:text-gray-400">No patients in queue</p>
           ) : (
             <div className="space-y-2">
               {doctorQueue.queue.map((entry) => (
                 <div
                   key={entry.appointmentId}
-                  className={`flex items-center justify-between rounded-lg border p-4 ${statusColors[entry.status] || "bg-white"}`}
+                  className={`flex items-center justify-between rounded-lg border p-4 ${statusColors[entry.status] || "bg-white dark:bg-gray-800 dark:border-gray-700"}`}
                 >
                   <div className="flex items-center gap-4">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-lg font-bold text-white">
@@ -276,6 +276,9 @@ export default function QueuePage() {
                                 loadDisplay();
                                 if (selectedDoctor) loadDoctorQueue(selectedDoctor);
                               } catch (err) {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                // Keep native alert as this is inside a prompt workflow
+                                // eslint-disable-next-line no-alert
                                 alert(
                                   err instanceof Error ? err.message : "Failed"
                                 );
@@ -297,23 +300,23 @@ export default function QueuePage() {
 
       {/* Transfer modal */}
       {transferTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
               Transfer to another doctor
             </h3>
-            <p className="mt-1 text-sm text-gray-600">
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
               Patient: <span className="font-medium">{transferTarget.patientName}</span>
             </p>
             <div className="mt-4 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   New Doctor
                 </label>
                 <select
                   value={transferDoctorId}
                   onChange={(e) => setTransferDoctorId(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 >
                   <option value="">Select a doctor</option>
                   {display
@@ -327,14 +330,14 @@ export default function QueuePage() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                   Reason
                 </label>
                 <textarea
                   value={transferReason}
                   onChange={(e) => setTransferReason(e.target.value)}
                   rows={3}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   placeholder="Why transfer?"
                 />
               </div>
@@ -346,7 +349,7 @@ export default function QueuePage() {
                   setTransferDoctorId("");
                   setTransferReason("");
                 }}
-                className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

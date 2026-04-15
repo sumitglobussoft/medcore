@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
+import { EmptyState } from "@/components/EmptyState";
 import {
   Printer,
   Receipt,
@@ -225,7 +227,7 @@ export default function BillingPage() {
       loadInvoices();
       loadSummary();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Payment failed");
+      toast.error(err instanceof Error ? err.message : "Payment failed");
     }
     setPaySubmitting(false);
   }
@@ -247,7 +249,7 @@ export default function BillingPage() {
       loadInvoices();
       loadSummary();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Refund failed");
+      toast.error(err instanceof Error ? err.message : "Refund failed");
     }
     setRefundSubmitting(false);
   }
@@ -265,7 +267,7 @@ export default function BillingPage() {
       setDiscReason("");
       loadInvoices();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Discount failed");
+      toast.error(err instanceof Error ? err.message : "Discount failed");
     }
     setDiscSubmitting(false);
   }
@@ -277,7 +279,7 @@ export default function BillingPage() {
         inv.balance !== undefined ? ` — balance ${fmtMoney(inv.balance)}` : ""
       }`
     );
-    alert(`Reminder queued for ${inv.patient.user.name}`);
+    toast.success(`Reminder queued for ${inv.patient.user.name}`);
   }
 
   function exportCSV() {
@@ -314,7 +316,7 @@ export default function BillingPage() {
             };
           });
     if (!rows.length) {
-      alert("No rows to export");
+      toast.info("No rows to export");
       return;
     }
     const headers = Object.keys(rows[0]);
@@ -516,7 +518,10 @@ export default function BillingPage() {
             </table>
           )
         ) : invoices.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">No invoices found</div>
+          <EmptyState
+            title="No invoices yet"
+            description="Invoices will appear here once they are generated from visits or admissions."
+          />
         ) : (
           <table className="w-full">
             <thead>

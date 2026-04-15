@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface Doctor {
   id: string;
@@ -30,6 +31,7 @@ export default function WalkInPage() {
     gender: "MALE",
     age: "",
   });
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
   const [result, setResult] = useState<{
     tokenNumber: number;
     doctorName: string;
@@ -59,7 +61,19 @@ export default function WalkInPage() {
     }
   }
 
+  function validateNewPatient(): boolean {
+    const errs: { name?: string; phone?: string } = {};
+    if (!newPatient.name.trim()) errs.name = "Name is required";
+    const digits = newPatient.phone.replace(/\D/g, "");
+    if (!newPatient.phone.trim()) errs.phone = "Phone number is required";
+    else if (digits.length < 10 || digits.length > 13)
+      errs.phone = "Enter a valid 10-digit phone";
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
   async function registerAndWalkIn() {
+    if (!validateNewPatient()) return;
     try {
       // Register new patient first
       const patientRes = await api.post<{ data: PatientResult }>("/patients", {
@@ -72,7 +86,7 @@ export default function WalkInPage() {
       // Then register walk-in
       await submitWalkIn(patientRes.data.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Registration failed");
+      toast.error(err instanceof Error ? err.message : "Registration failed");
     }
   }
 
@@ -104,13 +118,13 @@ export default function WalkInPage() {
       setPriority("NORMAL");
       setShowNewPatient(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Walk-in registration failed");
+      toast.error(err instanceof Error ? err.message : "Walk-in registration failed");
     }
   }
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-2xl font-bold">Walk-in Registration</h1>
+      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Walk-in Registration</h1>
 
       {/* Success token display */}
       {result && (
@@ -129,7 +143,7 @@ export default function WalkInPage() {
       )}
 
       {!result && (
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
           {/* Step 1: Select Doctor */}
           <div className="mb-6">
             <label className="mb-2 block font-medium">1. Select Doctor</label>
@@ -204,22 +218,36 @@ export default function WalkInPage() {
                 {showNewPatient && (
                   <div className="mt-3 rounded-lg border bg-gray-50 p-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <input
-                        placeholder="Name"
-                        value={newPatient.name}
-                        onChange={(e) =>
-                          setNewPatient({ ...newPatient, name: e.target.value })
-                        }
-                        className="rounded border px-2 py-1.5 text-sm"
-                      />
-                      <input
-                        placeholder="Phone"
-                        value={newPatient.phone}
-                        onChange={(e) =>
-                          setNewPatient({ ...newPatient, phone: e.target.value })
-                        }
-                        className="rounded border px-2 py-1.5 text-sm"
-                      />
+                      <div>
+                        <input
+                          placeholder="Name"
+                          value={newPatient.name}
+                          onChange={(e) =>
+                            setNewPatient({ ...newPatient, name: e.target.value })
+                          }
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm dark:bg-gray-900 dark:text-gray-100 ${
+                            fieldErrors.name ? "border-red-500" : "border-gray-200 dark:border-gray-600"
+                          }`}
+                        />
+                        {fieldErrors.name && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.name}</p>
+                        )}
+                      </div>
+                      <div>
+                        <input
+                          placeholder="Phone"
+                          value={newPatient.phone}
+                          onChange={(e) =>
+                            setNewPatient({ ...newPatient, phone: e.target.value })
+                          }
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm dark:bg-gray-900 dark:text-gray-100 ${
+                            fieldErrors.phone ? "border-red-500" : "border-gray-200 dark:border-gray-600"
+                          }`}
+                        />
+                        {fieldErrors.phone && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.phone}</p>
+                        )}
+                      </div>
                       <select
                         value={newPatient.gender}
                         onChange={(e) =>

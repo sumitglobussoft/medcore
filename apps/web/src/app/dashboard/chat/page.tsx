@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Pin, SmilePlus, MoreHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 
 interface UserInfo {
@@ -183,7 +184,7 @@ export default function ChatPage() {
       await loadRooms();
       setSelectedRoom(res.data);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -196,7 +197,7 @@ export default function ChatPage() {
       });
       setInput("");
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -211,7 +212,7 @@ export default function ChatPage() {
       );
       setPickerFor(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Reaction failed");
+      toast.error(err instanceof Error ? err.message : "Reaction failed");
     }
   }
 
@@ -227,7 +228,7 @@ export default function ChatPage() {
       if (selectedRoom) loadPinned(selectedRoom.id);
       setMenuFor(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Pin failed");
+      toast.error(err instanceof Error ? err.message : "Pin failed");
     }
   }
 

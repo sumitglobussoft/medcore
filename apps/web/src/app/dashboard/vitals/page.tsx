@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface QueuePatient {
   tokenNumber: number;
@@ -179,11 +180,11 @@ export default function VitalsPage() {
 
       setChangeSummary(res.data.changes ?? []);
 
-      alert(
-        flags.length > 0
-          ? `Vitals saved (Abnormal: ${flags.join(", ")})`
-          : "Vitals saved!"
-      );
+      if (flags.length > 0) {
+        toast.warning(`Vitals saved (Abnormal: ${flags.join(", ")})`);
+      } else {
+        toast.success("Vitals saved");
+      }
       // Keep summary visible briefly
       setTimeout(() => setSelectedPatient(null), 1500);
       setForm({
@@ -201,7 +202,7 @@ export default function VitalsPage() {
       });
       if (selectedDoctor) loadQueue(selectedDoctor);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save vitals");
+      toast.error(err instanceof Error ? err.message : "Failed to save vitals");
     }
     setSaving(false);
   }

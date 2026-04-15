@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import {
   ArrowLeft,
   Clock,
@@ -53,6 +54,10 @@ interface EmergencyCase {
   vitalsSpO2?: number | null;
   vitalsTemp?: number | null;
   glasgowComa?: number | null;
+  rtsScore?: number | null;
+  rtsRespiratory?: number | null;
+  rtsSystolic?: number | null;
+  rtsGCS?: number | null;
   attendingDoctorId?: string | null;
   seenAt?: string | null;
   status: string;
@@ -80,6 +85,7 @@ export default function EmergencyCaseDetailPage() {
   const id = params.id as string;
   const [ecase, setCase] = useState<EmergencyCase | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showTraumaModal, setShowTraumaModal] = useState(false);
 
   useEffect(() => {
     load();
@@ -284,6 +290,43 @@ export default function EmergencyCaseDetailPage() {
               <p className="text-xs text-gray-500">MEWS Score</p>
               <p className="font-semibold">{ecase.mewsScore ?? "—"}</p>
             </div>
+            <div className="col-span-2 rounded-lg bg-gray-50 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">Revised Trauma Score</p>
+                  <p className="font-semibold">
+                    {ecase.rtsScore != null ? ecase.rtsScore.toFixed(2) : "—"}
+                    {ecase.rtsScore != null && (
+                      <span
+                        className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          ecase.rtsScore >= 7
+                            ? "bg-green-100 text-green-700"
+                            : ecase.rtsScore >= 4
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {ecase.rtsScore >= 7
+                          ? "Minor"
+                          : ecase.rtsScore >= 4
+                          ? "Moderate"
+                          : "Severe"}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                {(ecase.vitalsResp != null ||
+                  ecase.vitalsBP ||
+                  ecase.glasgowComa != null) && (
+                  <button
+                    onClick={() => setShowTraumaModal(true)}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-dark"
+                  >
+                    Calculate Trauma Score
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -361,6 +404,194 @@ export default function EmergencyCaseDetailPage() {
             Manage Case
           </Link>
         )}
+      </div>
+
+      {showTraumaModal && (
+        <TraumaScoreModal
+          caseId={ecase.id}
+          onClose={() => setShowTraumaModal(false)}
+          onSaved={() => {
+            setShowTraumaModal(false);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Revised Trauma Score modal ────────────────────────
+
+const RTS_RESP_OPTIONS = [
+  { code: 4, label: "10-29 /min" },
+  { code: 3, label: ">29 /min" },
+  { code: 2, label: "6-9 /min" },
+  { code: 1, label: "1-5 /min" },
+  { code: 0, label: "None" },
+];
+const RTS_SBP_OPTIONS = [
+  { code: 4, label: ">89 mmHg" },
+  { code: 3, label: "76-89 mmHg" },
+  { code: 2, label: "50-75 mmHg" },
+  { code: 1, label: "1-49 mmHg" },
+  { code: 0, label: "No pulse" },
+];
+const RTS_GCS_OPTIONS = [
+  { code: 4, label: "GCS 13-15" },
+  { code: 3, label: "GCS 9-12" },
+  { code: 2, label: "GCS 6-8" },
+  { code: 1, label: "GCS 4-5" },
+  { code: 0, label: "GCS 3" },
+];
+
+function TraumaScoreModal({
+  caseId,
+  onClose,
+  onSaved,
+}: {
+  caseId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [resp, setResp] = useState(4);
+  const [sbp, setSbp] = useState(4);
+  const [gcs, setGcs] = useState(4);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{
+    rtsScore: number;
+    interpretation: string;
+  } | null>(null);
+
+  async function submit() {
+    setSaving(true);
+    try {
+      const res = await api.post<{
+        data: { rtsScore: number; interpretation: string };
+      }>(`/emergency/cases/${caseId}/trauma-score`, {
+        rtsRespiratory: resp,
+        rtsSystolic: sbp,
+        rtsGCS: gcs,
+      });
+      setResult(res.data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+    setSaving(false);
+  }
+
+  const badgeColor = result
+    ? result.rtsScore >= 7
+      ? "bg-green-100 text-green-700"
+      : result.rtsScore >= 4
+      ? "bg-amber-100 text-amber-700"
+      : "bg-red-100 text-red-700"
+    : "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Revised Trauma Score</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            ✕
+          </button>
+        </div>
+
+        <p className="mb-4 text-xs text-gray-500">
+          RTS = 0.9368 × GCS + 0.7326 × SBP + 0.2908 × RR. Range 0-7.84.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Respiratory Rate
+            </label>
+            <select
+              value={resp}
+              onChange={(e) => setResp(Number(e.target.value))}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            >
+              {RTS_RESP_OPTIONS.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {o.label} (code {o.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Systolic BP
+            </label>
+            <select
+              value={sbp}
+              onChange={(e) => setSbp(Number(e.target.value))}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            >
+              {RTS_SBP_OPTIONS.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {o.label} (code {o.code})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Glasgow Coma Scale
+            </label>
+            <select
+              value={gcs}
+              onChange={(e) => setGcs(Number(e.target.value))}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            >
+              {RTS_GCS_OPTIONS.map((o) => (
+                <option key={o.code} value={o.code}>
+                  {o.label} (code {o.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {result && (
+          <div className="mt-4 rounded-lg border-l-4 border-primary bg-gray-50 p-3">
+            <p className="text-sm">
+              Score:{" "}
+              <span className="text-xl font-bold">
+                {result.rtsScore.toFixed(2)}
+              </span>
+            </p>
+            <span
+              className={`mt-1 inline-block rounded-full px-3 py-0.5 text-xs font-semibold ${badgeColor}`}
+            >
+              {result.interpretation}
+            </span>
+          </div>
+        )}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+          >
+            Close
+          </button>
+          {result ? (
+            <button
+              onClick={onSaved}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
+            >
+              Done
+            </button>
+          ) : (
+            <button
+              onClick={submit}
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+            >
+              {saving ? "Calculating..." : "Calculate"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

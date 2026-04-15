@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { SkeletonTable } from "@/components/Skeleton";
+import { EmptyState } from "@/components/EmptyState";
+import { Calendar } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -250,6 +252,9 @@ export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBooking, setShowBooking] = useState(false);
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showCoordModal, setShowCoordModal] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState("");
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -384,8 +389,25 @@ export default function AppointmentsPage() {
   // ─── Actions ──────────────────────
 
   async function bookAppointment(slotStartTime: string) {
+    // Validate slot is not in the past
+    try {
+      const slotDate = new Date(`${selectedDate}T${slotStartTime}`);
+      if (!Number.isNaN(slotDate.getTime()) && slotDate.getTime() < Date.now()) {
+        toast.error("Cannot book an appointment slot in the past");
+        return;
+      }
+    } catch {
+      // ignore parsing errors and let the API validate
+    }
+    if (!selectedDoctor) {
+      toast.error("Please select a doctor first");
+      return;
+    }
     const patientId = prompt("Enter Patient ID:");
-    if (!patientId) return;
+    if (!patientId || !patientId.trim()) {
+      toast.error("Patient ID is required to book an appointment");
+      return;
+    }
 
     try {
       if (isRecurring) {
@@ -545,7 +567,7 @@ export default function AppointmentsPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Download failed");
+      toast.error(err instanceof Error ? err.message : "Download failed");
     }
   }
 
@@ -563,7 +585,7 @@ export default function AppointmentsPage() {
         };
       }>("/appointments/next-available");
       if (!res.data.slot) {
-        alert("No slots available in the next 14 days.");
+        toast.info("No slots available in the next 14 days.");
         return;
       }
       const s = res.data.slot;
@@ -581,7 +603,7 @@ export default function AppointmentsPage() {
       setShowBooking(true);
       // The form auto-loads slots when doctor + date change; the user picks the slot.
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Could not find next slot");
+      toast.error(err instanceof Error ? err.message : "Could not find next slot");
     }
   }
 
@@ -996,14 +1018,60 @@ export default function AppointmentsPage() {
               </button>
             </div>
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
-              <button
-                onClick={() => setShowBooking(!showBooking)}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-              >
-                Book Appointment
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setShowBooking(!showBooking)}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+                >
+                  Book Appointment
+                </button>
+                <button
+                  onClick={() => setShowWaitlistModal(true)}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  Join Waitlist
+                </button>
+                <button
+                  onClick={() => setShowGroupModal(true)}
+                  className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
+                >
+                  Group Appointment
+                </button>
+                {user?.role === "ADMIN" && (
+                  <button
+                    onClick={() => setShowCoordModal(true)}
+                    className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-800 hover:bg-purple-100"
+                  >
+                    Coordinate Multi-Doctor Visit
+                  </button>
+                )}
+              </div>
             )}
           </div>
+
+          {showWaitlistModal && (
+            <WaitlistModal onClose={() => setShowWaitlistModal(false)} doctors={doctors} />
+          )}
+          {showGroupModal && (
+            <GroupAppointmentModal
+              onClose={() => setShowGroupModal(false)}
+              doctors={doctors}
+              onSaved={() => {
+                setShowGroupModal(false);
+                loadAppointments();
+              }}
+            />
+          )}
+          {showCoordModal && (
+            <CoordinatedVisitModal
+              onClose={() => setShowCoordModal(false)}
+              doctors={doctors}
+              onSaved={() => {
+                setShowCoordModal(false);
+                loadAppointments();
+              }}
+            />
+          )}
 
           {/* Status filter chips */}
           {!isPatient && (
@@ -1206,15 +1274,31 @@ export default function AppointmentsPage() {
                 <SkeletonTable rows={5} columns={isPatient ? 7 : 9} />
               </div>
             ) : filteredAppointments.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                {isPatient
-                  ? patientTab === "upcoming"
-                    ? "No upcoming appointments"
-                    : patientTab === "past"
-                      ? "No past appointments"
-                      : "No cancelled appointments"
-                  : "No appointments match this filter"}
-              </div>
+              <EmptyState
+                icon={<Calendar size={28} aria-hidden="true" />}
+                title={
+                  isPatient
+                    ? patientTab === "upcoming"
+                      ? "No upcoming appointments"
+                      : patientTab === "past"
+                        ? "No past appointments"
+                        : "No cancelled appointments"
+                    : "No appointments today"
+                }
+                description={
+                  isPatient
+                    ? "Book an appointment with one of our doctors."
+                    : "Book a new appointment to get started."
+                }
+                action={
+                  !isPatient
+                    ? {
+                        label: "Book appointment",
+                        onClick: () => setShowBooking(true),
+                      }
+                    : undefined
+                }
+              />
             ) : (
               <table className="w-full">
                 <thead>
@@ -1649,6 +1733,546 @@ function StatCard({
     <div className={`rounded-xl p-4 shadow-sm ${color}`}>
       <p className="text-xs font-medium uppercase opacity-80">{label}</p>
       <p className="mt-1 text-2xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+// ─── Waitlist / Group / Coordinated Visit Modals ────────
+
+function WaitlistModal({
+  onClose,
+  doctors,
+}: {
+  onClose: () => void;
+  doctors: Doctor[];
+}) {
+  const [patientId, setPatientId] = useState("");
+  const [doctorId, setDoctorId] = useState(doctors[0]?.id || "");
+  const [preferredDate, setPreferredDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!patientId || !doctorId) return;
+    setSaving(true);
+    try {
+      await api.post("/waitlist", {
+        patientId,
+        doctorId,
+        preferredDate: preferredDate || undefined,
+        reason: reason || undefined,
+      });
+      toast.success("Added to waitlist");
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Join Waitlist</h3>
+          <button onClick={onClose} className="text-gray-400">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3">
+          <input
+            placeholder="Patient ID"
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          />
+          <select
+            value={doctorId}
+            onChange={(e) => setDoctorId(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          >
+            {doctors.map((d) => (
+              <option key={d.id} value={d.id}>
+                Dr. {d.user.name} — {d.specialization}
+              </option>
+            ))}
+          </select>
+          <div>
+            <label className="text-xs text-gray-500">Preferred Date</label>
+            <input
+              type="date"
+              value={preferredDate}
+              onChange={(e) => setPreferredDate(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <textarea
+            rows={2}
+            placeholder="Reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || !patientId || !doctorId}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Join Waitlist"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Patient picker helpers (shared by group + coordinated modals) ─────
+
+interface PatientPickerItem {
+  id: string;
+  name: string;
+  mrNumber?: string;
+  phone?: string;
+}
+
+function useDebouncedPatientSearch(query: string) {
+  const [results, setResults] = useState<PatientPickerItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{
+            id: string;
+            mrNumber?: string;
+            user: { name: string; phone?: string };
+          }>;
+        }>(`/patients?search=${encodeURIComponent(q)}&limit=10`);
+        if (cancelled) return;
+        const list = (res.data || []).map((p) => ({
+          id: p.id,
+          name: p.user?.name || "Patient",
+          mrNumber: p.mrNumber,
+          phone: p.user?.phone,
+        }));
+        setResults(list);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query]);
+
+  return { results, loading };
+}
+
+function MultiPatientPicker({
+  selected,
+  onChange,
+}: {
+  selected: PatientPickerItem[];
+  onChange: (items: PatientPickerItem[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const { results, loading } = useDebouncedPatientSearch(query);
+  const selectedIds = useMemo(() => new Set(selected.map((s) => s.id)), [selected]);
+
+  return (
+    <div className="space-y-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((p) => (
+            <span
+              key={p.id}
+              className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs text-blue-800"
+            >
+              {p.name}
+              {p.mrNumber ? (
+                <span className="text-blue-500">#{p.mrNumber}</span>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onChange(selected.filter((s) => s.id !== p.id))}
+                aria-label={`Remove ${p.name}`}
+                className="ml-0.5 rounded-full text-blue-600 hover:text-blue-900"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          placeholder="Search patients by name, phone, MR..."
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          className="w-full rounded-lg border px-3 py-2 text-sm"
+        />
+        {open && query.trim().length >= 2 && (
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border bg-white shadow-lg">
+            {loading && (
+              <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
+            )}
+            {!loading && results.length === 0 && (
+              <li className="px-3 py-2 text-xs text-gray-500">No matches</li>
+            )}
+            {!loading &&
+              results.map((p) => {
+                const already = selectedIds.has(p.id);
+                return (
+                  <li
+                    key={p.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      if (!already) onChange([...selected, p]);
+                      setQuery("");
+                    }}
+                    className={
+                      "cursor-pointer px-3 py-2 text-sm " +
+                      (already
+                        ? "bg-gray-100 text-gray-400"
+                        : "hover:bg-blue-50")
+                    }
+                  >
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-[11px] text-gray-500">
+                      {p.mrNumber ? `MR#${p.mrNumber}` : ""}
+                      {p.mrNumber && p.phone ? " · " : ""}
+                      {p.phone || ""}
+                      {already ? "  (already added)" : ""}
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SinglePatientPicker({
+  selected,
+  onChange,
+}: {
+  selected: PatientPickerItem | null;
+  onChange: (item: PatientPickerItem | null) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const { results, loading } = useDebouncedPatientSearch(query);
+
+  if (selected) {
+    return (
+      <div className="flex items-center justify-between rounded-lg border bg-blue-50 px-3 py-2">
+        <div className="text-sm">
+          <div className="font-medium text-blue-900">{selected.name}</div>
+          <div className="text-[11px] text-blue-700">
+            {selected.mrNumber ? `MR#${selected.mrNumber}` : ""}
+            {selected.mrNumber && selected.phone ? " · " : ""}
+            {selected.phone || ""}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-xs text-blue-700 hover:text-blue-900"
+        >
+          Change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={query}
+        placeholder="Search patient by name, phone, MR..."
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="w-full rounded-lg border px-3 py-2 text-sm"
+      />
+      {open && query.trim().length >= 2 && (
+        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border bg-white shadow-lg">
+          {loading && (
+            <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
+          )}
+          {!loading && results.length === 0 && (
+            <li className="px-3 py-2 text-xs text-gray-500">No matches</li>
+          )}
+          {!loading &&
+            results.map((p) => (
+              <li
+                key={p.id}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(p);
+                  setQuery("");
+                }}
+                className="cursor-pointer px-3 py-2 text-sm hover:bg-blue-50"
+              >
+                <div className="font-medium">{p.name}</div>
+                <div className="text-[11px] text-gray-500">
+                  {p.mrNumber ? `MR#${p.mrNumber}` : ""}
+                  {p.mrNumber && p.phone ? " · " : ""}
+                  {p.phone || ""}
+                </div>
+              </li>
+            ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function GroupAppointmentModal({
+  onClose,
+  doctors,
+  onSaved,
+}: {
+  onClose: () => void;
+  doctors: Doctor[];
+  onSaved: () => void;
+}) {
+  const [selectedPatients, setSelectedPatients] = useState<PatientPickerItem[]>([]);
+  const [doctorId, setDoctorId] = useState(doctors[0]?.id || "");
+  const [date, setDate] = useState("");
+  const [slotStart, setSlotStart] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    const patientIds = selectedPatients.map((p) => p.id);
+    if (patientIds.length === 0 || !doctorId || !date || !slotStart) return;
+    setSaving(true);
+    try {
+      await api.post("/appointments/group", {
+        patientIds,
+        doctorId,
+        date,
+        slotStart,
+      });
+      toast.success(`Created group appointment for ${patientIds.length} patient(s)`);
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Group Appointment</h3>
+          <button onClick={onClose} className="text-gray-400">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">
+              Patients ({selectedPatients.length} selected)
+            </label>
+            <MultiPatientPicker
+              selected={selectedPatients}
+              onChange={setSelectedPatients}
+            />
+          </div>
+          <select
+            value={doctorId}
+            onChange={(e) => setDoctorId(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          >
+            {doctors.map((d) => (
+              <option key={d.id} value={d.id}>
+                Dr. {d.user.name} — {d.specialization}
+              </option>
+            ))}
+          </select>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500">Date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Slot Start</label>
+              <input
+                type="time"
+                value={slotStart}
+                onChange={(e) => setSlotStart(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={
+              saving ||
+              selectedPatients.length === 0 ||
+              !doctorId ||
+              !date ||
+              !slotStart
+            }
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Create Group"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoordinatedVisitModal({
+  onClose,
+  doctors,
+  onSaved,
+}: {
+  onClose: () => void;
+  doctors: Doctor[];
+  onSaved: () => void;
+}) {
+  const [selectedPatient, setSelectedPatient] = useState<PatientPickerItem | null>(null);
+  const [name, setName] = useState("");
+  const [visitDate, setVisitDate] = useState("");
+  const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  function toggleDoc(id: string) {
+    setSelectedDocs((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    );
+  }
+
+  async function save() {
+    if (!selectedPatient || !name || !visitDate || selectedDocs.length === 0) return;
+    setSaving(true);
+    try {
+      await api.post("/coordinated-visits", {
+        patientId: selectedPatient.id,
+        name,
+        visitDate,
+        doctorIds: selectedDocs,
+      });
+      toast.success(`Coordinated visit created with ${selectedDocs.length} doctors`);
+      onSaved();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Coordinate Multi-Doctor Visit</h3>
+          <button onClick={onClose} className="text-gray-400">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Patient</label>
+            <SinglePatientPicker
+              selected={selectedPatient}
+              onChange={setSelectedPatient}
+            />
+          </div>
+          <input
+            placeholder="Visit Name (e.g. Diabetes Review)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full rounded-lg border px-3 py-2 text-sm"
+          />
+          <div>
+            <label className="text-xs text-gray-500">Visit Date</label>
+            <input
+              type="date"
+              value={visitDate}
+              onChange={(e) => setVisitDate(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-gray-600">
+              Select Doctors (back-to-back slots):
+            </p>
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded border p-2">
+              {doctors.map((d) => (
+                <label key={d.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedDocs.includes(d.id)}
+                    onChange={() => toggleDoc(d.id)}
+                  />
+                  Dr. {d.user.name} — {d.specialization}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={
+              saving ||
+              !selectedPatient ||
+              !name ||
+              !visitDate ||
+              selectedDocs.length === 0
+            }
+            className="rounded-lg bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Create Visit"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

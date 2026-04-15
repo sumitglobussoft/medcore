@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { ArrowLeft, Plus, Baby } from "lucide-react";
 
 interface GrowthRecord {
@@ -121,7 +122,7 @@ export default function PediatricDetailPage() {
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add measurement");
+      toast.error(err instanceof Error ? err.message : "Failed to add measurement");
     }
   }
 
@@ -574,7 +575,7 @@ function MilestonesPanel({
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -702,7 +703,7 @@ function FeedingLogPanel({
       setForm({ feedType: "BREAST_LEFT", durationMin: "", volumeMl: "", foodItem: "", notes: "" });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 

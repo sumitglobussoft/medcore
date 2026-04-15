@@ -5,6 +5,10 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { FREQUENCY_OPTIONS } from "@medcore/shared";
 import { toast } from "@/lib/toast";
+import { InfoIcon } from "@/components/Tooltip";
+import { Autocomplete } from "@/components/Autocomplete";
+import { EmptyState } from "@/components/EmptyState";
+import { FileText } from "lucide-react";
 
 interface PrescriptionRecord {
   id: string;
@@ -88,12 +92,16 @@ export default function PrescriptionsPage() {
     savingsVsBrand: number | null;
   }
   const [genericRowIdx, setGenericRowIdx] = useState<number | null>(null);
+  const [renalDoseRow, setRenalDoseRow] = useState<number | null>(null);
   const [genericData, setGenericData] = useState<{
     base: { id: string; name: string; brand?: string | null };
     basePrice: number | null;
     alternatives: GenericAlt[];
   } | null>(null);
   const [genericLoading, setGenericLoading] = useState(false);
+
+  // Inline form errors
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   async function openGenericsModal(idx: number, medicineName: string) {
     setGenericRowIdx(idx);
@@ -108,7 +116,7 @@ export default function PrescriptionsPage() {
         (m) => m.name.toLowerCase() === medicineName.toLowerCase()
       );
       if (!match) {
-        alert("Could not resolve medicine for substitution lookup");
+        toast.error("Could not resolve medicine for substitution lookup");
         return;
       }
       const resp = await api.get<{ data: typeof genericData }>(
@@ -254,10 +262,20 @@ export default function PrescriptionsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.patientId) return;
-    const items = medicines.filter((m) => m.medicineName);
+    const errs: Record<string, string> = {};
+    if (!form.appointmentId) errs.appointmentId = "Appointment ID is required";
+    if (!form.patientId) errs.patientId = "Select a patient before saving";
+    if (!form.diagnosis) errs.diagnosis = "Diagnosis is required (ICD-10 recommended)";
+    const items = medicines.filter((m) => m.medicineName.trim());
     if (items.length === 0) {
-      toast.warning("Add at least one medicine");
+      errs.medicines = "Add at least one medicine with a name";
+    } else {
+      const bad = items.find((m) => !m.dosage.trim() || !m.frequency.trim());
+      if (bad) errs.medicines = "Each medicine needs a dosage and frequency";
+    }
+    setFormErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.warning("Please fix the highlighted fields");
       return;
     }
     // Preview interaction check before saving
@@ -328,33 +346,76 @@ export default function PrescriptionsPage() {
           )}
 
           <div className="mb-4 grid grid-cols-2 gap-4">
-            <input
-              required
-              placeholder="Appointment ID"
-              value={form.appointmentId}
-              onChange={(e) => setForm({ ...form, appointmentId: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <input
-              required
-              placeholder="Patient ID"
-              value={form.patientId}
-              onChange={(e) => setForm({ ...form, patientId: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
-            />
-            <input
-              required
-              placeholder="Diagnosis"
-              value={form.diagnosis}
-              onChange={(e) => setForm({ ...form, diagnosis: e.target.value })}
-              className="col-span-2 rounded-lg border px-3 py-2 text-sm"
-            />
+            <div>
+              <input
+                placeholder="Appointment ID"
+                value={form.appointmentId}
+                onChange={(e) => setForm({ ...form, appointmentId: e.target.value })}
+                className={
+                  "w-full rounded-lg border px-3 py-2 text-sm " +
+                  (formErrors.appointmentId ? "border-red-500" : "")
+                }
+              />
+              {formErrors.appointmentId && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.appointmentId}</p>
+              )}
+            </div>
+            <div>
+              <input
+                placeholder="Patient ID"
+                value={form.patientId}
+                onChange={(e) => setForm({ ...form, patientId: e.target.value })}
+                className={
+                  "w-full rounded-lg border px-3 py-2 text-sm " +
+                  (formErrors.patientId ? "border-red-500" : "")
+                }
+              />
+              {formErrors.patientId && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.patientId}</p>
+              )}
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+                Diagnosis
+                <InfoIcon tooltip="ICD-10 codes are international standard diagnosis codes (e.g. E11.9 = Type 2 diabetes). Type to search." />
+              </label>
+              <Autocomplete<{ code: string; description: string }>
+                value={form.diagnosis}
+                onChange={(val, item) =>
+                  setForm({
+                    ...form,
+                    diagnosis: item ? `${item.code} — ${item.description}` : val,
+                  })
+                }
+                fetchOptions={async (q) => {
+                  const r = await api.get<{
+                    data: Array<{ code: string; description: string }>;
+                  }>(`/icd10?q=${encodeURIComponent(q)}`);
+                  return r.data ?? [];
+                }}
+                getOptionLabel={(o) => `${o.code} — ${o.description}`}
+                renderOption={(o) => (
+                  <div>
+                    <span className="font-mono text-xs text-primary">{o.code}</span>{" "}
+                    <span>{o.description}</span>
+                  </div>
+                )}
+                placeholder="Search ICD-10 (e.g. diabetes)"
+                inputClassName={formErrors.diagnosis ? "border-red-500" : ""}
+              />
+              {formErrors.diagnosis && (
+                <p className="mt-1 text-xs text-red-600">{formErrors.diagnosis}</p>
+              )}
+            </div>
           </div>
 
           {/* Medicines */}
           <div className="mb-4">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium">Medicines</p>
+              <p className="flex items-center text-sm font-medium">
+                Medicines
+                <InfoIcon tooltip="At least one medicine is required. Use the autocomplete to pick from formulary." />
+              </p>
               <button
                 type="button"
                 onClick={addMedicine}
@@ -368,12 +429,45 @@ export default function PrescriptionsPage() {
                 key={idx}
                 className="mb-2 grid grid-cols-6 gap-2 rounded-lg border bg-gray-50 p-3"
               >
-                <input
-                  placeholder="Medicine name"
-                  value={med.medicineName}
-                  onChange={(e) => updateMedicine(idx, "medicineName", e.target.value)}
-                  className="col-span-2 rounded border px-2 py-1.5 text-sm"
-                />
+                <div className="col-span-2">
+                  <Autocomplete<{
+                    id: string;
+                    name: string;
+                    genericName?: string | null;
+                    strength?: string | null;
+                    form?: string | null;
+                  }>
+                    value={med.medicineName}
+                    onChange={(val, item) =>
+                      updateMedicine(idx, "medicineName", item ? item.name : val)
+                    }
+                    fetchOptions={async (q) => {
+                      const r = await api.get<{
+                        data: Array<{
+                          id: string;
+                          name: string;
+                          genericName?: string | null;
+                          strength?: string | null;
+                          form?: string | null;
+                        }>;
+                      }>(`/medicines/search/autocomplete?q=${encodeURIComponent(q)}`);
+                      return r.data ?? [];
+                    }}
+                    getOptionLabel={(o) => o.name}
+                    renderOption={(o) => (
+                      <div>
+                        <div className="font-medium">{o.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {[o.genericName, o.strength, o.form]
+                            .filter(Boolean)
+                            .join(" • ")}
+                        </div>
+                      </div>
+                    )}
+                    placeholder="Medicine name"
+                    inputClassName="py-1.5 text-sm"
+                  />
+                </div>
                 <input
                   placeholder="Dosage"
                   value={med.dosage}
@@ -406,23 +500,38 @@ export default function PrescriptionsPage() {
                   Remove
                 </button>
                 {med.medicineName ? (
-                  <button
-                    type="button"
-                    onClick={() => openGenericsModal(idx, med.medicineName)}
-                    className="col-span-6 mt-1 self-start text-left text-xs text-emerald-700 hover:underline"
-                  >
-                    💰 Check for cheaper generics
-                  </button>
+                  <div className="col-span-6 mt-1 flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openGenericsModal(idx, med.medicineName)}
+                      className="text-left text-xs text-emerald-700 hover:underline"
+                    >
+                      💰 Check for cheaper generics
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRenalDoseRow(idx)}
+                      className="text-left text-xs text-amber-700 hover:underline"
+                    >
+                      🧪 Calculate Renal Dose
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
+            {formErrors.medicines && (
+              <p className="mt-1 text-xs text-red-600">{formErrors.medicines}</p>
+            )}
           </div>
 
           {renalStatus &&
           renalStatus.crClMlPerMin !== null &&
           renalStatus.crClMlPerMin < 60 ? (
             <div className="mb-4 rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-800">
-              <strong>⚠️ Renal dose adjustment needed</strong>
+              <strong className="flex items-center">
+                Renal dose adjustment needed
+                <InfoIcon tooltip="CrCl (Creatinine Clearance) estimates kidney filtration rate. Below 60 mL/min may require dose reduction for many medicines." />
+              </strong>
               <div className="mt-1">
                 Patient CrCl {renalStatus.crClMlPerMin} mL/min ({renalStatus.ckdStage}).
                 Review dosing for renally-cleared medicines before prescribing.
@@ -474,9 +583,16 @@ export default function PrescriptionsPage() {
             Loading...
           </div>
         ) : prescriptions.length === 0 ? (
-          <div className="rounded-xl bg-white p-8 text-center text-gray-500">
-            No prescriptions found
-          </div>
+          <EmptyState
+            icon={<FileText size={28} aria-hidden="true" />}
+            title="No prescriptions yet"
+            description="Prescriptions you write will appear here."
+            action={
+              user?.role === "DOCTOR"
+                ? { label: "Write prescription", onClick: () => setShowForm(true) }
+                : undefined
+            }
+          />
         ) : (
           prescriptions.map((rx) => (
             <div key={rx.id} className="rounded-xl bg-white p-4 shadow-sm">
@@ -734,6 +850,235 @@ export default function PrescriptionsPage() {
           </div>
         </div>
       )}
+
+      {renalDoseRow !== null && (
+        <RenalDoseModal
+          medicineName={medicines[renalDoseRow]?.medicineName || ""}
+          patientId={form.patientId}
+          onClose={() => setRenalDoseRow(null)}
+          onApply={(dosage) => {
+            if (renalDoseRow !== null) {
+              updateMedicine(renalDoseRow, "dosage", dosage);
+              toast.success("Dose applied");
+            }
+            setRenalDoseRow(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Renal Dose Calculator Modal ──────────────────────
+
+interface RenalDoseResult {
+  medicine: {
+    id: string;
+    name: string;
+    requiresRenalAdjustment: boolean;
+    renalAdjustmentNotes: string | null;
+  };
+  crClMlPerMin: number;
+  ckdStage: string;
+  recommendedDoseFactor: number;
+  recommendation: string;
+  warning: string | null;
+}
+
+function RenalDoseModal({
+  medicineName,
+  patientId,
+  onClose,
+  onApply,
+}: {
+  medicineName: string;
+  patientId: string;
+  onClose: () => void;
+  onApply: (dosage: string) => void;
+}) {
+  const [medicineId, setMedicineId] = useState<string | null>(null);
+  const [age, setAge] = useState("");
+  const [weight, setWeight] = useState("");
+  const [creatinine, setCreatinine] = useState("");
+  const [genderMale, setGenderMale] = useState(true);
+  const [result, setResult] = useState<RenalDoseResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Resolve medicine and pre-fill patient context
+  useEffect(() => {
+    (async () => {
+      try {
+        const ac = await api.get<{
+          data: Array<{ id: string; name: string }>;
+        }>(
+          `/medicines/search/autocomplete?q=${encodeURIComponent(medicineName)}`
+        );
+        const match = (ac.data || []).find(
+          (m) => m.name.toLowerCase() === medicineName.toLowerCase()
+        );
+        if (match) setMedicineId(match.id);
+      } catch {
+        // noop
+      }
+
+      if (!patientId) return;
+      try {
+        const p = await api.get<{
+          data: { age: number | null; gender: string };
+        }>(`/patients/${patientId}`);
+        if (p.data.age != null) setAge(String(p.data.age));
+        setGenderMale(p.data.gender === "MALE");
+      } catch {
+        // noop
+      }
+      try {
+        const rf = await api.get<{
+          data: {
+            latestCreatinine: { value: number } | null;
+            weightKg: number | null;
+          };
+        }>(`/patients/${patientId}/renal-function`);
+        if (rf.data.latestCreatinine)
+          setCreatinine(String(rf.data.latestCreatinine.value));
+        if (rf.data.weightKg) setWeight(String(rf.data.weightKg));
+      } catch {
+        // noop
+      }
+    })();
+  }, [medicineName, patientId]);
+
+  async function calculate() {
+    setError(null);
+    setResult(null);
+    if (!medicineId) {
+      setError("Medicine not found in formulary");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await api.post<{ data: RenalDoseResult }>(
+        "/medicines/calculate-renal-dose",
+        {
+          medicineId,
+          ageYears: parseFloat(age),
+          weightKg: parseFloat(weight),
+          creatinineMgDl: parseFloat(creatinine),
+          genderMale,
+        }
+      );
+      setResult(res.data);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setLoading(false);
+  }
+
+  const stageColor =
+    result?.ckdStage === "NORMAL"
+      ? "bg-green-50 border-green-300 text-green-800"
+      : result?.ckdStage === "MILD"
+        ? "bg-lime-50 border-lime-300 text-lime-800"
+        : result?.ckdStage === "MODERATE"
+          ? "bg-amber-50 border-amber-300 text-amber-800"
+          : "bg-red-50 border-red-300 text-red-800";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-3 flex items-start justify-between">
+          <h3 className="text-lg font-semibold">Renal Dose Calculator</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            ✕
+          </button>
+        </div>
+        <p className="mb-3 text-sm text-gray-600">
+          For: <span className="font-medium">{medicineName}</span>
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-600">Age (years)</label>
+            <input
+              type="number"
+              value={age}
+              onChange={(e) => setAge(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Weight (kg)</label>
+            <input
+              type="number"
+              value={weight}
+              onChange={(e) => setWeight(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Creatinine (mg/dL)</label>
+            <input
+              type="number"
+              step="0.1"
+              value={creatinine}
+              onChange={(e) => setCreatinine(e.target.value)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600">Gender</label>
+            <select
+              value={genderMale ? "M" : "F"}
+              onChange={(e) => setGenderMale(e.target.value === "M")}
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+            >
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+          </div>
+        </div>
+        <button
+          onClick={calculate}
+          disabled={loading || !age || !weight || !creatinine}
+          className="mt-4 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? "Calculating..." : "Calculate"}
+        </button>
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {error}
+          </div>
+        )}
+        {result && (
+          <div className={`mt-4 rounded-xl border-2 p-4 ${stageColor}`}>
+            <div className="text-xs font-semibold uppercase">
+              CrCl {result.crClMlPerMin} mL/min · {result.ckdStage}
+            </div>
+            <div className="mt-2 text-sm">
+              Recommended dose factor:{" "}
+              <span className="font-bold">
+                {(result.recommendedDoseFactor * 100).toFixed(0)}%
+              </span>{" "}
+              of normal dose
+            </div>
+            <div className="mt-2 text-xs">{result.recommendation}</div>
+            {result.warning && (
+              <div className="mt-2 rounded bg-white/60 p-2 text-xs font-medium">
+                ⚠️ {result.warning}
+              </div>
+            )}
+            <button
+              onClick={() =>
+                onApply(
+                  `${(result.recommendedDoseFactor * 100).toFixed(0)}% of normal (CrCl ${result.crClMlPerMin})`
+                )
+              }
+              className="mt-3 w-full rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100"
+            >
+              Apply Dose
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { getSocket } from "@/lib/socket";
 import { Plus, Hotel, TrendingUp } from "lucide-react";
 
 interface Bed {
@@ -72,6 +73,17 @@ export default function WardsPage() {
 
   useEffect(() => {
     loadWards();
+  }, []);
+
+  // Live updates when admissions change
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket.connected) socket.connect();
+    const handler = () => loadWards();
+    socket.on("admission:status", handler);
+    return () => {
+      socket.off("admission:status", handler);
+    };
   }, []);
 
   async function loadWards() {

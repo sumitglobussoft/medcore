@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { Plus, Package, Search } from "lucide-react";
 
 interface InventoryItem {
@@ -159,9 +160,9 @@ export default function PharmacyPage() {
       const res = await api.post<{
         data: { po: { poNumber: string }; emailStub: string };
       }>(`/pharmacy/inventory/${itemId}/order-from-supplier`);
-      alert(`PO ${res.data.po.poNumber} created. ${res.data.emailStub}`);
+      toast.success(`PO ${res.data.po.poNumber} created. ${res.data.emailStub}`);
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setOrderingId(null);
   }
@@ -605,7 +606,7 @@ function ReturnModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setSaving(false);
   }
@@ -699,7 +700,7 @@ function TransferModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setSaving(false);
   }
@@ -808,7 +809,10 @@ function AddStockModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedMed) return alert("Select a medicine");
+    if (!selectedMed) {
+      toast.error("Select a medicine");
+      return;
+    }
     try {
       await api.post("/pharmacy/inventory", {
         medicineId: selectedMed.id,
@@ -828,7 +832,7 @@ function AddStockModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add stock");
+      toast.error(err instanceof Error ? err.message : "Failed to add stock");
     }
   }
 

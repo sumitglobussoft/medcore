@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import {
   ArrowLeft,
   Plus,
@@ -174,7 +175,7 @@ export default function AncCaseDetailPage() {
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add visit");
+      toast.error(err instanceof Error ? err.message : "Failed to add visit");
     }
   }
 
@@ -193,7 +194,7 @@ export default function AncCaseDetailPage() {
       setShowDeliveryForm(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to record delivery");
+      toast.error(err instanceof Error ? err.message : "Failed to record delivery");
     }
   }
 
@@ -243,6 +244,16 @@ export default function AncCaseDetailPage() {
             {caseData.patient.user.name} · {caseData.patient.mrNumber}
           </p>
         </div>
+        {caseData.deliveredAt && (
+          <button
+            onClick={() =>
+              openPrintEndpoint(`/antenatal/cases/${caseData.id}/birth-certificate`)
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+          >
+            Print Birth Certificate
+          </button>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -917,7 +928,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
       await api.post(`/antenatal/cases/${caseId}/partograph`, { observations: [] });
       loadList();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -941,7 +952,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
       setObs({ time: new Date().toISOString().slice(0, 16) });
       loadList();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -953,7 +964,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
       await api.patch(`/antenatal/partograph/${active.id}/end`, { outcome });
       loadList();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -1296,7 +1307,7 @@ function AcogRiskTab({
       setResult(res.data);
       onUpdated();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
     setLoading(false);
   }
@@ -1476,7 +1487,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 

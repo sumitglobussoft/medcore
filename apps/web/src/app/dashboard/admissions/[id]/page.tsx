@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import {
   Activity,
@@ -12,7 +12,12 @@ import {
   FileText,
   ArrowLeft,
   Printer,
+  Grid3x3,
+  Droplet,
+  AlertCircle,
+  Plus,
 } from "lucide-react";
+import { toast } from "@/lib/toast";
 
 interface Admission {
   id: string;
@@ -118,7 +123,9 @@ type Tab =
   | "vitals"
   | "medications"
   | "rounds"
-  | "labs";
+  | "labs"
+  | "mar"
+  | "io";
 
 export default function AdmissionDetailPage({
   params,
@@ -184,11 +191,15 @@ export default function AdmissionDetailPage({
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => window.print()}
+              onClick={() =>
+                openPrintEndpoint(
+                  `/admissions/${admission.id}/discharge-summary-pdf`
+                )
+              }
               aria-label="Print discharge summary"
               className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
-              <Printer size={14} aria-hidden="true" /> Print
+              <Printer size={14} aria-hidden="true" /> Discharge Summary
             </button>
             <span
               className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -222,6 +233,12 @@ export default function AdmissionDetailPage({
         <button onClick={() => setTab("labs")} className={tabClass("labs")}>
           <FlaskConical size={14} /> Lab Orders
         </button>
+        <button onClick={() => setTab("mar")} className={tabClass("mar")}>
+          <Grid3x3 size={14} /> MAR
+        </button>
+        <button onClick={() => setTab("io")} className={tabClass("io")}>
+          <Droplet size={14} /> I/O
+        </button>
       </div>
 
       {tab === "overview" && (
@@ -242,6 +259,8 @@ export default function AdmissionDetailPage({
           canOrder={user?.role === "DOCTOR"}
         />
       )}
+      {tab === "mar" && <MarTab admissionId={id} />}
+      {tab === "io" && <IntakeOutputTab admissionId={id} />}
     </div>
   );
 }
@@ -260,6 +279,7 @@ function OverviewTab({
   onUpdate: () => void;
 }) {
   const [dischargeOpen, setDischargeOpen] = useState(false);
+  const [readinessOpen, setReadinessOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [summary, setSummary] = useState("");
   const [wards, setWards] = useState<Ward[]>([]);
@@ -289,7 +309,7 @@ function OverviewTab({
     }
   }, [transferOpen]);
 
-  async function discharge() {
+  async function discharge(forceDischarge = false) {
     try {
       await api.patch(`/admissions/${admission.id}/discharge`, {
         dischargeSummary: summary,
@@ -298,11 +318,13 @@ function OverviewTab({
         conditionAtDischarge: dischargeForm.conditionAtDischarge || undefined,
         dischargeMedications: dischargeForm.dischargeMedications || undefined,
         followUpInstructions: dischargeForm.followUpInstructions || undefined,
+        forceDischarge,
       });
       setDischargeOpen(false);
+      toast.success("Patient discharged");
       onUpdate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Discharge failed");
+      toast.error(err instanceof Error ? err.message : "Discharge failed");
     }
   }
 
@@ -315,7 +337,7 @@ function OverviewTab({
       setNewBedId("");
       onUpdate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Transfer failed");
+      toast.error(err instanceof Error ? err.message : "Transfer failed");
     }
   }
 
@@ -337,6 +359,10 @@ function OverviewTab({
           />
         </div>
         <BelongingsCard admissionId={admission.id} />
+        <ReconciliationTimeline
+          admissionId={admission.id}
+          patientId={admission.patient.id}
+        />
       </div>
       <div className="rounded-xl bg-white p-6 shadow-sm lg:col-span-2">
         <h3 className="mb-4 font-semibold">Admission Details</h3>
@@ -427,7 +453,7 @@ function OverviewTab({
                 Transfer Bed
               </button>
               <button
-                onClick={() => setDischargeOpen(true)}
+                onClick={() => setReadinessOpen(true)}
                 className="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white hover:bg-red-600"
               >
                 Discharge
@@ -551,7 +577,7 @@ function OverviewTab({
                 Cancel
               </button>
               <button
-                onClick={discharge}
+                onClick={() => discharge(false)}
                 disabled={!summary.trim()}
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
               >
@@ -560,6 +586,18 @@ function OverviewTab({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Discharge Readiness Checklist Modal */}
+      {readinessOpen && (
+        <DischargeReadinessModal
+          admissionId={admission.id}
+          onClose={() => setReadinessOpen(false)}
+          onProceed={() => {
+            setReadinessOpen(false);
+            setDischargeOpen(true);
+          }}
+        />
       )}
 
       {/* Transfer Modal */}
@@ -694,7 +732,7 @@ function VitalsTab({
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save vitals");
+      toast.error(err instanceof Error ? err.message : "Failed to save vitals");
     }
   }
 
@@ -901,7 +939,7 @@ function MedicationsTab({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedMed) {
-      alert("Select a medicine");
+      toast.error("Select a medicine");
       return;
     }
     try {
@@ -928,7 +966,7 @@ function MedicationsTab({
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : "Failed to create order");
     }
   }
 
@@ -939,7 +977,7 @@ function MedicationsTab({
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : "Failed to update");
     }
   }
 
@@ -1221,7 +1259,7 @@ function RoundsTab({
       setShowForm(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add round");
+      toast.error(err instanceof Error ? err.message : "Failed to add round");
     }
   }
 
@@ -1335,7 +1373,7 @@ function LabsTab({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (selectedTests.length === 0) {
-      alert("Select at least one test");
+      toast.error("Select at least one test");
       return;
     }
     try {
@@ -1350,7 +1388,7 @@ function LabsTab({
       setNotes("");
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : "Failed to create order");
     }
   }
 
@@ -1506,10 +1544,22 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
     isolationType: string | null;
     isolationReason: string | null;
     isolationStartDate: string | null;
+    isolationEndDate: string | null;
   } | null>(null);
   const [editing, setEditing] = useState(false);
   const [type, setType] = useState("STANDARD");
   const [reason, setReason] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  // Convert ISO or null to a datetime-local compatible string (YYYY-MM-DDTHH:mm)
+  const toLocalInput = (v: string | null | undefined): string => {
+    if (!v) return "";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
 
   const load = async () => {
     try {
@@ -1518,9 +1568,12 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
         isolationType: res.data.isolationType,
         isolationReason: res.data.isolationReason,
         isolationStartDate: res.data.isolationStartDate,
+        isolationEndDate: res.data.isolationEndDate,
       });
       if (res.data.isolationType) setType(res.data.isolationType);
       if (res.data.isolationReason) setReason(res.data.isolationReason);
+      setStartDate(toLocalInput(res.data.isolationStartDate));
+      setEndDate(toLocalInput(res.data.isolationEndDate));
     } catch {}
   };
   useEffect(() => {
@@ -1529,18 +1582,36 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
 
   const apply = async (clear = false) => {
     try {
-      await api.patch(
-        `/admissions/${admissionId}/isolation`,
-        clear ? { clear: true } : { isolationType: type, isolationReason: reason }
-      );
+      if (clear) {
+        await api.patch(`/admissions/${admissionId}/isolation`, { clear: true });
+      } else {
+        const body: Record<string, unknown> = {
+          isolationType: type,
+          isolationReason: reason,
+        };
+        if (startDate) body.isolationStartDate = new Date(startDate).toISOString();
+        if (endDate) body.isolationEndDate = new Date(endDate).toISOString();
+        await api.patch(`/admissions/${admissionId}/isolation`, body);
+      }
       setEditing(false);
+      toast.success(clear ? "Isolation cleared" : "Isolation updated");
       load();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message || "Failed to update isolation");
     }
   };
 
   const active = info?.isolationType && info.isolationType !== "STANDARD";
+  const fmtDate = (v: string | null) =>
+    v
+      ? new Date(v).toLocaleString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
 
   return (
     <div
@@ -1562,6 +1633,16 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           {active && info?.isolationReason && (
             <div className="text-xs text-red-700 mt-0.5">
               {info.isolationReason}
+            </div>
+          )}
+          {active && (info?.isolationStartDate || info?.isolationEndDate) && (
+            <div className="text-[11px] text-red-700/90 mt-1 space-x-3">
+              {info?.isolationStartDate && (
+                <span>Started: {fmtDate(info.isolationStartDate)}</span>
+              )}
+              {info?.isolationEndDate && (
+                <span>Ends: {fmtDate(info.isolationEndDate)}</span>
+              )}
             </div>
           )}
         </div>
@@ -1601,6 +1682,30 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             onChange={(e) => setReason(e.target.value)}
             className="w-full border rounded px-2 py-1 text-sm"
           />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[11px] text-gray-600 mb-0.5">
+                Start date / time
+              </label>
+              <input
+                type="datetime-local"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-600 mb-0.5">
+                End date / time (optional)
+              </label>
+              <input
+                type="datetime-local"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full border rounded px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
           <button
             onClick={() => apply(false)}
             className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
@@ -1734,7 +1839,7 @@ function MedReconciliationButton({
       });
       setOpen(false);
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     }
   };
 
@@ -2000,6 +2105,812 @@ function BelongingsCard({ admissionId }: { admissionId: string }) {
           Add
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── DISCHARGE READINESS CHECKLIST MODAL ──────────────
+interface DischargeReadiness {
+  ready: boolean;
+  outstandingBillsCount: number;
+  outstandingAmount: number;
+  pendingLabOrders: number;
+  pendingMedications: number;
+  dischargeSummaryWritten: boolean;
+  followUpGiven: boolean;
+  medsOnDischargeSpecified: boolean;
+}
+
+function DischargeReadinessModal({
+  admissionId,
+  onClose,
+  onProceed,
+}: {
+  admissionId: string;
+  onClose: () => void;
+  onProceed: () => void;
+}) {
+  const { user } = useAuthStore();
+  const [data, setData] = useState<DischargeReadiness | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [force, setForce] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: DischargeReadiness }>(
+          `/admissions/${admissionId}/discharge-readiness`
+        );
+        setData(res.data);
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+      setLoading(false);
+    })();
+  }, [admissionId]);
+
+  const isAdmin = user?.role === "ADMIN";
+  const blocked =
+    !!data &&
+    (data.outstandingAmount > 0 ||
+      data.pendingLabOrders > 0 ||
+      data.pendingMedications > 0 ||
+      !data.dischargeSummaryWritten ||
+      !data.medsOnDischargeSpecified);
+
+  const Row = ({
+    label,
+    ok,
+    detail,
+  }: {
+    label: string;
+    ok: boolean;
+    detail?: string;
+  }) => (
+    <div
+      className={`flex items-start justify-between rounded-lg border p-3 text-sm ${
+        ok
+          ? "border-green-200 bg-green-50"
+          : "border-red-200 bg-red-50"
+      }`}
+    >
+      <div>
+        <div className={`font-medium ${ok ? "text-green-800" : "text-red-800"}`}>
+          {label}
+        </div>
+        {detail && (
+          <div className={`text-xs ${ok ? "text-green-700" : "text-red-700"}`}>
+            {detail}
+          </div>
+        )}
+      </div>
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+          ok ? "bg-green-200 text-green-800" : "bg-red-200 text-red-800"
+        }`}
+      >
+        {ok ? "OK" : "Missing"}
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="mb-4 text-lg font-semibold">Discharge Readiness</h3>
+        {loading ? (
+          <p className="text-sm text-gray-500">Checking...</p>
+        ) : !data ? (
+          <p className="text-sm text-red-600">Failed to load readiness.</p>
+        ) : (
+          <>
+            {blocked && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm text-red-800">
+                <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-bold">Cannot discharge</div>
+                  <div className="text-xs">
+                    Resolve the items marked Missing below
+                    {isAdmin ? " or check Force Discharge." : "."}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Row
+                label="Outstanding bills"
+                ok={data.outstandingAmount <= 0}
+                detail={
+                  data.outstandingAmount > 0
+                    ? `Rs. ${data.outstandingAmount.toFixed(2)} across ${data.outstandingBillsCount} invoice(s)`
+                    : "Fully settled"
+                }
+              />
+              <Row
+                label="Pending labs"
+                ok={data.pendingLabOrders === 0}
+                detail={
+                  data.pendingLabOrders > 0
+                    ? `${data.pendingLabOrders} order(s) still pending`
+                    : "All labs complete"
+                }
+              />
+              <Row
+                label="Pending medications"
+                ok={data.pendingMedications === 0}
+                detail={
+                  data.pendingMedications > 0
+                    ? `${data.pendingMedications} active order(s) without recent admin`
+                    : "All meds up-to-date"
+                }
+              />
+              <Row
+                label="Discharge summary written"
+                ok={data.dischargeSummaryWritten}
+              />
+              <Row
+                label="Follow-up instructions"
+                ok={data.followUpGiven}
+              />
+              <Row
+                label="Discharge medications specified"
+                ok={data.medsOnDischargeSpecified}
+              />
+            </div>
+            {isAdmin && blocked && (
+              <label className="mt-4 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={force}
+                  onChange={(e) => setForce(e.target.checked)}
+                />
+                Force discharge (bypass outstanding bills)
+              </label>
+            )}
+          </>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onProceed}
+            disabled={loading || (blocked && !(isAdmin && force))}
+            className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+          >
+            Proceed to Discharge
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MED RECONCILIATION TIMELINE ──────────────────────
+interface MedRecon {
+  id: string;
+  reconciliationType: string;
+  performedAt: string;
+  notes: string | null;
+  homeMedications?: unknown;
+  hospitalMedications?: unknown;
+  dischargeMedications?: unknown;
+}
+
+function ReconciliationTimeline({
+  admissionId,
+  patientId,
+}: {
+  admissionId: string;
+  patientId: string;
+}) {
+  const [rows, setRows] = useState<MedRecon[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: MedRecon[] }>(
+          `/med-reconciliation?patientId=${patientId}&admissionId=${admissionId}`
+        );
+        setRows(res.data || []);
+      } catch {
+        setRows([]);
+      }
+      setLoading(false);
+    })();
+  }, [admissionId, patientId]);
+
+  if (loading || rows.length === 0) return null;
+
+  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+
+  return (
+    <div className="rounded-xl bg-white p-4 shadow-sm">
+      <h3 className="mb-3 text-sm font-semibold text-gray-700">
+        Medication Reconciliation History
+      </h3>
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li
+            key={r.id}
+            className="flex items-start justify-between rounded-lg border border-gray-100 p-3 text-sm"
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    r.reconciliationType === "ADMISSION"
+                      ? "bg-blue-100 text-blue-700"
+                      : r.reconciliationType === "DISCHARGE"
+                        ? "bg-purple-100 text-purple-700"
+                        : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {r.reconciliationType}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {new Date(r.performedAt).toLocaleString()}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-gray-600">
+                Home {count(r.homeMedications)} · Hospital{" "}
+                {count(r.hospitalMedications)} · Discharge{" "}
+                {count(r.dischargeMedications)}
+              </div>
+              {r.notes && (
+                <div className="mt-1 text-xs text-gray-500">{r.notes}</div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── MAR GRID TAB ─────────────────────────────────────
+interface MarAdministration {
+  id: string;
+  scheduledAt: string;
+  administeredAt: string | null;
+  status: string;
+  notes: string | null;
+  nurse?: { id: string; name: string } | null;
+}
+
+interface MarOrder {
+  id: string;
+  medicineName: string;
+  dosage: string;
+  frequency: string;
+  route: string;
+  isActive: boolean;
+  administrations: MarAdministration[];
+}
+
+function MarTab({ admissionId }: { admissionId: string }) {
+  const { user } = useAuthStore();
+  const [date, setDate] = useState(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [orders, setOrders] = useState<MarOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<MarAdministration | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<MarOrder | null>(null);
+  const canAdminister =
+    user?.role === "NURSE" ||
+    user?.role === "DOCTOR" ||
+    user?.role === "ADMIN";
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: { orders: MarOrder[] } }>(
+        `/admissions/${admissionId}/mar?date=${date}`
+      );
+      setOrders(res.data.orders || []);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admissionId, date]);
+
+  // Collect unique scheduled time slots
+  const slots = Array.from(
+    new Set(
+      orders.flatMap((o) =>
+        o.administrations.map((a) =>
+          new Date(a.scheduledAt).toISOString().slice(11, 16)
+        )
+      )
+    )
+  ).sort();
+
+  function cellColor(status: string | undefined) {
+    switch (status) {
+      case "ADMINISTERED":
+        return "bg-green-100 text-green-800 border-green-300";
+      case "MISSED":
+        return "bg-red-100 text-red-800 border-red-300";
+      case "REFUSED":
+        return "bg-yellow-100 text-yellow-800 border-yellow-300";
+      case "SCHEDULED":
+      default:
+        return "bg-blue-50 text-blue-700 border-blue-200";
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Date:</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="rounded-lg border px-2 py-1 text-sm"
+          />
+          <button
+            onClick={load}
+            className="rounded-lg border px-3 py-1 text-sm"
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded border border-green-300 bg-green-100 px-2 py-0.5 text-green-800">
+            Administered
+          </span>
+          <span className="rounded border border-red-300 bg-red-100 px-2 py-0.5 text-red-800">
+            Missed
+          </span>
+          <span className="rounded border border-yellow-300 bg-yellow-100 px-2 py-0.5 text-yellow-800">
+            Refused
+          </span>
+          <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-blue-700">
+            Scheduled
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500">Loading MAR...</div>
+        ) : orders.length === 0 ? (
+          <div className="p-8 text-center text-gray-400">
+            No medication orders for this admission.
+          </div>
+        ) : (
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="sticky left-0 bg-gray-50 px-4 py-2 text-left font-medium text-gray-600">
+                  Medication
+                </th>
+                {slots.length === 0 ? (
+                  <th className="px-3 py-2 text-center text-xs text-gray-400">
+                    No scheduled doses on this day
+                  </th>
+                ) : (
+                  slots.map((s) => (
+                    <th
+                      key={s}
+                      className="px-3 py-2 text-center font-medium text-gray-600"
+                    >
+                      {s}
+                    </th>
+                  ))
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id} className="border-t border-gray-100">
+                  <td className="sticky left-0 bg-white px-4 py-2">
+                    <div className="font-medium">{o.medicineName}</div>
+                    <div className="text-xs text-gray-500">
+                      {o.dosage} · {o.frequency} · {o.route}
+                    </div>
+                  </td>
+                  {slots.map((slot) => {
+                    const admin = o.administrations.find(
+                      (a) =>
+                        new Date(a.scheduledAt)
+                          .toISOString()
+                          .slice(11, 16) === slot
+                    );
+                    if (!admin) {
+                      return (
+                        <td
+                          key={slot}
+                          className="px-3 py-2 text-center text-gray-300"
+                        >
+                          –
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={slot} className="px-2 py-2 text-center">
+                        <button
+                          disabled={!canAdminister}
+                          onClick={() => {
+                            setSelected(admin);
+                            setSelectedOrder(o);
+                          }}
+                          className={`w-full rounded-md border px-2 py-1 text-xs font-medium ${cellColor(
+                            admin.status
+                          )} ${canAdminister ? "hover:opacity-80" : "cursor-default"}`}
+                        >
+                          {admin.status}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {selected && selectedOrder && (
+        <MarAdministerModal
+          administration={selected}
+          order={selectedOrder}
+          onClose={() => {
+            setSelected(null);
+            setSelectedOrder(null);
+          }}
+          onSaved={() => {
+            setSelected(null);
+            setSelectedOrder(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MarAdministerModal({
+  administration,
+  order,
+  onClose,
+  onSaved,
+}: {
+  administration: MarAdministration;
+  order: MarOrder;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [status, setStatus] = useState(
+    administration.status === "SCHEDULED" ? "ADMINISTERED" : administration.status
+  );
+  const [notes, setNotes] = useState(administration.notes || "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.patch(`/medication/administrations/${administration.id}`, {
+        status,
+        notes: notes || undefined,
+      });
+      toast.success("Administration recorded");
+      onSaved();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h3 className="mb-4 font-semibold">Record Administration</h3>
+        <div className="mb-3 rounded-lg bg-gray-50 p-3 text-sm">
+          <div className="font-medium">{order.medicineName}</div>
+          <div className="text-xs text-gray-600">
+            {order.dosage} · {order.frequency} · {order.route}
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            Scheduled:{" "}
+            {new Date(administration.scheduledAt).toLocaleString()}
+          </div>
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-gray-600">Status</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+          >
+            <option value="ADMINISTERED">Administered</option>
+            <option value="MISSED">Missed</option>
+            <option value="REFUSED">Refused</option>
+            <option value="HELD">Held</option>
+          </select>
+        </div>
+        <div className="mb-4">
+          <label className="text-xs text-gray-600">Notes</label>
+          <textarea
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── INTAKE / OUTPUT TAB ──────────────────────────────
+interface IoRow {
+  id: string;
+  type: string;
+  amountMl: number;
+  description: string | null;
+  notes: string | null;
+  recordedAt: string;
+}
+
+const IO_TYPES: Array<{ value: string; label: string }> = [
+  { value: "INTAKE_ORAL", label: "Intake — Oral" },
+  { value: "INTAKE_IV", label: "Intake — IV" },
+  { value: "INTAKE_NG", label: "Intake — NG" },
+  { value: "OUTPUT_URINE", label: "Output — Urine" },
+  { value: "OUTPUT_STOOL", label: "Output — Stool" },
+  { value: "OUTPUT_VOMIT", label: "Output — Vomit" },
+  { value: "OUTPUT_DRAIN", label: "Output — Drain" },
+  { value: "OUTPUT_OTHER", label: "Output — Other" },
+];
+
+function IntakeOutputTab({ admissionId }: { admissionId: string }) {
+  const { user } = useAuthStore();
+  const [date, setDate] = useState(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [rows, setRows] = useState<IoRow[]>([]);
+  const [totalIntake, setTotalIntake] = useState(0);
+  const [totalOutput, setTotalOutput] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({
+    type: "INTAKE_ORAL",
+    amountMl: "",
+    description: "",
+    notes: "",
+  });
+  const canRecord =
+    user?.role === "NURSE" ||
+    user?.role === "DOCTOR" ||
+    user?.role === "ADMIN";
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{
+        data: { rows: IoRow[]; totalIntake: number; totalOutput: number };
+      }>(`/admissions/${admissionId}/intake-output?date=${date}`);
+      setRows(res.data.rows || []);
+      setTotalIntake(res.data.totalIntake || 0);
+      setTotalOutput(res.data.totalOutput || 0);
+    } catch {
+      // noop
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admissionId, date]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.amountMl) return;
+    try {
+      await api.post(`/admissions/${admissionId}/intake-output`, {
+        type: form.type,
+        amountMl: parseFloat(form.amountMl),
+        description: form.description || undefined,
+        notes: form.notes || undefined,
+      });
+      toast.success("Recorded");
+      setForm({
+        type: "INTAKE_ORAL",
+        amountMl: "",
+        description: "",
+        notes: "",
+      });
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const balance = totalIntake - totalOutput;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="lg:col-span-2 space-y-4">
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <label className="text-sm text-gray-600">Date:</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="rounded-lg border px-2 py-1 text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-center">
+              <div className="text-xs text-green-700">Intake</div>
+              <div className="text-xl font-bold text-green-800">
+                {totalIntake} ml
+              </div>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
+              <div className="text-xs text-amber-700">Output</div>
+              <div className="text-xl font-bold text-amber-800">
+                {totalOutput} ml
+              </div>
+            </div>
+            <div
+              className={`rounded-lg border p-3 text-center ${
+                balance >= 0
+                  ? "border-blue-200 bg-blue-50"
+                  : "border-red-200 bg-red-50"
+              }`}
+            >
+              <div
+                className={`text-xs ${balance >= 0 ? "text-blue-700" : "text-red-700"}`}
+              >
+                Balance
+              </div>
+              <div
+                className={`text-xl font-bold ${balance >= 0 ? "text-blue-800" : "text-red-800"}`}
+              >
+                {balance >= 0 ? "+" : ""}
+                {balance} ml
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold">I/O Events</h3>
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading...</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-gray-400">No events recorded.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100 text-sm">
+              {rows.map((r) => {
+                const isIntake = r.type.startsWith("INTAKE");
+                return (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between py-2"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            isIntake
+                              ? "bg-green-100 text-green-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {r.type.replace("_", " ")}
+                        </span>
+                        <span className="font-medium">{r.amountMl} ml</span>
+                      </div>
+                      {r.description && (
+                        <div className="text-xs text-gray-500">
+                          {r.description}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(r.recordedAt).toLocaleTimeString()}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {canRecord && (
+        <form
+          onSubmit={submit}
+          className="h-fit rounded-xl bg-white p-4 shadow-sm"
+        >
+          <h3 className="mb-3 text-sm font-semibold">Record I/O</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-600">Type</label>
+              <select
+                value={form.type}
+                onChange={(e) => setForm({ ...form, type: e.target.value })}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                {IO_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Volume (ml) *</label>
+              <input
+                type="number"
+                min="0"
+                value={form.amountMl}
+                onChange={(e) =>
+                  setForm({ ...form, amountMl: e.target.value })
+                }
+                required
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Description</label>
+              <input
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-600">Notes</label>
+              <textarea
+                rows={2}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              <Plus size={14} className="mr-1 inline" /> Add Event
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

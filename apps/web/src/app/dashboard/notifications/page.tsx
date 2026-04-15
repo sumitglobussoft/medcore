@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { SkeletonRow } from "@/components/Skeleton";
 
 interface Notification {
   id: string;
@@ -186,7 +187,11 @@ export default function NotificationsPage() {
       {/* Notification List */}
       <div className="mb-6 rounded-xl bg-white shadow-sm">
         {loading && notifications.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
+            <table className="w-full"><tbody>
+              {Array.from({ length: 5 }).map((_, i) => (<SkeletonRow key={i} columns={3} />))}
+            </tbody></table>
+          </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center gap-2 p-12 text-gray-400">
             <Bell size={40} />

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { Droplet, Plus, Search, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 const BLOOD_GROUPS = [
@@ -107,6 +108,8 @@ export default function BloodBankPage() {
   const [donations, setDonations] = useState<Donation[]>([]);
   const [requests, setRequests] = useState<BloodRequest[]>([]);
   const [donorSearch, setDonorSearch] = useState("");
+  const [deferralDonorId, setDeferralDonorId] = useState<string | null>(null);
+  const [separationDonationId, setSeparationDonationId] = useState<string | null>(null);
 
   const [showDonorModal, setShowDonorModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -150,7 +153,7 @@ export default function BloodBankPage() {
       await api.patch(`/bloodbank/donations/${id}/approve`, { approved });
       load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -161,7 +164,7 @@ export default function BloodBankPage() {
       const res = await api.post<{ data: BloodUnit[] }>(`/bloodbank/requests/${request.id}/match`);
       setMatchUnits(res.data);
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -176,13 +179,16 @@ export default function BloodBankPage() {
       setSelectedMatchIds(new Set());
       load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
   async function reserveUnits(hours = 24) {
     if (!matchingRequest) return;
-    if (selectedMatchIds.size === 0) return alert("Select units to reserve");
+    if (selectedMatchIds.size === 0) {
+      toast.error("Select units to reserve");
+      return;
+    }
     try {
       const ids = Array.from(selectedMatchIds);
       for (const id of ids) {
@@ -191,13 +197,13 @@ export default function BloodBankPage() {
           durationHours: hours,
         });
       }
-      alert(`Reserved ${ids.length} unit(s) for ${hours}h`);
+      toast.success(`Reserved ${ids.length} unit(s) for ${hours}h`);
       setMatchingRequest(null);
       setMatchUnits([]);
       setSelectedMatchIds(new Set());
       load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -206,7 +212,7 @@ export default function BloodBankPage() {
       await api.post(`/bloodbank/units/${unitId}/release`, {});
       load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
   }
 
@@ -348,9 +354,9 @@ export default function BloodBankPage() {
                         const res = await api.post<{
                           data: { count: number };
                         }>(`/bloodbank/donors/send-donation-reminders`, {});
-                        alert(`Reminders sent to ${res.data.count} donor(s).`);
+                        toast.success(`Reminders sent to ${res.data.count} donor(s).`);
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : "Failed");
+                        toast.error(err instanceof Error ? err.message : "Failed");
                       }
                     }}
                     className="flex items-center gap-2 rounded border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-700 hover:bg-blue-100"
@@ -370,6 +376,7 @@ export default function BloodBankPage() {
                       <th className="p-3">Donations</th>
                       <th className="p-3">Last</th>
                       <th className="p-3">Eligible</th>
+                      <th className="p-3"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -394,11 +401,21 @@ export default function BloodBankPage() {
                             <span className="text-gray-400">No</span>
                           )}
                         </td>
+                        <td className="p-3">
+                          {canApprove && (
+                            <button
+                              onClick={() => setDeferralDonorId(d.id)}
+                              className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100"
+                            >
+                              Add Deferral
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     {donors.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="p-6 text-center text-gray-400">
+                        <td colSpan={8} className="p-6 text-center text-gray-400">
                           No donors found
                         </td>
                       </tr>
@@ -462,6 +479,14 @@ export default function BloodBankPage() {
                               <XCircle size={12} /> Reject
                             </button>
                           </div>
+                        )}
+                        {d.approved && canApprove && (
+                          <button
+                            onClick={() => setSeparationDonationId(d.id)}
+                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+                          >
+                            Separate Components
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -579,6 +604,28 @@ export default function BloodBankPage() {
           onClose={() => setShowRequestModal(false)}
           onSaved={() => {
             setShowRequestModal(false);
+            load();
+          }}
+        />
+      )}
+
+      {deferralDonorId && (
+        <DeferralModal
+          donorId={deferralDonorId}
+          onClose={() => setDeferralDonorId(null)}
+          onSaved={() => {
+            setDeferralDonorId(null);
+            load();
+          }}
+        />
+      )}
+
+      {separationDonationId && (
+        <SeparationModal
+          donationId={separationDonationId}
+          onClose={() => setSeparationDonationId(null)}
+          onSaved={() => {
+            setSeparationDonationId(null);
             load();
           }}
         />
@@ -746,7 +793,7 @@ function DonorModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -870,7 +917,7 @@ function RequestModal({
 
   async function save() {
     if (!patientId) {
-      alert("Select a patient");
+      toast.error("Select a patient");
       return;
     }
     setSaving(true);
@@ -885,7 +932,7 @@ function RequestModal({
       });
       onSaved();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -992,6 +1039,270 @@ function RequestModal({
             className="rounded bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {saving ? "Saving..." : "Submit Request"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeferralModal({
+  donorId,
+  onClose,
+  onSaved,
+}: {
+  donorId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    reason: "Recent travel",
+    deferralType: "TEMPORARY",
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: "",
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.post(`/bloodbank/donors/${donorId}/deferrals`, {
+        reason: form.reason,
+        deferralType: form.deferralType,
+        startDate: form.startDate || undefined,
+        endDate: form.endDate || undefined,
+        notes: form.notes || undefined,
+      });
+      onSaved();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Add Donor Deferral</h2>
+          <button onClick={onClose} className="text-gray-400">✕</button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">Reason</label>
+            <select
+              value={form.reason}
+              onChange={(e) => setForm({ ...form, reason: e.target.value })}
+              className="w-full rounded border p-2 text-sm"
+            >
+              {[
+                "Recent travel",
+                "Medication",
+                "Infection",
+                "Piercing/Tattoo",
+                "Pregnancy",
+                "Low Hb",
+                "Low weight",
+                "Recent surgery",
+                "Other",
+              ].map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">Deferral Type</label>
+            <select
+              value={form.deferralType}
+              onChange={(e) => setForm({ ...form, deferralType: e.target.value })}
+              className="w-full rounded border p-2 text-sm"
+            >
+              <option value="TEMPORARY">Temporary</option>
+              <option value="PERMANENT">Permanent</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-gray-600">Start Date</label>
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                className="w-full rounded border p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-600">
+                End Date {form.deferralType === "PERMANENT" ? "(N/A)" : ""}
+              </label>
+              <input
+                type="date"
+                disabled={form.deferralType === "PERMANENT"}
+                value={form.endDate}
+                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+                className="w-full rounded border p-2 text-sm disabled:bg-gray-100"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">Notes</label>
+            <textarea
+              rows={2}
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              className="w-full rounded border p-2 text-sm"
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded bg-amber-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Deferral"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SEPARATION_COMPONENTS_UI = [
+  { key: "PRBC", label: "Packed Red Cells" },
+  { key: "PLATELETS", label: "Platelets" },
+  { key: "FFP", label: "Fresh Frozen Plasma" },
+  { key: "CRYO", label: "Cryoprecipitate" },
+];
+
+function SeparationModal({
+  donationId,
+  onClose,
+  onSaved,
+}: {
+  donationId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<
+    Record<string, { enabled: boolean; unitsProduced: number; volumeMl: string }>
+  >({
+    PRBC: { enabled: true, unitsProduced: 1, volumeMl: "250" },
+    PLATELETS: { enabled: false, unitsProduced: 1, volumeMl: "50" },
+    FFP: { enabled: false, unitsProduced: 1, volumeMl: "200" },
+    CRYO: { enabled: false, unitsProduced: 1, volumeMl: "20" },
+  });
+  const [saving, setSaving] = useState(false);
+
+  function toggle(key: string) {
+    setSelected((s) => ({
+      ...s,
+      [key]: { ...s[key], enabled: !s[key].enabled },
+    }));
+  }
+  function setField(key: string, field: string, value: string) {
+    setSelected((s) => ({
+      ...s,
+      [key]: {
+        ...s[key],
+        [field]: field === "unitsProduced" ? Number(value) : value,
+      },
+    }));
+  }
+
+  async function save() {
+    const components = SEPARATION_COMPONENTS_UI.filter(
+      (c) => selected[c.key].enabled
+    ).map((c) => ({
+      component: c.key,
+      unitsProduced: selected[c.key].unitsProduced,
+      volumeMl: selected[c.key].volumeMl
+        ? Number(selected[c.key].volumeMl)
+        : undefined,
+    }));
+    if (components.length === 0) {
+      toast.error("Select at least one component");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post(`/bloodbank/donations/${donationId}/separate`, {
+        components,
+      });
+      onSaved();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-lg bg-white p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Separate Components</h2>
+          <button onClick={onClose} className="text-gray-400">✕</button>
+        </div>
+        <p className="mb-3 text-xs text-gray-500">
+          Select components to produce from this donation. Each component will
+          create corresponding blood units in inventory.
+        </p>
+        <div className="space-y-3">
+          {SEPARATION_COMPONENTS_UI.map((c) => {
+            const st = selected[c.key];
+            return (
+              <div
+                key={c.key}
+                className="flex items-center gap-3 rounded border p-3"
+              >
+                <input
+                  type="checkbox"
+                  checked={st.enabled}
+                  onChange={() => toggle(c.key)}
+                />
+                <div className="flex-1 text-sm font-medium">{c.label}</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  disabled={!st.enabled}
+                  value={st.unitsProduced}
+                  onChange={(e) => setField(c.key, "unitsProduced", e.target.value)}
+                  className="w-16 rounded border p-1 text-sm disabled:bg-gray-100"
+                  placeholder="Units"
+                  title="Units produced"
+                />
+                <input
+                  type="number"
+                  disabled={!st.enabled}
+                  value={st.volumeMl}
+                  onChange={(e) => setField(c.key, "volumeMl", e.target.value)}
+                  className="w-20 rounded border p-1 text-sm disabled:bg-gray-100"
+                  placeholder="Vol ml"
+                  title="Volume (ml)"
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            {saving ? "Processing..." : "Separate"}
           </button>
         </div>
       </div>

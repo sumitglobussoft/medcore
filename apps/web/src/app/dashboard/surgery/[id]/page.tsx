@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import {
   ArrowLeft,
   Scissors,
@@ -119,7 +120,7 @@ export default function SurgeryDetailPage() {
       setEditMode(false);
       loadSurgery();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
 
@@ -129,7 +130,7 @@ export default function SurgeryDetailPage() {
       await api.patch(`/surgery/${surgery.id}/start`, {});
       loadSurgery();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Start failed");
+      toast.error(err instanceof Error ? err.message : "Start failed");
     }
   }
 
@@ -142,7 +143,7 @@ export default function SurgeryDetailPage() {
       });
       loadSurgery();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Complete failed");
+      toast.error(err instanceof Error ? err.message : "Complete failed");
     }
   }
 
@@ -154,7 +155,7 @@ export default function SurgeryDetailPage() {
       await api.patch(`/surgery/${surgery.id}/cancel`, { reason });
       loadSurgery();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 
@@ -501,7 +502,7 @@ function PreOpChecklistCard({
       await api.patch(`/surgery/${surgery.id}/preop`, payload);
       onUpdate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
     setSaving(false);
   }
@@ -565,7 +566,7 @@ function ComplicationsCard({
   });
   async function save() {
     if (!form.complications.trim()) {
-      alert("Complications description is required");
+      toast.error("Complications description is required");
       return;
     }
     try {
@@ -577,7 +578,7 @@ function ComplicationsCard({
       setEdit(false);
       onUpdate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
   return (
@@ -760,7 +761,7 @@ function AnesthesiaCard({ surgeryId, canEdit }: { surgeryId: string; canEdit: bo
       setEdit(false);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
 
@@ -844,7 +845,7 @@ function BloodAvailabilityCard({ surgeryId, canEdit }: { surgeryId: string; canE
       );
       setResult(res.data);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Check failed");
+      toast.error(err instanceof Error ? err.message : "Check failed");
     }
     setLoading(false);
   }
@@ -949,7 +950,7 @@ function PacuObservationsCard({ surgeryId, canEdit }: { surgeryId: string; canEd
       setForm({ bpSystolic: "", bpDiastolic: "", pulse: "", spO2: "", painScore: "", consciousness: "ALERT", nausea: false, notes: "" });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
 
@@ -1067,7 +1068,7 @@ function SsiReportCard({ surgery, canEdit, onUpdate }: { surgery: Surgery; canEd
       setEdit(false);
       onUpdate();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Save failed");
+      toast.error(err instanceof Error ? err.message : "Save failed");
     }
   }
 
