@@ -46,7 +46,10 @@ export function EnquiryForm() {
     };
 
     try {
-      const resp = await fetch("/api/enquiry/submit", {
+      // POST directly to the Express router — nginx routes /api/* to the
+      // Express backend, bypassing the Next.js API layer.
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+      const resp = await fetch(`${apiBase}/marketing/enquiry`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
