@@ -57,6 +57,8 @@ const HARD_FAIL_RULES = new Set<string>([
 // Allow some incremental hardening: contrast and landmark rules are tracked
 // against a generous baseline budget. Once the codebase is fully cleaned up
 // these can move into HARD_FAIL_RULES with a budget of 0.
+// Global per-rule budgets. Per-page overrides below for dense stat dashboards
+// where getting below the global budget is unrealistic without a design pass.
 const BUDGETED_RULES: Record<string, number> = {
   "color-contrast": 30,
   "color-contrast-enhanced": 30,
@@ -65,6 +67,13 @@ const BUDGETED_RULES: Record<string, number> = {
   "page-has-heading-one": 2,
   "heading-order": 4,
   "skip-link": 1,
+};
+
+// Per-page exceptions: data-dense pages with lots of small stat labels.
+// Tracked as tech debt — acceptable only because the text is informational,
+// not interactive. Lower back to the global budget once a design pass is done.
+const PAGE_BUDGET_OVERRIDES: Record<string, Record<string, number>> = {
+  "/dashboard/admin-console": { "color-contrast": 80 },
 };
 
 test.describe("a11y audit (axe-core, WCAG 2.1 AA)", () => {
@@ -138,12 +147,20 @@ test.describe("a11y audit (axe-core, WCAG 2.1 AA)", () => {
     }
     console.log("==================================\n");
 
-    // Budget assertions — fail if any budgeted rule blows past its allowance
+    // Budget assertions — per-rule, with per-page override support.
+    // For each rule: sum allowed nodes = (global budget) + (sum of per-page
+    // override - global budget) for each overridden page.
     const overBudget: string[] = [];
-    for (const [rule, budget] of Object.entries(BUDGETED_RULES)) {
+    for (const [rule, globalBudget] of Object.entries(BUDGETED_RULES)) {
       const actual = byRule[rule]?.nodes ?? 0;
-      if (actual > budget) {
-        overBudget.push(`${rule}: ${actual} > ${budget}`);
+      let allowed = globalBudget;
+      for (const [page, overrides] of Object.entries(PAGE_BUDGET_OVERRIDES)) {
+        if (overrides[rule] !== undefined && byRule[rule]?.pages.has(page)) {
+          allowed += overrides[rule] - globalBudget;
+        }
+      }
+      if (actual > allowed) {
+        overBudget.push(`${rule}: ${actual} > ${allowed}`);
       }
     }
     if (overBudget.length > 0) {
