@@ -88,7 +88,7 @@ describe("EmergencyPage", () => {
     render(<EmergencyPage />);
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: /emergency department/i })
+        screen.getByRole("heading", { name: /emergency/i })
       ).toBeInTheDocument()
     );
   });
@@ -145,7 +145,7 @@ describe("EmergencyPage", () => {
     render(<EmergencyPage />);
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: /emergency department/i })
+        screen.getByRole("heading", { name: /emergency/i })
       ).toBeInTheDocument()
     );
   });

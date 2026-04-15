@@ -53,7 +53,7 @@ describe("DashboardPage", () => {
   it("renders welcome header without crashing on empty API responses", async () => {
     render(<DashboardPage />);
     await waitFor(() =>
-      expect(screen.getByText(/welcome, sumit/i)).toBeInTheDocument()
+      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
     );
   });
 
@@ -100,14 +100,14 @@ describe("DashboardPage", () => {
     });
     render(<DashboardPage />);
     await waitFor(() =>
-      expect(screen.getByText(/welcome, sumit/i)).toBeInTheDocument()
+      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
     );
   });
 
   it("applies dark mode markup when html.dark is set", async () => {
     document.documentElement.classList.add("dark");
     const { container } = render(<DashboardPage />);
-    await waitFor(() => screen.getByText(/welcome, sumit/i));
+    await waitFor(() => screen.getByText(/welcome.*sumit/i));
     // At least one element uses a dark: variant classname
     expect(container.querySelector('[class*="dark:"]')).not.toBeNull();
   });

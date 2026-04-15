@@ -20,16 +20,17 @@ describeIfDB("Uploads content integrity (integration)", () => {
   });
 
   it("uploads a binary buffer and re-fetches identical bytes", async () => {
-    // Pseudo-random buffer (~64KB) so we know we're not just round-tripping
-    // a buffer of repeating bytes.
-    const original = crypto.randomBytes(64 * 1024);
+    // Real PDF header + pseudo-random trailing bytes. MIME sniffer requires
+    // one of the allow-listed formats; random bytes alone are rejected.
+    const header = Buffer.from("%PDF-1.4\n");
+    const original = Buffer.concat([header, crypto.randomBytes(64 * 1024)]);
     const b64 = original.toString("base64");
 
     const up = await request(app)
       .post("/api/v1/uploads")
       .set("Authorization", `Bearer ${token}`)
       .send({
-        filename: "content-integrity.bin",
+        filename: "content-integrity.pdf",
         base64Content: b64,
         type: "OTHER",
       });

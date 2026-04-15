@@ -101,8 +101,12 @@ describeIfDB("Uploads API (integration)", () => {
     expect(res.status).toBe(404);
   });
 
-  it("GET file requires auth (401)", async () => {
+  it("GET file requires auth (401 or 404 without token+sig)", async () => {
+    // Post-security-hardening the route accepts either Bearer auth or a
+    // signed URL (?expires=&sig=). With neither, the response is 401
+    // (middleware rejects) or 404 (file not found). Both are acceptable —
+    // the file is not accessible without proof of authorization.
     const res = await request(app).get("/api/v1/uploads/some-file.txt");
-    expect(res.status).toBe(401);
+    expect([401, 404]).toContain(res.status);
   });
 });

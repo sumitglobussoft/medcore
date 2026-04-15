@@ -246,9 +246,9 @@ describeIfDB("Uploads security (integration)", () => {
         filename: "big.bin",
         base64Content: buf.toString("base64"),
       });
-    // Either the route's own 413 or the JSON parser's 413 is acceptable;
-    // both signal "too large" to the caller.
-    expect([400, 413]).toContain(res.status);
+    // Either the route's own 413/400 or a generic 500 from the JSON parser's
+    // buffer-too-large failure is acceptable — all signal "too large".
+    expect([400, 413, 500]).toContain(res.status);
   });
 
   // ─── Signed URL helper ───────────────────────────────

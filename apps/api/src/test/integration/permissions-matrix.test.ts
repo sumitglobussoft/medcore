@@ -313,7 +313,9 @@ const MATRIX: MatrixRow[] = [
   {
     method: "POST",
     path: "/api/v1/pharmacy/dispense",
-    rolesAllowed: ["ADMIN", "RECEPTION", "NURSE"],
+    // PHARMACIST role added; RECEPTION removed for least-privilege.
+    // PHARMACIST not in test ALL_ROLES so its coverage is via role-expansion.test.ts.
+    rolesAllowed: ["ADMIN", "NURSE"],
     body: {},
     label: "dispense medicine",
   },
