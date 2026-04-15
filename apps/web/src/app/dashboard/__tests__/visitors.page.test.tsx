@@ -81,6 +81,11 @@ describe("VisitorsPage", () => {
   });
 
   it("switches to Today tab and refetches", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/visitors/stats/daily"))
+        return Promise.resolve({ data: { totalToday: 0, currentInside: 0, byPurpose: {} } });
+      return Promise.resolve({ data: [] });
+    });
     const user = userEvent.setup();
     render(<VisitorsPage />);
     await waitFor(() =>

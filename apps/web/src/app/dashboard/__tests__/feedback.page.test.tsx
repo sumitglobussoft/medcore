@@ -55,8 +55,22 @@ describe("FeedbackPage", () => {
 
   it("renders populated feedback entries", async () => {
     apiMock.get.mockImplementation((url: string) => {
-      if (url.includes("/feedback?")) return Promise.resolve({ data: sampleFeedback });
-      return Promise.resolve({ data: { avgRating: 5, total: 1, byCategory: {} } });
+      if (url.startsWith("/feedback/summary"))
+        return Promise.resolve({
+          data: {
+            overallAvg: 5,
+            totalCount: 1,
+            npsScore: 100,
+            promoters: 1,
+            detractors: 0,
+            npsSampleSize: 1,
+            avgRatingByCategory: {},
+            trend: [],
+          },
+        });
+      if (url.startsWith("/feedback"))
+        return Promise.resolve({ data: sampleFeedback });
+      return Promise.resolve({ data: [] });
     });
     render(<FeedbackPage />);
     await waitFor(() => {

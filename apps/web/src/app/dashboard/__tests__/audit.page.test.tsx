@@ -55,7 +55,13 @@ describe("AuditPage", () => {
 
   it("renders populated entries", async () => {
     apiMock.get.mockImplementation((url: string) => {
-      if (url.startsWith("/audit?") || url.startsWith("/audit/search"))
+      if (url.startsWith("/audit/filters"))
+        return Promise.resolve({
+          data: { actions: ["LOGIN"], entityTypes: ["USER"], users: [] },
+        });
+      if (url.startsWith("/audit/retention"))
+        return Promise.reject(new Error("no stats"));
+      if (url.startsWith("/audit"))
         return Promise.resolve({
           data: [
             {
@@ -72,7 +78,7 @@ describe("AuditPage", () => {
           ],
           meta: { totalPages: 1 },
         });
-      return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: [] });
     });
     render(<AuditPage />);
     await waitFor(() =>
@@ -89,7 +95,15 @@ describe("AuditPage", () => {
   });
 
   it("clicking Export CSV button does not crash", async () => {
-    apiMock.get.mockResolvedValue({ data: [], meta: { totalPages: 1 } });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/audit/filters"))
+        return Promise.resolve({
+          data: { actions: [], entityTypes: [], users: [] },
+        });
+      if (url.startsWith("/audit/retention"))
+        return Promise.reject(new Error("no stats"));
+      return Promise.resolve({ data: [], meta: { totalPages: 1 } });
+    });
     (globalThis as any).fetch = vi.fn(async () => new Response(new Blob([]), { status: 200 }));
     const user = userEvent.setup();
     render(<AuditPage />);

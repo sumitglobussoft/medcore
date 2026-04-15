@@ -43,15 +43,23 @@ const sampleOrder = {
   items: [
     {
       id: "i1",
-      test: { name: "CBC" },
+      status: "PENDING",
+      test: { name: "CBC", code: "CBC", unit: "", refRange: "" },
       results: [],
     },
   ],
 };
 
+function trackedPromise<T>(value: T): Promise<T> {
+  const p: any = Promise.resolve(value);
+  p.status = "fulfilled";
+  p.value = value;
+  return p;
+}
+
 function renderPage() {
   return render(
-    <LabOrderPage params={Promise.resolve({ orderId: "test-id" }) as any} />
+    <LabOrderPage params={trackedPromise({ orderId: "test-id" }) as any} />
   );
 }
 

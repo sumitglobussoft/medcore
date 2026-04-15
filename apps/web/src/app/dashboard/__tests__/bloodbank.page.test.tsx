@@ -45,14 +45,22 @@ describe("BloodBankPage", () => {
 
   it("renders populated donors list", async () => {
     const donors = [
-      { id: "d1", donorNumber: "DN-001", name: "Ravi", phone: "9000000001", bloodGroup: "O+" },
-      { id: "d2", donorNumber: "DN-002", name: "Meera", phone: "9000000002", bloodGroup: "A+" },
+      { id: "d1", donorNumber: "DN-001", name: "Ravi", phone: "9000000001", bloodGroup: "O_POSITIVE", lastDonationDate: null, eligibleForDonationAt: null, totalDonations: 0 },
+      { id: "d2", donorNumber: "DN-002", name: "Meera", phone: "9000000002", bloodGroup: "A_POSITIVE", lastDonationDate: null, eligibleForDonationAt: null, totalDonations: 0 },
     ];
     apiMock.get.mockImplementation((url: string) => {
-      if (url.includes("/donors")) return Promise.resolve({ data: donors });
+      if (url.includes("/bloodbank/donors")) return Promise.resolve({ data: donors });
+      if (url.includes("/bloodbank/inventory/summary"))
+        return Promise.resolve({ data: { byBloodGroup: {}, total: 0, expiringSoon: 0 } });
       return Promise.resolve({ data: [] });
     });
+    const user = userEvent.setup();
     render(<BloodBankPage />);
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: /blood bank/i })).toBeInTheDocument()
+    );
+    const donorsTab = screen.getAllByRole("button", { name: /donors/i })[0];
+    await user.click(donorsTab);
     await waitFor(() => {
       expect(screen.getAllByText(/Ravi|Meera/).length).toBeGreaterThan(0);
     });
@@ -67,6 +75,11 @@ describe("BloodBankPage", () => {
   });
 
   it("switches between tabs", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/bloodbank/inventory/summary"))
+        return Promise.resolve({ data: { byBloodGroup: {}, total: 0 } });
+      return Promise.resolve({ data: [] });
+    });
     const user = userEvent.setup();
     render(<BloodBankPage />);
     await waitFor(() =>

@@ -174,9 +174,10 @@ describeIfDB("Lab API — deep edges", () => {
     "CONTAMINATED",
   ])("reject sample reason %s", async (reason) => {
     const { order } = await mkOrder();
+    // Route authorizes NURSE/DOCTOR/ADMIN (not LAB_TECH)
     const res = await request(app)
       .patch(`/api/v1/lab/orders/${order.id}/reject-sample`)
-      .set("Authorization", `Bearer ${labTech}`)
+      .set("Authorization", `Bearer ${doctor}`)
       .send({ reason });
     expect(res.status).toBe(200);
     expect(res.body.data?.status).toBe("SAMPLE_REJECTED");
@@ -186,7 +187,7 @@ describeIfDB("Lab API — deep edges", () => {
     const { order } = await mkOrder();
     const res = await request(app)
       .patch(`/api/v1/lab/orders/${order.id}/reject-sample`)
-      .set("Authorization", `Bearer ${labTech}`)
+      .set("Authorization", `Bearer ${doctor}`)
       .send({ reason: "BOGUS" });
     expect(res.status).toBe(400);
   });

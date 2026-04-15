@@ -168,6 +168,7 @@ describeIfDB("BloodBank API — DEEP (integration)", () => {
       .post(`/api/v1/bloodbank/donations/${don.body.data.id}/screening`)
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
+        donationId: don.body.data.id,
         hivResult: "POSITIVE",
         hcvResult: "NEGATIVE",
         hbsAgResult: "NEGATIVE",

@@ -45,7 +45,34 @@ describe("VitalsPage", () => {
   });
 
   it("renders blood pressure input placeholder", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [{ id: "d1", user: { name: "Dr. A" }, specialization: "Gen" }],
+        });
+      if (url.startsWith("/queue/"))
+        return Promise.resolve({
+          data: {
+            queue: [
+              {
+                tokenNumber: 1,
+                patientName: "Patient A",
+                patientId: "p1",
+                appointmentId: "a1",
+                status: "WAITING",
+                hasVitals: false,
+              },
+            ],
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
     render(<VitalsPage />);
+    await waitFor(() => screen.getByText("Dr. A"));
+    await user.click(screen.getByText("Dr. A"));
+    await waitFor(() => screen.getByText("Patient A"));
+    await user.click(screen.getByText("Patient A"));
     await waitFor(() => {
       expect(screen.getAllByPlaceholderText(/120|80|72/).length).toBeGreaterThan(0);
     });
@@ -60,8 +87,34 @@ describe("VitalsPage", () => {
   });
 
   it("allows entering a heart rate value", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [{ id: "d1", user: { name: "Dr. A" }, specialization: "Gen" }],
+        });
+      if (url.startsWith("/queue/"))
+        return Promise.resolve({
+          data: {
+            queue: [
+              {
+                tokenNumber: 1,
+                patientName: "Patient A",
+                patientId: "p1",
+                appointmentId: "a1",
+                status: "WAITING",
+                hasVitals: false,
+              },
+            ],
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
     const user = userEvent.setup();
     render(<VitalsPage />);
+    await waitFor(() => screen.getByText("Dr. A"));
+    await user.click(screen.getByText("Dr. A"));
+    await waitFor(() => screen.getByText("Patient A"));
+    await user.click(screen.getByText("Patient A"));
     await waitFor(() => screen.getAllByPlaceholderText(/72/)[0]);
     const hrInput = screen.getAllByPlaceholderText(/72/)[0] as HTMLInputElement;
     await user.type(hrInput, "80");

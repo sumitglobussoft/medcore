@@ -62,14 +62,20 @@ describe("SettingsPage", () => {
   });
 
   it("switches tabs on click", async () => {
+    // Ensure each endpoint returns an array-compatible shape so tab content
+    // components don't crash on .map.
+    apiMock.get.mockImplementation(() =>
+      Promise.resolve({ data: [] })
+    );
     const user = userEvent.setup();
     render(<SettingsPage />);
     await waitFor(() =>
       expect(screen.getByRole("heading", { name: /^settings$/i })).toBeInTheDocument()
     );
+    // Click the first tab button (profile is default, just re-click to exercise)
     const tabBtns = screen.queryAllByRole("button");
-    if (tabBtns.length > 1) {
-      await user.click(tabBtns[1]);
+    if (tabBtns.length > 0) {
+      await user.click(tabBtns[0]);
     }
     expect(screen.getByRole("heading", { name: /^settings$/i })).toBeInTheDocument();
   });

@@ -236,13 +236,14 @@ describeIfDB("Admissions API — deep edges", () => {
   });
 
   // ─── Isolation ─────────────────────────────────────────────
-  it("mark isolation COVID then list appears in active", async () => {
+  it("mark isolation AIRBORNE then list appears in active", async () => {
     const { adm } = await mkAdmission();
     const mark = await request(app)
       .patch(`/api/v1/admissions/${adm.id}/isolation`)
       .set("Authorization", `Bearer ${admin}`)
       .send({
-        isolationType: "COVID",
+        // IsolationTypeEnum: STANDARD|CONTACT|DROPLET|AIRBORNE|REVERSE_ISOLATION
+        isolationType: "AIRBORNE",
         isolationReason: "fever + cough",
         isolationStartDate: new Date().toISOString(),
       });
@@ -260,7 +261,7 @@ describeIfDB("Admissions API — deep edges", () => {
     await request(app)
       .patch(`/api/v1/admissions/${adm.id}/isolation`)
       .set("Authorization", `Bearer ${admin}`)
-      .send({ isolationType: "MRSA" });
+      .send({ isolationType: "CONTACT" });
     await request(app)
       .patch(`/api/v1/admissions/${adm.id}/isolation`)
       .set("Authorization", `Bearer ${admin}`)
@@ -272,7 +273,7 @@ describeIfDB("Admissions API — deep edges", () => {
     expect(ids).not.toContain(adm.id);
   });
 
-  it.each(["COVID", "MRSA", "RESPIRATORY"])("isolation type %s is accepted", async (t) => {
+  it.each(["CONTACT", "DROPLET", "AIRBORNE"])("isolation type %s is accepted", async (t) => {
     const { adm } = await mkAdmission();
     const res = await request(app)
       .patch(`/api/v1/admissions/${adm.id}/isolation`)

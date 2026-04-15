@@ -23,8 +23,10 @@ async function setupDispensable(opts: { quantityOnHand?: number; narcotic?: bool
     patientId: patient.id,
     doctorId: doctor.id,
   });
+  // Unique medicine name per call to avoid @unique collision across tests
+  const uniqueName = `Paracetamol 500mg #${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const med = await createMedicineFixture({
-    name: "Paracetamol 500mg",
+    name: uniqueName,
     requiresRegister: opts.narcotic === true,
     isNarcotic: opts.narcotic === true,
   });
@@ -42,7 +44,7 @@ async function setupDispensable(opts: { quantityOnHand?: number; narcotic?: bool
       items: {
         create: [
           {
-            medicineName: "Paracetamol 500mg",
+            medicineName: uniqueName,
             dosage: "500mg",
             frequency: "TID",
             duration: "5 days",

@@ -27,34 +27,38 @@ vi.mock("next/navigation", () => ({
 
 import PatientBillingPage from "../billing/patient/[patientId]/page";
 
+const basePatient = {
+  id: "p1",
+  mrNumber: "MR-1",
+  user: { name: "Aarav Mehta", phone: "9000000001", email: "a@x.com" },
+};
 const sampleResponse = {
   totalOutstanding: 5000,
+  patient: basePatient,
   invoices: [
     {
       id: "inv1",
       invoiceNumber: "INV-001",
+      paymentStatus: "PENDING",
       status: "PENDING",
-      total: 3000,
+      totalAmount: 3000,
+      totalPaid: 0,
       balance: 3000,
+      daysOverdue: 0,
       createdAt: new Date().toISOString(),
-      patient: {
-        id: "p1",
-        mrNumber: "MR-1",
-        user: { name: "Aarav Mehta", phone: "9000000001", email: "a@x.com" },
-      },
+      patient: basePatient,
     },
     {
       id: "inv2",
       invoiceNumber: "INV-002",
+      paymentStatus: "PARTIAL",
       status: "PARTIAL",
-      total: 4000,
+      totalAmount: 4000,
+      totalPaid: 2000,
       balance: 2000,
+      daysOverdue: 0,
       createdAt: new Date().toISOString(),
-      patient: {
-        id: "p1",
-        mrNumber: "MR-1",
-        user: { name: "Aarav Mehta", phone: "9000000001", email: "a@x.com" },
-      },
+      patient: basePatient,
     },
   ],
 };

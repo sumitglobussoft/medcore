@@ -64,6 +64,7 @@ describe("PatientDetailPage", () => {
   it("renders populated patient details", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
+      if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);
@@ -75,6 +76,7 @@ describe("PatientDetailPage", () => {
   it("renders back link to Patients", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
+      if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);
@@ -86,6 +88,7 @@ describe("PatientDetailPage", () => {
   it("renders MR number", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/patients/test-id") return Promise.resolve({ data: samplePatient });
+      if (url.endsWith("/stats")) return Promise.reject(new Error("no stats"));
       return Promise.resolve({ data: [] });
     });
     render(<PatientDetailPage />);

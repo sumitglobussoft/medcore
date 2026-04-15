@@ -36,7 +36,9 @@ const samplePO = {
   createdAt: new Date().toISOString(),
   subtotal: 5000,
   tax: 900,
+  taxAmount: 900,
   total: 5900,
+  totalAmount: 5900,
   supplier: {
     id: "s1",
     name: "MediCorp",
@@ -53,6 +55,7 @@ const samplePO = {
       quantity: 100,
       unitPrice: 50,
       total: 5000,
+      amount: 5000,
       receivedQty: 0,
     },
   ],

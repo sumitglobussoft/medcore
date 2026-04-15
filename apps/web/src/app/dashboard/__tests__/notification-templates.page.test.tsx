@@ -29,11 +29,12 @@ import NotificationTemplatesPage from "../notification-templates/page";
 const sampleTemplates = [
   {
     id: "t1",
-    key: "appointment.reminder",
+    type: "APPOINTMENT_REMINDER",
     channel: "SMS",
+    name: "Appointment Reminder",
     subject: null,
     body: "Hi {{name}}, your appointment is at {{time}}",
-    active: true,
+    isActive: true,
   },
 ];
 
@@ -83,10 +84,10 @@ describe("NotificationTemplatesPage", () => {
     apiMock.get.mockResolvedValue({ data: sampleTemplates });
     render(<NotificationTemplatesPage />);
     await waitFor(() =>
-      expect(screen.getAllByText(/appointment\.reminder/).length).toBeGreaterThan(0)
+      expect(screen.getAllByRole("button", { name: /edit/i }).length).toBeGreaterThan(0)
     );
     const editBtns = screen.queryAllByRole("button", { name: /edit/i });
-    if (editBtns.length > 0) await user.click(editBtns[0]);
+    await user.click(editBtns[0]);
     expect(document.body).toBeTruthy();
   });
 });

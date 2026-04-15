@@ -91,9 +91,10 @@ describe("ChatPage", () => {
   });
 
   it("connects socket on mount", async () => {
+    socketMock.connect.mockClear();
     render(<ChatPage />);
     await waitFor(() => {
-      expect(socketMock.on).toHaveBeenCalled();
+      expect(socketMock.connect).toHaveBeenCalled();
     });
   });
 });
