@@ -198,6 +198,7 @@ router.get(
 // Helper: generate LAB order number
 async function generateOrderNumber(): Promise<string> {
   const last = await prisma.labOrder.findFirst({
+    where: { orderNumber: { startsWith: "LAB" } },
     orderBy: { orderedAt: "desc" },
     select: { orderNumber: true },
   });
