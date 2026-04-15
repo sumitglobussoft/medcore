@@ -542,4 +542,36 @@ router.post(
   }
 );
 
+// POST /api/v1/notifications/push-token/register — register/refresh the
+// caller's mobile push token (Expo / FCM). Idempotent.
+router.post(
+  "/push-token/register",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token, platform } = req.body as {
+        token?: string;
+        platform?: string;
+      };
+      if (!token || typeof token !== "string") {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "token is required" });
+        return;
+      }
+      const updated = await prisma.user.update({
+        where: { id: req.user!.userId },
+        data: {
+          pushToken: token,
+          pushPlatform: platform || null,
+          pushTokenUpdatedAt: new Date(),
+        },
+        select: { id: true, pushToken: true, pushPlatform: true },
+      });
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 export { router as notificationRouter };

@@ -63,6 +63,7 @@ export default function AppointmentsScreen() {
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [booking, setBooking] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const loadAppointments = useCallback(async () => {
     try {
@@ -213,18 +214,38 @@ export default function AppointmentsScreen() {
           <Text style={styles.modalSub}>
             Doctor: {selectedDoctor?.name}
           </Text>
-          <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-          <TextInput
-            style={styles.input}
-            value={selectedDate}
-            onChangeText={setSelectedDate}
-            placeholder="2026-04-13"
-            placeholderTextColor="#9ca3af"
-          />
+          <Text style={styles.label}>Appointment Date</Text>
           <TouchableOpacity
-            style={styles.primaryBtn}
-            onPress={loadSlots}
+            style={styles.input}
+            onPress={() => setShowDatePicker(true)}
+            activeOpacity={0.7}
           >
+            <Text
+              style={{
+                fontSize: 16,
+                color: selectedDate ? "#111827" : "#9ca3af",
+              }}
+            >
+              {selectedDate
+                ? new Date(selectedDate).toLocaleDateString("en-IN", {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })
+                : "Tap to choose a date"}
+            </Text>
+          </TouchableOpacity>
+          <DatePickerSheet
+            visible={showDatePicker}
+            value={selectedDate ? new Date(selectedDate) : new Date()}
+            onCancel={() => setShowDatePicker(false)}
+            onConfirm={(d) => {
+              setSelectedDate(d.toISOString().slice(0, 10));
+              setShowDatePicker(false);
+            }}
+          />
+          <TouchableOpacity style={styles.primaryBtn} onPress={loadSlots}>
             <Text style={styles.primaryBtnText}>Find Slots</Text>
           </TouchableOpacity>
         </>
@@ -377,6 +398,140 @@ export default function AppointmentsScreen() {
     </View>
   );
 }
+
+/**
+ * Modal-presented native date picker.
+ * Lazy-loads `@react-native-community/datetimepicker` so the build works even
+ * if the native module hasn't been linked yet (falls back to text entry).
+ */
+function DatePickerSheet({
+  visible,
+  value,
+  onCancel,
+  onConfirm,
+}: {
+  visible: boolean;
+  value: Date;
+  onCancel: () => void;
+  onConfirm: (date: Date) => void;
+}) {
+  const [PickerComp, setPickerComp] = useState<any>(null);
+  const [tempDate, setTempDate] = useState<Date>(value);
+
+  useEffect(() => {
+    if (!visible) return;
+    setTempDate(value);
+    let cancelled = false;
+    (async () => {
+      try {
+        const mod = await import("@react-native-community/datetimepicker").catch(
+          () => null
+        );
+        if (!cancelled && mod) setPickerComp(() => (mod as any).default);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, value]);
+
+  if (!visible) return null;
+
+  if (Platform.OS === "android" && PickerComp) {
+    // Android uses a native dialog directly — no modal wrapper.
+    return (
+      <PickerComp
+        value={tempDate}
+        mode="date"
+        display="default"
+        minimumDate={new Date()}
+        onChange={(_e: any, selected?: Date) => {
+          if (selected) onConfirm(selected);
+          else onCancel();
+        }}
+      />
+    );
+  }
+
+  return (
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      onRequestClose={onCancel}
+    >
+      <View style={dpStyles.backdrop}>
+        <View style={dpStyles.sheet}>
+          <Text style={dpStyles.title}>Pick a date</Text>
+          {PickerComp ? (
+            <PickerComp
+              value={tempDate}
+              mode="date"
+              display="spinner"
+              minimumDate={new Date()}
+              onChange={(_e: any, selected?: Date) => {
+                if (selected) setTempDate(selected);
+              }}
+            />
+          ) : (
+            <TextInput
+              style={dpStyles.fallbackInput}
+              value={tempDate.toISOString().slice(0, 10)}
+              onChangeText={(txt) => {
+                const d = new Date(txt);
+                if (!isNaN(d.getTime())) setTempDate(d);
+              }}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#9ca3af"
+            />
+          )}
+          <View style={dpStyles.row}>
+            <TouchableOpacity onPress={onCancel} style={dpStyles.cancel}>
+              <Text style={dpStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => onConfirm(tempDate)}
+              style={dpStyles.confirm}
+            >
+              <Text style={dpStyles.confirmText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const dpStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  sheet: { backgroundColor: "#fff", padding: 16, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  title: { fontSize: 16, fontWeight: "bold", color: "#111827", marginBottom: 12 },
+  fallbackInput: {
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: "#111827",
+  },
+  row: { flexDirection: "row", justifyContent: "flex-end", marginTop: 12, gap: 12 },
+  cancel: { paddingHorizontal: 16, paddingVertical: 10 },
+  cancelText: { color: "#6b7280", fontWeight: "600" },
+  confirm: {
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  confirmText: { color: "#fff", fontWeight: "bold" },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f3f4f6" },

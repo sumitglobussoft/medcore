@@ -10,6 +10,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../lib/auth";
 import { fetchQueue, fetchAppointments } from "../../lib/api";
+import { useQueueSocket } from "../../lib/socket";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -42,6 +43,11 @@ export default function QueueScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Realtime: refresh on any queue event from the server (no polling needed).
+  useQueueSocket(!!user, () => {
+    load();
+  });
 
   const onRefresh = () => {
     setRefreshing(true);

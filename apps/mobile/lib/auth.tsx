@@ -6,7 +6,13 @@ import React, {
   useCallback,
   type ReactNode,
 } from "react";
-import { loginApi, logoutApi, fetchMe, hasStoredToken } from "./api";
+import {
+  loginApi,
+  logoutApi,
+  fetchMe,
+  hasStoredToken,
+  registerAuthFailureHandler,
+} from "./api";
 
 interface User {
   id: string;
@@ -59,6 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadSession();
   }, [loadSession]);
 
+  // Let the API layer flush our user state if a refresh ultimately fails.
+  useEffect(() => {
+    registerAuthFailureHandler(() => {
+      setUser(null);
+    });
+    return () => registerAuthFailureHandler(null);
+  }, []);
+
   const login = useCallback(
     async (email: string, password: string) => {
       const { user: u } = await loginApi(email, password);
@@ -73,7 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, loadSession }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, login, logout, loadSession }}
+    >
       {children}
     </AuthContext.Provider>
   );

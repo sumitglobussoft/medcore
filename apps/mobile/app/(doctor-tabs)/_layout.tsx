@@ -9,16 +9,15 @@ const TAB_CONFIG: {
   icon: IoniconsName;
   iconFocused: IoniconsName;
 }[] = [
-  { name: "index", title: "Home", icon: "home-outline", iconFocused: "home" },
   {
-    name: "appointments",
-    title: "Appointments",
-    icon: "calendar-outline",
-    iconFocused: "calendar",
+    name: "workspace",
+    title: "Workspace",
+    icon: "easel-outline",
+    iconFocused: "easel",
   },
   {
-    name: "queue",
-    title: "Queue",
+    name: "patients",
+    title: "Patients",
     icon: "people-outline",
     iconFocused: "people",
   },
@@ -29,12 +28,6 @@ const TAB_CONFIG: {
     iconFocused: "document-text",
   },
   {
-    name: "billing",
-    title: "Bills",
-    icon: "card-outline",
-    iconFocused: "card",
-  },
-  {
     name: "profile",
     title: "Profile",
     icon: "person-outline",
@@ -42,7 +35,7 @@ const TAB_CONFIG: {
   },
 ];
 
-export default function TabLayout() {
+export default function DoctorTabsLayout() {
   return (
     <Tabs
       screenOptions={{
@@ -55,10 +48,7 @@ export default function TabLayout() {
           paddingBottom: 8,
           paddingTop: 4,
         },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "600",
-        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         headerStyle: { backgroundColor: "#2563eb" },
         headerTintColor: "#fff",
         headerTitleStyle: { fontWeight: "bold" },
