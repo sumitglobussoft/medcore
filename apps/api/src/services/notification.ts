@@ -206,7 +206,10 @@ export async function drainScheduled(): Promise<number> {
   const due = await prisma.notification.findMany({
     where: {
       deliveryStatus: "QUEUED",
-      scheduledFor: { lte: new Date() },
+      OR: [
+        { scheduledFor: null },
+        { scheduledFor: { lte: new Date() } },
+      ],
     },
     take: 100,
   });
