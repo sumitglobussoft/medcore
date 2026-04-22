@@ -9,6 +9,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
     "@medcore/db": "*",
     "@medcore/shared": "*",
     "bcryptjs": "^2.4.3",

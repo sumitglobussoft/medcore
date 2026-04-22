@@ -53,6 +53,8 @@ import { preauthRouter } from "./routes/preauth";
 import { medReconciliationRouter } from "./routes/med-reconciliation";
 import { scheduledReportsRouter } from "./routes/scheduled-reports";
 import { patientExtrasRouter } from "./routes/patient-extras";
+import { aiTriageRouter } from "./routes/ai-triage";
+import { aiScribeRouter } from "./routes/ai-scribe";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -152,6 +154,8 @@ export function buildApp() {
   app.use("/api/v1/preauth", preauthRouter);
   app.use("/api/v1/scheduled-reports", scheduledReportsRouter);
   app.use("/api/v1/marketing", marketingRouter);
+  app.use("/api/v1/ai/triage", aiTriageRouter);
+  app.use("/api/v1/ai/scribe", aiScribeRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check

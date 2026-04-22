@@ -547,6 +547,7 @@ model Doctor {
   ancCases             AntenatalCase[]
   waitlistEntries      WaitlistEntry[]
   controlledEntries    ControlledSubstanceEntry[]
+  aiScribeSessions     AIScribeSession[]
 
   @@map("doctors")
 }
@@ -649,6 +650,8 @@ model Patient {
   medReconciliations   MedReconciliation[]
   milestoneRecords     MilestoneRecord[]
   feedingLogs          FeedingLog[]
+  aiTriageSessions     AITriageSession[]
+  aiScribeSessions     AIScribeSession[]
 
   @@index([mrNumber])
   @@map("patients")
@@ -690,6 +693,8 @@ model Appointment {
   prescription      Prescription?
   invoice           Invoice?
   coordinatedVisit  CoordinatedVisit? @relation("CoordinatedAppointments", fields: [coordinatedVisitId], references: [id])
+  aiTriageSession   AITriageSession?
+  aiScribeSession   AIScribeSession?
 
   @@unique([doctorId, date, tokenNumber])
   @@index([doctorId, date])
@@ -3230,4 +3235,81 @@ model MarketingEnquiry {
   @@index([createdAt])
   @@index([email])
   @@map("marketing_enquiries")
+}
+
+// ─── AI TRIAGE SESSION ──────────────────────────────────
+
+enum AITriageStatus {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+  EMERGENCY_DETECTED
+}
+
+model AITriageSession {
+  id                   String         @id @default(uuid())
+  patientId            String?
+  language             String         @default("en")
+  inputMode            String         @default("text")
+  status               AITriageStatus @default(ACTIVE)
+  chiefComplaint       String?
+  messages             Json           @default("[]")
+  symptoms             Json?
+  redFlagDetected      Boolean        @default(false)
+  redFlagReason        String?
+  confidence           Float?
+  suggestedSpecialties Json?
+  preVisitSummary      Json?
+  appointmentId        String?        @unique
+  modelVersion         String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  patient     Patient?     @relation(fields: [patientId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@index([patientId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("ai_triage_sessions")
+}
+
+// ─── AI SCRIBE SESSION ──────────────────────────────────
+
+enum AIScribeStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CONSENT_WITHDRAWN
+}
+
+model AIScribeSession {
+  id               String         @id @default(uuid())
+  appointmentId    String         @unique
+  doctorId         String
+  patientId        String
+  consentObtained  Boolean        @default(false)
+  consentAt        DateTime?
+  status           AIScribeStatus @default(ACTIVE)
+  transcript       Json           @default("[]")
+  soapDraft        Json?
+  soapFinal        Json?
+  icd10Codes       Json?
+  rxDraft          Json?
+  doctorEdits      Json           @default("[]")
+  signedOffAt      DateTime?
+  signedOffBy      String?
+  audioRetainUntil DateTime?
+  modelVersion     String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  doctor      Doctor      @relation(fields: [doctorId], references: [id])
+  patient     Patient     @relation(fields: [patientId], references: [id])
+
+  @@index([doctorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("ai_scribe_sessions")
 }

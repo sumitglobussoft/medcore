@@ -33,10 +33,17 @@ export async function resetDB() {
     "../../../../packages/db/prisma/schema.prisma"
   );
   execSync(
-    `npx prisma db push --schema ${schemaPath} --force-reset --skip-generate`,
+    `npx prisma db push --schema "${schemaPath}" --force-reset --skip-generate`,
     {
-      stdio: "ignore",
-      env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL_TEST },
+      stdio: "pipe",
+      shell: true,
+      env: {
+        ...process.env,
+        DATABASE_URL: process.env.DATABASE_URL_TEST,
+        // Prisma requires explicit AI consent for --force-reset; this is always
+        // the isolated test database (DATABASE_URL_TEST), never production.
+        PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: "Resetting test-only database for vitest integration suite",
+      },
     }
   );
 

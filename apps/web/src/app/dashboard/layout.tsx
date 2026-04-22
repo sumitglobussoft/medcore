@@ -76,6 +76,8 @@ import {
   FileCheck,
   Percent,
   Clock,
+  Bot,
+  Mic,
 } from "lucide-react";
 import clsx from "clsx";
 import { SearchPalette } from "./_components/search-palette";
@@ -182,6 +184,8 @@ const navByRole: Record<
     { href: "/dashboard/complaints", label: "Complaints", icon: AlertTriangle },
     { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
     { href: "/dashboard/visitors", label: "Visitors", icon: UserCheck },
+    { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
+    { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -207,6 +211,7 @@ const navByRole: Record<
     { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+    { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -237,6 +242,7 @@ const navByRole: Record<
     { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
     { href: "/dashboard/my-leaves", label: "My Leaves", icon: PlaneTakeoff },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+    { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -269,6 +275,7 @@ const navByRole: Record<
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
+    { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
   ],
 };
 
