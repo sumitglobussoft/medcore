@@ -7,11 +7,11 @@
 A full-stack, monorepo HIS covering the patient journey from appointment to discharge — clinical, operational, financial, HR, and engagement workflows in one typed codebase.
 
 [![Live Demo](https://img.shields.io/badge/live_demo-medcore.globusdemos.com-2563eb?style=for-the-badge)](https://medcore.globusdemos.com)
-[![Tests](https://img.shields.io/badge/tests-1343_passing-16a34a?style=for-the-badge)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1415_passing-16a34a?style=for-the-badge)](#testing)
 [![E2E](https://img.shields.io/badge/playwright_e2e-29_passing-0ea5e9?style=for-the-badge)](#testing)
 [![a11y](https://img.shields.io/badge/axe--core-12_passing-7c3aed?style=for-the-badge)](#accessibility)
-[![Routers](https://img.shields.io/badge/api_routers-45-f59e0b?style=for-the-badge)](#architecture)
-[![Models](https://img.shields.io/badge/prisma_models-110-0891b2?style=for-the-badge)](#architecture)
+[![Routers](https://img.shields.io/badge/api_routers-47-f59e0b?style=for-the-badge)](#architecture)
+[![Models](https://img.shields.io/badge/prisma_models-112-0891b2?style=for-the-badge)](#architecture)
 [![License](https://img.shields.io/badge/license-Proprietary-dc2626?style=for-the-badge)](LICENSE)
 
 [Live Demo](https://medcore.globusdemos.com) · [Features](#feature-catalog) · [Architecture](#architecture) · [Testing](#testing) · [Deployment](#deployment) · [Commercial](#commercial-licensing)
@@ -32,18 +32,24 @@ The project is under active development. A live demo instance runs at **[medcore
 
 | | |
 |---|---|
-| **Tests passing** | 1,343 across 6 layers (unit, contract, smoke, web, integration, permissions) |
+| **Tests passing** | 1,415 across 6 layers (unit, contract, smoke, web, integration, permissions) |
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
-| **API routers with integration coverage** | 45 |
-| **Prisma models** | ~110 |
-| **Prisma migrations (production)** | 4, all applied via `migrate deploy` |
+| **API routers with integration coverage** | 47 |
+| **Prisma models** | ~112 |
+| **Prisma migrations (production)** | 5, all applied via `migrate deploy` |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |
 
 ---
 
 ## Feature Catalog
+
+### AI Features
+
+- **AI Triage Chatbot** (`/dashboard/ai-booking`) — multi-turn symptom collection chat supporting English and Hindi. Deterministic red-flag detection (cardiac, stroke, respiratory, bleeding, suicidal ideation, obstetric, neonatal, Hindi phrases) fires before the LLM, triggering an immediate emergency screen with call-112 instructions. After 4+ exchanges Claude assesses the complaint, recommends specialties and matching doctors, and lets the patient book an appointment without leaving the chat.
+- **AI Scribe** (`/dashboard/scribe`) — ambient speech-to-text during consultation. Transcripts stream to the API every 5 final utterances; once 3+ entries accumulate, Claude generates a structured SOAP draft (Subjective / Objective / Assessment / Plan) with ICD-10 code suggestions and confidence scores. The doctor edits any field inline, then signs off — at which point the note is written directly to the EHR consultation record.
+- **Drug Safety Check** — runs automatically inside the Scribe transcript endpoint every time a new SOAP draft is produced. Two-layer architecture: a fast deterministic layer checks ~15 curated high-risk pairs (warfarin + NSAIDs/azithromycin/metronidazole, SSRI + MAOI, sildenafil + nitrates, clopidogrel + omeprazole, methotrexate + NSAIDs, etc.), allergy cross-reactivity families (penicillin, sulfa, NSAIDs, codeine), and condition contraindications (asthma + beta-blockers, CKD + NSAIDs/metformin, pregnancy + warfarin/NSAIDs/tetracyclines). The LLM layer then catches anything not in the curated list. Alerts are severity-coded CONTRAINDICATED → SEVERE → MODERATE → MILD. A `DrugAlertBanner` in the Scribe UI blocks sign-off on CONTRAINDICATED alerts until the doctor explicitly acknowledges clinical responsibility.
 
 ### Clinical
 
@@ -167,12 +173,12 @@ MedCore layers its tests so each tier tests a different boundary:
 
 | Layer | Count | What it covers |
 |---|---:|---|
-| **Unit** | 309 | Helpers, validators, utilities, notification channel adapters |
+| **Unit** | 350 | Helpers, validators, utilities, notification channel adapters, red-flag detection (41 cases) |
 | **Contract** | 121 | Zod request/response schemas between API and web |
 | **Smoke** | 30 | Fast sanity pass across critical routes |
 | **Web** | 151 | React component and page-level tests |
-| **Integration** | 732 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix (178 assertions), auth edges, 2FA, notification channel shapes, Razorpay webhook |
-| **Total** | **1,343** | |
+| **Integration** | 763 | Full HTTP through Express + Prisma against a real Postgres. Includes concurrency, realtime delivery, permissions matrix (178 assertions), auth edges, 2FA, notification channel shapes, Razorpay webhook, AI triage (16), AI scribe (15) |
+| **Total** | **1,415** | |
 
 In addition:
 
