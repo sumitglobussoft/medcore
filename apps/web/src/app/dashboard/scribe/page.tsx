@@ -244,7 +244,7 @@ export default function ScribePage() {
     const fetchAppts = async () => {
       try {
         const today = new Date().toISOString().split("T")[0];
-        const res = await api.get(`/appointments?date=${today}&status=CHECKED_IN,BOOKED`, {
+        const res = await api.get<any>(`/appointments?date=${today}&status=CHECKED_IN,BOOKED`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setAppointments(res.data.data?.appointments || []);
@@ -260,7 +260,7 @@ export default function ScribePage() {
     if (recording && sessionId) {
       pollRef.current = setInterval(async () => {
         try {
-          const res = await api.get(`/ai/scribe/${sessionId}/soap`, {
+          const res = await api.get<any>(`/ai/scribe/${sessionId}/soap`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (res.data.data?.soapDraft) {
@@ -280,7 +280,7 @@ export default function ScribePage() {
   const startScribe = async (appointment: any) => {
     setLoading(true);
     try {
-      const res = await api.post(
+      const res = await api.post<any>(
         "/ai/scribe/start",
         { appointmentId: appointment.id, consentObtained: true, audioRetentionDays: 30 },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -324,7 +324,7 @@ export default function ScribePage() {
             }));
             finalBuffer = [];
             try {
-              const res = await api.post(
+              const res = await api.post<any>(
                 `/ai/scribe/${sessionId}/transcript`,
                 { entries },
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -378,7 +378,7 @@ export default function ScribePage() {
     if (!sessionId || !editedSOAP) return;
     setLoading(true);
     try {
-      await api.post(
+      await api.post<any>(
         `/ai/scribe/${sessionId}/finalize`,
         { soapFinal: editedSOAP, rxApproved: true, doctorEdits: [] },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -395,7 +395,7 @@ export default function ScribePage() {
   const handleWithdrawConsent = async () => {
     if (!sessionId) return;
     try {
-      await api.delete(`/ai/scribe/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } });
+      await api.delete<any>(`/ai/scribe/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } });
       stopRecording();
       setSessionId(null);
       setSoapDraft(null);

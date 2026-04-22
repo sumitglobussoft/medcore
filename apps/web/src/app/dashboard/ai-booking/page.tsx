@@ -79,7 +79,7 @@ export default function AIBookingPage() {
   const startSession = useCallback(async () => {
     setStarting(true);
     try {
-      const res = await api.post(
+      const res = await api.post<any>(
         "/ai/triage/start",
         { language, inputMode: "text" },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -104,7 +104,7 @@ export default function AIBookingPage() {
     setLoading(true);
 
     try {
-      const res = await api.post(
+      const res = await api.post<any>(
         `/ai/triage/${sessionId}/message`,
         { message: userMessage },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -134,7 +134,7 @@ export default function AIBookingPage() {
   const fetchDoctorSuggestions = async () => {
     if (!sessionId) return;
     try {
-      const res = await api.get(`/ai/triage/${sessionId}`, {
+      const res = await api.get<any>(`/ai/triage/${sessionId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setDoctorSuggestions(res.data.data.doctorSuggestions || []);
@@ -145,7 +145,7 @@ export default function AIBookingPage() {
 
   const fetchSlots = async (doctorId: string, date: string) => {
     try {
-      const res = await api.get(`/doctors/${doctorId}/slots?date=${date}`, {
+      const res = await api.get<any>(`/doctors/${doctorId}/slots?date=${date}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSlots(res.data.data.slots || []);
@@ -174,13 +174,13 @@ export default function AIBookingPage() {
     if (!sessionId || !selectedDoctor || !selectedSlot || !selectedDate) return;
     setLoading(true);
     try {
-      const patient = await api.get("/patients?limit=1", {
+      const patient = await api.get<any>("/patients?limit=1", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const patientId = patient.data.data.patients?.[0]?.id;
       if (!patientId) { toast.error("Patient record not found"); return; }
 
-      const res = await api.post(
+      const res = await api.post<any>(
         `/ai/triage/${sessionId}/book`,
         {
           doctorId: selectedDoctor.doctorId,
