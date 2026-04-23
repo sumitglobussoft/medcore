@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": false,
+    "types": ["node"],
+    "baseUrl": "..",
+    "paths": {
+      "@medcore/db": ["packages/db/src/index.ts"]
+    }
+  },
+  "include": [
+    "./migrate-insurance-claims-to-v2.ts",
+    "./verify-insurance-claims-migration.ts"
+  ]
+}

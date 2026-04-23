@@ -26,7 +26,9 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:install": "playwright install chromium"
+    "test:e2e:install": "playwright install chromium",
+    "test:load": "tsx scripts/load-tests/run-load-test.ts",
+    "test:load:mock": "tsx scripts/load-tests/mock-server.ts"
   },
   "devDependencies": {
     "@faker-js/faker": "^9.0.3",

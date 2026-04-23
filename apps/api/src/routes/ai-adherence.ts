@@ -285,8 +285,7 @@ router.post(
       const isSkipped = !!skipped;
       const takenAtDate = takenAt ? new Date(takenAt) : isSkipped ? null : new Date();
 
-      // TODO(cast): remove after prisma generate
-      const created = await (prisma as any).adherenceDoseLog.create({
+      const created = await prisma.adherenceDoseLog.create({
         data: {
           scheduleId: schedule.id,
           patientId: schedule.patientId,
@@ -359,8 +358,7 @@ router.get(
       const toDate =
         to && !Number.isNaN(Date.parse(to)) ? new Date(to) : now;
 
-      // TODO(cast): remove after prisma generate
-      const logs = await (prisma as any).adherenceDoseLog.findMany({
+      const logs = await prisma.adherenceDoseLog.findMany({
         where: {
           scheduleId,
           scheduledAt: { gte: fromDate, lte: toDate },

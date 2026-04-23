@@ -17,6 +17,7 @@
  * Reference: ABDM Consent Manager APIs v0.5 — `/v0.5/consent-requests/*`.
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@medcore/db";
 import { abdmRequest, ABDMError } from "./client";
 
@@ -90,7 +91,7 @@ export async function requestConsent(
   const consentRequestId = crypto.randomUUID();
 
   // Store locally first so a subsequent webhook can always find us.
-  const local = await (prisma as any).consentArtefact.create({
+  const local = await prisma.consentArtefact.create({
     data: {
       id: consentRequestId,
       patientId: input.patientId,
@@ -141,7 +142,7 @@ export async function requestConsent(
 // ── getConsent ────────────────────────────────────────────────────────────
 
 export async function getConsent(consentRequestId: string): Promise<ConsentArtefactRecord | null> {
-  const row = await (prisma as any).consentArtefact.findUnique({
+  const row = await prisma.consentArtefact.findUnique({
     where: { id: consentRequestId },
   });
   if (!row) return null;
@@ -155,7 +156,7 @@ export async function getConsent(consentRequestId: string): Promise<ConsentArtef
  * GRANTED state. Fires `POST /v0.5/consents/revoke` at the CM.
  */
 export async function revokeConsent(consentRequestId: string): Promise<void> {
-  const row = await (prisma as any).consentArtefact.findUnique({
+  const row = await prisma.consentArtefact.findUnique({
     where: { id: consentRequestId },
   });
   if (!row) throw new ABDMError("Consent not found", 404);
@@ -172,7 +173,7 @@ export async function revokeConsent(consentRequestId: string): Promise<void> {
     },
   });
 
-  await (prisma as any).consentArtefact.update({
+  await prisma.consentArtefact.update({
     where: { id: consentRequestId },
     data: { status: "REVOKED", revokedAt: new Date() },
   });
@@ -189,15 +190,15 @@ export async function handleConsentCallback(payload: {
   status: "GRANTED" | "DENIED" | "EXPIRED" | "REVOKED";
   artefact?: unknown;
 }): Promise<void> {
-  const row = await (prisma as any).consentArtefact.findUnique({
+  const row = await prisma.consentArtefact.findUnique({
     where: { id: payload.consentRequestId },
   });
   if (!row) return; // unknown id — idempotent
-  await (prisma as any).consentArtefact.update({
+  await prisma.consentArtefact.update({
     where: { id: payload.consentRequestId },
     data: {
       status: payload.status,
-      artefact: payload.artefact ?? row.artefact,
+      artefact: (payload.artefact ?? row.artefact ?? Prisma.JsonNull) as Prisma.InputJsonValue,
       grantedAt: payload.status === "GRANTED" ? new Date() : row.grantedAt,
     },
   });

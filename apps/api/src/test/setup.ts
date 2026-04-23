@@ -36,7 +36,7 @@ export async function resetDB() {
     `npx prisma db push --schema "${schemaPath}" --force-reset --skip-generate`,
     {
       stdio: "pipe",
-      shell: true,
+      shell: process.platform === "win32" ? "cmd.exe" : "/bin/sh",
       env: {
         ...process.env,
         DATABASE_URL: process.env.DATABASE_URL_TEST,

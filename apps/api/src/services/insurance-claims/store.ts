@@ -2,11 +2,9 @@
 //
 // This module was previously a Map-based in-process store (see git history)
 // while `packages/db/prisma/schema.prisma` was missing the relevant models.
-// The schema merge adding `InsuranceClaim`, `ClaimDocument`, `ClaimStatusEvent`
-// plus the `TpaProvider` / `NormalisedClaimStatus` enums is landing in parallel
-// to this commit, so we cast via `(prisma as any)` in a few spots to keep this
-// file compilable before `npx prisma generate` has been re-run. Each cast is
-// flagged with `TODO(cast): remove once prisma client is regenerated`.
+// The schema merge adding `InsuranceClaim2`, `ClaimDocument`, `ClaimStatusEvent`
+// plus the `TpaProvider` / `NormalisedClaimStatus` enums has landed and the
+// Prisma client has been regenerated, so delegates are used directly.
 //
 // Exported *Row shapes use ISO strings for dates/JSON-array icd10Codes so
 // existing callers (see `routes/insurance-claims.ts`) don't have to change.
@@ -173,16 +171,9 @@ export async function resetStore(): Promise<void> {
   if (process.env.NODE_ENV !== "test") {
     throw new Error("resetStore() is only callable when NODE_ENV === 'test'");
   }
-  // TODO(cast): remove once prisma client is regenerated with the new models.
-  const p: any = prisma;
-  if (!p.claimStatusEvent || !p.claimDocument || !p.insuranceClaim2) {
-    // Schema hasn't been merged yet — no-op so tests that depend on this can
-    // still boot and then skip via the beforeAll guard in the suite.
-    return;
-  }
-  await p.claimStatusEvent.deleteMany({});
-  await p.claimDocument.deleteMany({});
-  await p.insuranceClaim2.deleteMany({});
+  await prisma.claimStatusEvent.deleteMany({});
+  await prisma.claimDocument.deleteMany({});
+  await prisma.insuranceClaim2.deleteMany({});
 }
 
 // ── Claims ──────────────────────────────────────────────────────────────────
@@ -190,8 +181,7 @@ export async function resetStore(): Promise<void> {
 export async function createClaim(
   row: Omit<InsuranceClaimRow, "id" | "createdAt" | "updatedAt">
 ): Promise<InsuranceClaimRow> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const created = await (prisma as any).insuranceClaim2.create({
+  const created = await prisma.insuranceClaim2.create({
     data: {
       billId: row.billId,
       patientId: row.patientId,
@@ -223,8 +213,7 @@ export async function createClaim(
 }
 
 export async function getClaim(id: string): Promise<InsuranceClaimRow | undefined> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const row = await (prisma as any).insuranceClaim2.findUnique({ where: { id } });
+  const row = await prisma.insuranceClaim2.findUnique({ where: { id } });
   return row ? mapClaim(row) : undefined;
 }
 
@@ -235,8 +224,7 @@ export const findById = getClaim;
 export async function findByBill(
   billId: string
 ): Promise<InsuranceClaimRow[]> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const rows = await (prisma as any).insuranceClaim2.findMany({
+  const rows = await prisma.insuranceClaim2.findMany({
     where: { billId },
     orderBy: { submittedAt: "desc" },
   });
@@ -247,9 +235,7 @@ export async function updateClaim(
   id: string,
   patch: Partial<InsuranceClaimRow>
 ): Promise<InsuranceClaimRow | undefined> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const p: any = prisma;
-  const existing = await p.insuranceClaim2.findUnique({ where: { id } });
+  const existing = await prisma.insuranceClaim2.findUnique({ where: { id } });
   if (!existing) return undefined;
 
   const data: Record<string, unknown> = {};
@@ -287,7 +273,7 @@ export async function updateClaim(
     data.lastSyncedAt = patch.lastSyncedAt ? new Date(patch.lastSyncedAt) : null;
   if (patch.createdBy !== undefined) data.createdBy = patch.createdBy;
 
-  const updated = await p.insuranceClaim2.update({ where: { id }, data });
+  const updated = await prisma.insuranceClaim2.update({ where: { id }, data });
   return mapClaim(updated);
 }
 
@@ -304,8 +290,7 @@ export async function listClaims(
     if (q.to) submittedAt.lte = q.to;
     where.submittedAt = submittedAt;
   }
-  // TODO(cast): remove once prisma client is regenerated.
-  const rows = await (prisma as any).insuranceClaim2.findMany({
+  const rows = await prisma.insuranceClaim2.findMany({
     where,
     orderBy: { submittedAt: "desc" },
   });
@@ -339,9 +324,7 @@ export async function updateStatus(
   id: string,
   input: UpdateStatusInput
 ): Promise<InsuranceClaimRow | undefined> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const p: any = prisma;
-  return p.$transaction(async (tx: any) => {
+  return prisma.$transaction(async (tx) => {
     const existing = await tx.insuranceClaim2.findUnique({ where: { id } });
     if (!existing) return undefined;
 
@@ -405,8 +388,7 @@ export async function cancelClaim(
 export async function addDocument(
   row: Omit<ClaimDocumentRow, "id" | "uploadedAt">
 ): Promise<ClaimDocumentRow> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const created = await (prisma as any).claimDocument.create({
+  const created = await prisma.claimDocument.create({
     data: {
       claimId: row.claimId,
       type: row.type,
@@ -424,8 +406,7 @@ export async function addDocument(
 export async function getDocuments(
   claimId: string
 ): Promise<ClaimDocumentRow[]> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const rows = await (prisma as any).claimDocument.findMany({
+  const rows = await prisma.claimDocument.findMany({
     where: { claimId },
     orderBy: { uploadedAt: "asc" },
   });
@@ -440,8 +421,7 @@ export const listDocuments = getDocuments;
 export async function addEvent(
   row: Omit<ClaimStatusEventRow, "id" | "timestamp"> & { timestamp?: string }
 ): Promise<ClaimStatusEventRow> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const created = await (prisma as any).claimStatusEvent.create({
+  const created = await prisma.claimStatusEvent.create({
     data: {
       claimId: row.claimId,
       status: row.status,
@@ -457,8 +437,7 @@ export async function addEvent(
 export async function getEvents(
   claimId: string
 ): Promise<ClaimStatusEventRow[]> {
-  // TODO(cast): remove once prisma client is regenerated.
-  const rows = await (prisma as any).claimStatusEvent.findMany({
+  const rows = await prisma.claimStatusEvent.findMany({
     where: { claimId },
     orderBy: { timestamp: "asc" },
   });

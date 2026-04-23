@@ -662,6 +662,7 @@ model Patient {
   consentArtefacts     ConsentArtefact[]
   careContexts         CareContext[]
   insuranceClaimsV2    InsuranceClaim2[]
+  doseLogs             AdherenceDoseLog[]
 
   @@index([mrNumber])
   @@map("patients")
@@ -3382,9 +3383,31 @@ model AdherenceSchedule {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  doseLogs        AdherenceDoseLog[]
+
   @@index([patientId])
   @@index([active])
   @@map("adherence_schedules")
+}
+
+model AdherenceDoseLog {
+  id              String   @id @default(cuid())
+  scheduleId      String
+  patientId       String
+  medicationName  String
+  scheduledAt     DateTime
+  takenAt         DateTime?
+  skipped         Boolean  @default(false)
+  note            String?
+  createdAt       DateTime @default(now())
+
+  schedule        AdherenceSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@index([patientId])
+  @@index([patientId, scheduledAt])
+  @@map("adherence_dose_logs")
 }
 
 // ─── LAB REPORT AI EXPLANATIONS ─────────────────────────

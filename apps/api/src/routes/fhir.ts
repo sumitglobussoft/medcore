@@ -30,10 +30,10 @@ import {
 import {
   toSearchsetBundle,
   toTransactionBundle,
-  processTransactionBundle,
   type FhirBundle,
 } from "../services/fhir/bundle";
 import { validateResource, validateBundle } from "../services/fhir/validator";
+import { processBundle } from "../services/fhir/ingest";
 
 const router = Router();
 router.use(authenticate);
@@ -244,7 +244,9 @@ router.get(
 
 router.post(
   "/Bundle",
-  authorize(Role.ADMIN, Role.DOCTOR),
+  // Ingesting a FHIR bundle rewrites clinical state across multiple tables and
+  // bypasses the normal per-endpoint business rules — restricted to ADMIN.
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const bundle = req.body as FhirBundle;
@@ -259,18 +261,37 @@ router.post(
       }
 
       if (bundle.type !== "transaction") {
-        sendFhir(res, 400, operationOutcome("error", "invalid", "Bundle.type must be 'transaction'"));
+        sendFhir(
+          res,
+          400,
+          operationOutcome(
+            "error",
+            "invalid",
+            `Bundle.type must be 'transaction' (got '${bundle.type}'). batch/history/document bundles are not accepted.`
+          )
+        );
         return;
       }
 
-      // Stub: echo a transaction-response. Real ingestion (upserts per entry)
-      // is out of scope for this initial FHIR slice — it requires per-resource
-      // reverse-mappers and entity-conflict strategy.
-      const response = processTransactionBundle(bundle);
+      const { bundle: response, success, errorMessage } = await processBundle(bundle, {
+        recordedBy: req.user?.userId ?? "system",
+      });
 
       await auditLog(req, "FHIR_BUNDLE_RECEIVED", "Bundle", bundle.id, {
         entryCount: bundle.entry?.length ?? 0,
+        success,
       });
+
+      if (!success) {
+        // Whole-bundle failure — rollback already happened in processBundle.
+        sendFhir(
+          res,
+          400,
+          operationOutcome("error", "processing", errorMessage ?? "Bundle ingestion failed")
+        );
+        return;
+      }
+
       sendFhir(res, 200, response);
     } catch (err) {
       next(err);

@@ -671,9 +671,8 @@ router.post(
         data: {
           patientJoinedAt: existing.patientJoinedAt ?? now,
           status: existing.status === "SCHEDULED" ? "WAITING" : existing.status,
-          // TODO(cast): remove after prisma generate
           waitingRoomState: "PATIENT_WAITING",
-        } as any,
+        },
       });
 
       // Socket.IO — notify the doctor
@@ -738,7 +737,6 @@ router.post(
       let waitingRoomState: "ADMITTED" | "DENIED";
       let jitsiRoom: string | null = null;
 
-      // TODO(cast): remove after prisma generate
       const updateData: Record<string, unknown> = {
         meetingUrl: updatedMeetingUrl,
         status: admit && existing.status === "WAITING" ? "IN_PROGRESS" : existing.status,
@@ -774,13 +772,11 @@ router.post(
         jitsiRoom = doctorSigned.room;
 
         updateData.meetingUrl = updatedMeetingUrl;
-        // TODO(cast): remove after prisma generate
         updateData.waitingRoomState = "ADMITTED";
         updateData.admittedAt = now;
         updateData.jitsiRoom = jitsiRoom;
       } else {
         waitingRoomState = "DENIED";
-        // TODO(cast): remove after prisma generate
         updateData.waitingRoomState = "DENIED";
         updateData.deniedAt = now;
         updateData.denyReason = req.body.reason ?? null;
@@ -788,7 +784,7 @@ router.post(
 
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
-        data: updateData as any,
+        data: updateData,
       });
 
       const io = req.app.get("io");
@@ -871,9 +867,8 @@ router.post(
         where: { id: req.params.id },
         data: {
           recordingConsent: true,
-          // TODO(cast): remove after prisma generate
           recordingStartedAt: new Date(),
-        } as any,
+        },
       });
 
       const io = req.app.get("io");
@@ -917,9 +912,8 @@ router.post(
         where: { id: req.params.id },
         data: {
           recordingUrl: req.body.recordingUrl ?? existing.recordingUrl,
-          // TODO(cast): remove after prisma generate
           recordingStoppedAt: new Date(),
-        } as any,
+        },
       });
 
       const io = req.app.get("io");
@@ -988,11 +982,10 @@ router.post(
       const session = await prisma.telemedicineSession.update({
         where: { id: req.params.id },
         data: {
-          // TODO(cast): remove after prisma generate
           precheckPassed: passed,
           precheckAt,
           precheckDetails,
-        } as any,
+        },
       });
 
       auditLog(req, "TELEMED_PRECHECK", "telemedicineSession", session.id, {

@@ -16,6 +16,7 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -370,6 +371,88 @@ abdmRouter.post(
         type: req.body.type,
       });
       res.status(202).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── GET /consents (list by patient) ───────────────────────────────────────
+//
+// Introduced after the /dashboard/abdm Consents tab flagged that there was no
+// way to enumerate existing consent artefacts for a given patient. Reads
+// straight from our local DB — use `GET /consent/:id` (singular) if you want
+// to go round-trip to the ABDM gateway for a single artefact. Note the field
+// name: the ConsentArtefact model uses `createdAt` as its request timestamp
+// (set at step 1 of the consent request flow), so we sort by that.
+
+const listConsentsQuerySchema = z.object({
+  patientId: z.string().uuid(),
+});
+
+abdmRouter.get(
+  "/consents",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = listConsentsQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: parsed.error.issues[0]?.message ?? "Invalid query",
+        });
+        return;
+      }
+      const { patientId } = parsed.data;
+
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { id: true },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+
+      const rows = await prisma.consentArtefact.findMany({
+        where: { patientId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+
+      await auditLog(req, "ABDM_CONSENTS_LISTED", "ConsentArtefact", undefined, {
+        patientId,
+        count: rows.length,
+      });
+
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ── GET /consents/:id (local read) ────────────────────────────────────────
+//
+// Unlike `GET /consent/:id` which calls the ABDM gateway, this endpoint reads
+// the artefact row from our own DB — useful for UIs that just want to render
+// the last known status without triggering a gateway round-trip.
+
+abdmRouter.get(
+  "/consents/:id",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const row = await prisma.consentArtefact.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!row) {
+        res.status(404).json({ success: false, data: null, error: "Consent not found" });
+        return;
+      }
+      await auditLog(req, "ABDM_CONSENT_READ_LOCAL", "ConsentArtefact", req.params.id);
+      res.json({ success: true, data: row, error: null });
     } catch (err) {
       next(err);
     }

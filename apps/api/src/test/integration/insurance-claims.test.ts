@@ -90,9 +90,9 @@ describeIfDB("Insurance TPA Claims API (integration)", () => {
     // Deletion order matters due to FK cascades — events and documents first,
     // then the parent claims. Explicit rather than relying on cascade so we
     // don't silently leak orphans if the cascade definition changes.
-    await (prisma as any).claimStatusEvent.deleteMany({});
-    await (prisma as any).claimDocument.deleteMany({});
-    await (prisma as any).insuranceClaim2.deleteMany({});
+    await prisma.claimStatusEvent.deleteMany({});
+    await prisma.claimDocument.deleteMany({});
+    await prisma.insuranceClaim2.deleteMany({});
   });
 
   // ── 1 ─────────────────────────────────────────────────────────────────

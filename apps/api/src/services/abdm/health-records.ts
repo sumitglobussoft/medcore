@@ -245,7 +245,7 @@ export async function linkCareContext(args: {
     },
   });
 
-  await (prisma as any).careContext.upsert({
+  await prisma.careContext.upsert({
     where: { careContextRef: args.careContextRef },
     update: { lastPushedAt: new Date(), abhaAddress: args.abhaAddress, type: args.type },
     create: {
@@ -323,7 +323,7 @@ export async function pushHealthInformation(args: {
   });
 
   // Mark the care-context as freshly pushed.
-  await (prisma as any).careContext
+  await prisma.careContext
     .update({
       where: { careContextRef: args.careContextRef },
       data: { lastPushedAt: new Date() },

@@ -16,6 +16,7 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { uploadFile } from "../services/storage";
 import { getAdapter } from "../services/insurance-claims/registry";
+import { reconcilePendingClaims } from "../services/insurance-claims/reconciliation";
 import {
   ClaimDocumentType,
   NormalisedClaimStatus,
@@ -519,6 +520,30 @@ router.post(
       );
 
       res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/claims/reconcile — manual trigger for the reconciliation
+ * worker. ADMIN only. Runs the same code path the hourly scheduler calls so
+ * ops can force a sync without waiting for the next tick (e.g. after a TPA
+ * outage recovers, or to verify a fix).
+ */
+router.post(
+  "/reconcile",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await reconcilePendingClaims();
+      auditLog(req, "RECONCILE_CLAIMS", "insurance_claim", undefined, {
+        checked: result.checked,
+        updated: result.updated,
+        errorCount: result.errors.length,
+      }).catch(console.error);
+      res.json({ success: true, data: result, error: null });
     } catch (err) {
       next(err);
     }

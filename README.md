@@ -36,7 +36,7 @@ The project is under active development. A live demo instance runs at **[medcore
 | **E2E** | 29 Playwright specs against the live demo URL |
 | **Accessibility** | 12 axe-core tests, WCAG 2.1 AA, per-page contrast budgets |
 | **API routers** | 63 (12 AI, plus ABDM, FHIR, insurance claims, chart-search) |
-| **Prisma models** | 136 |
+| **Prisma models** | ~136 |
 | **Prisma migrations (production)** | 9, all applied via `migrate deploy` |
 | **CI workflows** | 4 (typecheck, API, web, Playwright E2E) |
 | **Demo URL** | https://medcore.globusdemos.com |

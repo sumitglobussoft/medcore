@@ -83,6 +83,7 @@ import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
 import { startRetentionScheduler } from "./services/retention-scheduler";
+import { startClaimsScheduler } from "./services/insurance-claims-scheduler";
 
 export function buildApp() {
   const app = express();
@@ -233,7 +234,8 @@ export const app = built.app;
 export const httpServer = built.httpServer;
 export const io = built.io;
 
-// Start background scheduler for audio retention cleanup (runs daily)
+// Background schedulers (daily retention cleanup, hourly TPA claims reconciliation)
 if (process.env.NODE_ENV !== "test") {
   startRetentionScheduler();
+  startClaimsScheduler();
 }

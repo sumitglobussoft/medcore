@@ -183,9 +183,7 @@ export async function linkAbha(input: LinkAbhaInput): Promise<{ linkId: string; 
 
   const requestId = crypto.randomUUID();
   // Persist a PENDING link record — the webhook flips it to LINKED.
-  // Uses `(prisma as any)` because the AbhaLink Prisma model lives in
-  // apps/api/src/services/abdm/.prisma-models.md (not yet migrated).
-  const link = await (prisma as any).abhaLink.create({
+  const link = await prisma.abhaLink.create({
     data: {
       patientId: input.patientId,
       abhaAddress: verified.abhaAddress ?? input.abhaAddress,
@@ -223,13 +221,13 @@ export async function linkAbha(input: LinkAbhaInput): Promise<{ linkId: string; 
  * ABHA.
  */
 export async function delinkAbha(patientId: string, abhaAddress: string): Promise<void> {
-  const existing = await (prisma as any).abhaLink.findFirst({
+  const existing = await prisma.abhaLink.findFirst({
     where: { patientId, abhaAddress, status: { in: ["LINKED", "VERIFIED", "PENDING"] } },
   });
   if (!existing) {
     throw new ABDMError("No active ABHA link for this patient", 404);
   }
-  await (prisma as any).abhaLink.update({
+  await prisma.abhaLink.update({
     where: { id: existing.id },
     data: { status: "REVOKED", revokedAt: new Date() },
   });
@@ -246,11 +244,11 @@ export async function handleLinkCallback(payload: {
   status: "SUCCESS" | "FAILED";
   error?: { code?: string; message?: string };
 }): Promise<void> {
-  const row = await (prisma as any).abhaLink.findFirst({
+  const row = await prisma.abhaLink.findFirst({
     where: { requestId: payload.requestId },
   });
   if (!row) return; // idempotent — unknown request id is ignored
-  await (prisma as any).abhaLink.update({
+  await prisma.abhaLink.update({
     where: { id: row.id },
     data: {
       status: payload.status === "SUCCESS" ? "LINKED" : "FAILED",
