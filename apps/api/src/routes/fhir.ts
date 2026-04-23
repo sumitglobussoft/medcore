@@ -34,6 +34,18 @@ import {
 } from "../services/fhir/bundle";
 import { validateResource, validateBundle } from "../services/fhir/validator";
 import { processBundle } from "../services/fhir/ingest";
+import {
+  searchPatient,
+  searchEncounter,
+  searchMedicationRequest,
+  searchAllergyIntolerance,
+  FhirSearchError,
+  type PatientSearchParams,
+  type EncounterSearchParams,
+  type MedicationRequestSearchParams,
+  type AllergyIntoleranceSearchParams,
+  type SearchContext,
+} from "../services/fhir/search";
 
 const router = Router();
 router.use(authenticate);
@@ -333,6 +345,120 @@ router.get(
       sendFhir(res, 200, bundle);
     } catch (err) {
       next(err);
+    }
+  }
+);
+
+// ─── Search endpoints (FHIR R4 §3.1.3 — type=searchset) ────────────────────
+//
+// These provide the third-party query entrypoint used by ABDM HIU pulls and
+// other FHIR clients. Unlike the read endpoints they accept only ADMIN/DOCTOR
+// (patient-self role would need per-patient authorisation we can't express
+// via a simple filter). Bad parameters produce a FHIR OperationOutcome with
+// severity=error rather than being silently ignored.
+
+/** Extract the SearchContext used to build self/next/prev links. */
+function searchContext(req: Request): SearchContext {
+  // Prefer the FHIR canonical base when the reverse proxy sets it; fall back
+  // to the request host. URLs are assembled with the same `req.path` so link
+  // URLs round-trip back to this handler.
+  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  const baseUrl = `${proto}://${host}${req.baseUrl}${req.path}`;
+  const searchParams = new URLSearchParams();
+  for (const [k, v] of Object.entries(req.query)) {
+    if (Array.isArray(v)) v.forEach((vv) => searchParams.append(k, String(vv)));
+    else if (v !== undefined) searchParams.set(k, String(v));
+  }
+  const selfUrl = `${baseUrl}?${searchParams.toString()}`;
+  return { baseUrl, searchParams, selfUrl };
+}
+
+/** Coerce Express's ParsedQs into string-only params for our search layer. */
+function flatQuery(q: Request["query"]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(q)) {
+    if (Array.isArray(v)) {
+      if (v.length) out[k] = String(v[0]);
+    } else if (v !== undefined && v !== null) {
+      out[k] = String(v);
+    }
+  }
+  return out;
+}
+
+async function handleSearchError(
+  res: Response,
+  err: unknown,
+  next: NextFunction
+): Promise<void> {
+  if (err instanceof FhirSearchError) {
+    sendFhir(res, 400, operationOutcome("error", "invalid", err.diagnostics));
+    return;
+  }
+  next(err as any);
+}
+
+// GET /api/v1/fhir/Patient?name=...&family=...&identifier=...&_count=...
+router.get(
+  "/Patient",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const q = flatQuery(req.query) as PatientSearchParams;
+    try {
+      const bundle = await searchPatient(q, searchContext(req));
+      await auditLog(req, "FHIR_PATIENT_SEARCH", "Patient", undefined, { params: q, total: bundle.total });
+      sendFhir(res, 200, bundle);
+    } catch (err) {
+      await handleSearchError(res, err, next);
+    }
+  }
+);
+
+// GET /api/v1/fhir/Encounter?patient=...&date=ge2024-01-01&status=finished
+router.get(
+  "/Encounter",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const q = flatQuery(req.query) as EncounterSearchParams;
+    try {
+      const bundle = await searchEncounter(q, searchContext(req));
+      await auditLog(req, "FHIR_ENCOUNTER_SEARCH", "Encounter", undefined, { params: q, total: bundle.total });
+      sendFhir(res, 200, bundle);
+    } catch (err) {
+      await handleSearchError(res, err, next);
+    }
+  }
+);
+
+// GET /api/v1/fhir/MedicationRequest?patient=...&authoredon=ge2025-01-01
+router.get(
+  "/MedicationRequest",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const q = flatQuery(req.query) as MedicationRequestSearchParams;
+    try {
+      const bundle = await searchMedicationRequest(q, searchContext(req));
+      await auditLog(req, "FHIR_MEDICATION_REQUEST_SEARCH", "MedicationRequest", undefined, { params: q, total: bundle.total });
+      sendFhir(res, 200, bundle);
+    } catch (err) {
+      await handleSearchError(res, err, next);
+    }
+  }
+);
+
+// GET /api/v1/fhir/AllergyIntolerance?patient=...
+router.get(
+  "/AllergyIntolerance",
+  authorize(Role.ADMIN, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const q = flatQuery(req.query) as AllergyIntoleranceSearchParams;
+    try {
+      const bundle = await searchAllergyIntolerance(q, searchContext(req));
+      await auditLog(req, "FHIR_ALLERGY_SEARCH", "AllergyIntolerance", undefined, { params: q, total: bundle.total });
+      sendFhir(res, 200, bundle);
+    } catch (err) {
+      await handleSearchError(res, err, next);
     }
   }
 );

@@ -79,9 +79,12 @@ import { aiChartSearchRouter } from "./routes/ai-chart-search";
 import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
+import { hl7v2Router } from "./routes/hl7v2";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
+import { tenantContextMiddleware } from "./middleware/tenant";
+import { withTenantContext } from "./services/tenant-context";
 import { startRetentionScheduler } from "./services/retention-scheduler";
 import { startClaimsScheduler } from "./services/insurance-claims-scheduler";
 
@@ -122,6 +125,15 @@ export function buildApp() {
   if (process.env.NODE_ENV !== "test") {
     app.use(rateLimit(600, 60_000));
   }
+
+  // Multi-tenancy — resolve tenant from JWT / X-Tenant-Id header and open an
+  // AsyncLocalStorage scope that Prisma middleware (see services/tenant-prisma)
+  // reads to auto-inject tenantId on create and auto-filter on read. Mounted
+  // globally BEFORE any route so every router (each of which does its own
+  // `router.use(authenticate)`) runs inside the tenant context. The tenant
+  // middleware decodes the JWT itself, so it is safe to mount before auth.
+  app.use(tenantContextMiddleware);
+  app.use(withTenantContext);
 
   // Public routes (no auth) — must be mounted BEFORE routers that require auth
   app.use("/api/v1/public", publicLabRouter);
@@ -194,6 +206,7 @@ export function buildApp() {
   app.use("/api/v1/fhir", fhirRouter);
   app.use("/api/v1/abdm", abdmRouter);
   app.use("/api/v1/claims", insuranceClaimsRouter);
+  app.use("/api/v1/hl7v2", hl7v2Router);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check

@@ -426,6 +426,47 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum TenantPlan {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+// ─── MULTI-TENANCY ──────────────────────────────────────
+
+model Tenant {
+  id        String     @id @default(uuid())
+  name      String
+  subdomain String     @unique
+  plan      TenantPlan @default(BASIC)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  users                User[]
+  doctors              Doctor[]
+  patients             Patient[]
+  appointments         Appointment[]
+  consultations        Consultation[]
+  prescriptions        Prescription[]
+  invoices             Invoice[]
+  payments             Payment[]
+  labOrders            LabOrder[]
+  labResults           LabResult[]
+  admissions           Admission[]
+  medicationOrders     MedicationOrder[]
+  nurseRounds          NurseRound[]
+  referrals            Referral[]
+  surgeries            Surgery[]
+  staffShifts          StaffShift[]
+  leaveRequests        LeaveRequest[]
+  telemedicineSessions TelemedicineSession[]
+  emergencyCases       EmergencyCase[]
+  notifications        Notification[]
+
+  @@map("tenants")
+}
+
 // ─── USERS & AUTH ───────────────────────────────────────
 
 model User {
@@ -447,6 +488,9 @@ model User {
   pushTokenUpdatedAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   doctor                    Doctor?
   patient                   Patient?
@@ -475,6 +519,7 @@ model User {
   @@index([email])
   @@index([phone])
   @@index([role])
+  @@index([tenantId])
   @@map("users")
 }
 
@@ -536,6 +581,9 @@ model Doctor {
   subSpecialty     String?
   bio              String?
 
+  tenantId         String?
+  tenant           Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   schedules            DoctorSchedule[]
   scheduleOverrides    ScheduleOverride[]
@@ -555,6 +603,7 @@ model Doctor {
   controlledEntries    ControlledSubstanceEntry[]
   aiScribeSessions     AIScribeSession[]
 
+  @@index([tenantId])
   @@map("doctors")
 }
 
@@ -618,6 +667,9 @@ model Patient {
   // Pricing tier (Apr 2026) — STANDARD, EMPLOYEE, SENIOR_CITIZEN, BPL, VIP
   pricingTier           String    @default("STANDARD")
 
+  tenantId             String?
+  tenant               Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   guardian             Patient?              @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
   dependents           Patient[]             @relation("PatientGuardian")
@@ -665,6 +717,7 @@ model Patient {
   doseLogs             AdherenceDoseLog[]
 
   @@index([mrNumber])
+  @@index([tenantId])
   @@map("patients")
 }
 
@@ -697,6 +750,9 @@ model Appointment {
   // LWBS (Left Without Being Seen) - reuses NO_SHOW status (Apr 2026)
   lwbsReason            String?
 
+  tenantId              String?
+  tenant                Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient           Patient           @relation(fields: [patientId], references: [id])
   doctor            Doctor            @relation(fields: [doctorId], references: [id])
   vitals            Vitals?
@@ -713,6 +769,7 @@ model Appointment {
   @@index([date, status])
   @@index([groupId])
   @@index([coordinatedVisitId])
+  @@index([tenantId])
   @@map("appointments")
 }
 
@@ -772,9 +829,13 @@ model Consultation {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
 
+  @@index([tenantId])
   @@map("consultations")
 }
 
@@ -798,6 +859,9 @@ model Prescription {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  tenantId      String?
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   appointment Appointment        @relation(fields: [appointmentId], references: [id])
   patient     Patient            @relation(fields: [patientId], references: [id])
   doctor      Doctor             @relation(fields: [doctorId], references: [id])
@@ -805,6 +869,7 @@ model Prescription {
   controlledEntries ControlledSubstanceEntry[]
 
   @@index([patientId])
+  @@index([tenantId])
   @@map("prescriptions")
 }
 
@@ -881,6 +946,9 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  tenantId        String?
+  tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   appointment       Appointment        @relation(fields: [appointmentId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
   items             InvoiceItem[]
@@ -893,6 +961,7 @@ model Invoice {
 
   @@index([patientId])
   @@index([invoiceNumber])
+  @@index([tenantId])
   @@map("invoices")
 }
 
@@ -922,9 +991,13 @@ model Payment {
   status        PaymentTxnStatus  @default(CAPTURED)
   paidAt        DateTime          @default(now())
 
+  tenantId      String?
+  tenant        Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
   @@index([invoiceId])
+  @@index([tenantId])
   @@map("payments")
 }
 
@@ -966,10 +1039,14 @@ model Notification {
   readAt         DateTime?
   createdAt      DateTime                   @default(now())
 
+  tenantId       String?
+  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
   @@index([deliveryStatus])
+  @@index([tenantId])
   @@map("notifications")
 }
 
@@ -1078,6 +1155,9 @@ model Admission {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
+  tenantId             String?
+  tenant               Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient          Patient            @relation(fields: [patientId], references: [id])
   doctor           Doctor             @relation(fields: [doctorId], references: [id])
   bed              Bed                @relation(fields: [bedId], references: [id])
@@ -1092,6 +1172,7 @@ model Admission {
   @@index([patientId])
   @@index([doctorId])
   @@index([status])
+  @@index([tenantId])
   @@map("admissions")
 }
 
@@ -1131,6 +1212,9 @@ model MedicationOrder {
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
 
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   admission       Admission                  @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   doctor          Doctor                     @relation(fields: [doctorId], references: [id])
   medicine        Medicine?                  @relation(fields: [medicineId], references: [id])
@@ -1138,6 +1222,7 @@ model MedicationOrder {
 
   @@index([admissionId])
   @@index([isActive])
+  @@index([tenantId])
   @@map("medication_orders")
 }
 
@@ -1165,11 +1250,15 @@ model NurseRound {
   notes       String
   performedAt DateTime @default(now())
 
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   nurse     User      @relation(fields: [nurseId], references: [id])
 
   @@index([admissionId])
   @@index([performedAt])
+  @@index([tenantId])
   @@map("nurse_rounds")
 }
 
@@ -1361,6 +1450,9 @@ model LabOrder {
   priority        String        @default("ROUTINE") // ROUTINE, URGENT, STAT
   stat            Boolean       @default(false)
 
+  tenantId        String?
+  tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient   Patient        @relation(fields: [patientId], references: [id])
   doctor    Doctor         @relation(fields: [doctorId], references: [id])
   admission Admission?     @relation(fields: [admissionId], references: [id])
@@ -1369,6 +1461,7 @@ model LabOrder {
   @@index([patientId])
   @@index([doctorId])
   @@index([status])
+  @@index([tenantId])
   @@map("lab_orders")
 }
 
@@ -1402,9 +1495,13 @@ model LabResult {
   verifiedBy  String? // user id (doctor)
   verifiedAt  DateTime?
 
+  tenantId    String?
+  tenant      Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   orderItem LabOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
   @@index([orderItemId])
+  @@index([tenantId])
   @@map("lab_results")
 }
 
@@ -1518,6 +1615,9 @@ model Referral {
   referredAt       DateTime       @default(now())
   respondedAt      DateTime?
 
+  tenantId         String?
+  tenant           Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient    Patient @relation("PatientReferrals", fields: [patientId], references: [id])
   fromDoctor Doctor  @relation("ReferrerDoctor", fields: [fromDoctorId], references: [id])
   toDoctor   Doctor? @relation("RefereeDoctor", fields: [toDoctorId], references: [id])
@@ -1525,6 +1625,7 @@ model Referral {
   @@index([patientId])
   @@index([fromDoctorId])
   @@index([status])
+  @@index([tenantId])
   @@map("referrals")
 }
 
@@ -1598,6 +1699,9 @@ model Surgery {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
+  tenantId             String?
+  tenant               Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient Patient          @relation(fields: [patientId], references: [id])
   surgeon Doctor           @relation("LeadSurgeon", fields: [surgeonId], references: [id])
   ot      OperatingTheater @relation(fields: [otId], references: [id])
@@ -1609,6 +1713,7 @@ model Surgery {
   @@index([surgeonId])
   @@index([scheduledAt])
   @@index([status])
+  @@index([tenantId])
   @@map("surgeries")
 }
 
@@ -1670,11 +1775,15 @@ model StaffShift {
   notes     String?
   createdAt DateTime    @default(now())
 
+  tenantId  String?
+  tenant    Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date, type])
   @@index([date])
   @@index([status])
+  @@index([tenantId])
   @@map("staff_shifts")
 }
 
@@ -1693,11 +1802,15 @@ model LeaveRequest {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
+  tenantId        String?
+  tenant          Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   user     User  @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
   approver User? @relation("LeaveApprover", fields: [approvedBy], references: [id])
 
   @@index([userId])
   @@index([status])
+  @@index([tenantId])
   @@map("leave_requests")
 }
 
@@ -1895,6 +2008,9 @@ model TelemedicineSession {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
+  tenantId            String?
+  tenant              Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  Doctor  @relation(fields: [doctorId], references: [id])
 
@@ -1902,6 +2018,7 @@ model TelemedicineSession {
   @@index([doctorId])
   @@index([scheduledAt])
   @@index([status])
+  @@index([tenantId])
   @@map("telemedicine_sessions")
 }
 
@@ -1954,6 +2071,9 @@ model EmergencyCase {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
+  tenantId          String?
+  tenant            Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   patient         Patient?   @relation(fields: [patientId], references: [id])
   attendingDoctor Doctor?    @relation("EmergencyAttendingDoctor", fields: [attendingDoctorId], references: [id])
   linkedAdmission Admission? @relation("EmergencyAdmission", fields: [linkedAdmissionId], references: [id])
@@ -1962,6 +2082,7 @@ model EmergencyCase {
   @@index([triageLevel])
   @@index([arrivedAt])
   @@index([isMLC])
+  @@index([tenantId])
   @@map("emergency_cases")
 }
 

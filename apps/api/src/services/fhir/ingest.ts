@@ -49,6 +49,9 @@ import type {
   FhirMedicationRequest,
   FhirAllergyIntolerance,
   FhirReference,
+  FhirServiceRequest,
+  FhirObservation,
+  FhirDiagnosticReport,
 } from "./resources";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -93,9 +96,25 @@ const SUPPORTED_TYPES = new Set([
   "Composition",
   "MedicationRequest",
   "AllergyIntolerance",
+  "ServiceRequest",
+  "Observation",
+  "DiagnosticReport",
 ]);
 
-/** Topological priority — lower runs first. */
+/**
+ * Topological priority — lower runs first.
+ *
+ * Lab flow ordering rationale:
+ *   • ServiceRequest (priority 2) is the parent lab order, it must precede
+ *     Observations that reference it via basedOn / our DiagnosticReport.basedOn
+ *     resolution.
+ *   • Observation (priority 3) references the order via its `basedOn` chain
+ *     (or the DiagnosticReport that groups them) — they're the actual
+ *     LabResult rows.
+ *   • DiagnosticReport (priority 4) ties Observations back to the LabOrder,
+ *     flipping the order's status to COMPLETED when status=final. It runs
+ *     last so every Observation and the parent ServiceRequest exist.
+ */
 const PRIORITY: Record<string, number> = {
   Patient: 0,
   Practitioner: 0,
@@ -104,6 +123,9 @@ const PRIORITY: Record<string, number> = {
   Composition: 2,
   MedicationRequest: 2,
   AllergyIntolerance: 2,
+  ServiceRequest: 2,
+  Observation: 3,
+  DiagnosticReport: 4,
 };
 
 // ─── Reference resolution ───────────────────────────────────────────────────
@@ -204,6 +226,91 @@ function mapAllergySeverityBack(
   if (reactionSeverity === "severe") return "SEVERE";
   if (reactionSeverity === "moderate" || criticality === "low") return "MODERATE";
   return "MILD";
+}
+
+/**
+ * Map FHIR ServiceRequest.status → MedCore LabTestStatus. The forward mapper
+ * compresses SAMPLE_COLLECTED/IN_PROGRESS down to "active" so on the way back
+ * we can only land on ORDERED as a default active state; downstream workflow
+ * (sample collection, accessioning) will advance the status further.
+ */
+function mapServiceRequestStatusBack(
+  s: FhirServiceRequest["status"]
+): "ORDERED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "SAMPLE_REJECTED" {
+  switch (s) {
+    case "active":
+      return "ORDERED";
+    case "completed":
+      return "COMPLETED";
+    case "revoked":
+      return "CANCELLED";
+    case "entered-in-error":
+      return "SAMPLE_REJECTED";
+    case "on-hold":
+    case "draft":
+    case "unknown":
+    default:
+      return "ORDERED";
+  }
+}
+
+/**
+ * Map FHIR ServiceRequest.priority → MedCore LabOrder.priority. MedCore's
+ * priority is free-text ("ROUTINE" | "URGENT" | "STAT") so we collapse both
+ * asap/stat → STAT (stat is strictly stronger; asap is close enough for
+ * MedCore triage which only has three buckets).
+ */
+function mapLabPriorityBack(
+  p: FhirServiceRequest["priority"] | undefined
+): "ROUTINE" | "URGENT" | "STAT" {
+  switch (p) {
+    case "stat":
+    case "asap":
+      return "STAT";
+    case "urgent":
+      return "URGENT";
+    case "routine":
+    default:
+      return "ROUTINE";
+  }
+}
+
+/**
+ * Map a FHIR Observation.interpretation coding back to a MedCore LabResultFlag.
+ * Schema enum is NORMAL | LOW | HIGH | CRITICAL (no split between CRITICAL_HIGH
+ * and CRITICAL_LOW — we collapse both to CRITICAL, matching how the rest of
+ * MedCore persists them).
+ */
+function mapInterpretationBack(
+  interpretation: FhirObservation["interpretation"] | undefined
+): "NORMAL" | "LOW" | "HIGH" | "CRITICAL" {
+  const code =
+    interpretation?.[0]?.coding?.[0]?.code ??
+    interpretation?.[0]?.text ??
+    "";
+  switch (code.toUpperCase()) {
+    case "H":
+    case "HIGH":
+      return "HIGH";
+    case "L":
+    case "LOW":
+      return "LOW";
+    case "HH":
+    case "LL":
+    case "CRITICAL":
+    case "CRITICAL HIGH":
+    case "CRITICAL LOW":
+    case "AA":
+      return "CRITICAL";
+    case "A":
+    case "ABNORMAL":
+      // MedCore has no plain ABNORMAL bucket — map to HIGH so it's still flagged.
+      return "HIGH";
+    case "N":
+    case "NORMAL":
+    default:
+      return "NORMAL";
+  }
 }
 
 /** Normalise a FHIR dateTime to JS Date (or undefined). */
@@ -664,6 +771,425 @@ export async function ingestAllergyIntolerance(
   };
 }
 
+// ─── Lab reverse mappers ────────────────────────────────────────────────────
+//
+// Deliberately-skipped behaviours (documented here so the gap is obvious to the
+// next reader instead of buried in a design doc):
+//
+//   1. QC / Levey-Jennings retro-fitting
+//      MedCore maintains a `LabQCEntry` history for each instrument + test so
+//      the lab supervisor can spot drift. Backfilled results coming in via
+//      FHIR carry no instrument context — they may even be results from a
+//      different lab entirely (round-tripped via ABDM). We therefore do NOT
+//      push LabQCEntry rows from this path; QC only gets written when results
+//      flow through the native /lab/results POST endpoint.
+//
+//   2. Billing reconciliation
+//      The native lab order path in `routes/lab.ts` creates Billing line items
+//      alongside the LabOrder. FHIR-triggered orders are assumed to already
+//      be billed elsewhere (the originating system) — creating MedCore line
+//      items here would double-charge. A note is stamped on LabOrder.notes so
+//      the finance team can see the order came from FHIR and needs manual
+//      reconciliation if it belongs in a MedCore bill.
+//
+//   3. Critical-value Socket.IO alerts
+//      The native /lab/results endpoint fires Socket.IO `lab:criticalValue`
+//      events plus SMS to the ordering doctor when a CRITICAL flag lands.
+//      This is a UX channel, not a data obligation — re-firing it on bulk
+//      backfill would spam doctors with alerts for stale results. Backfilled
+//      flags are persisted on the row but no realtime event is emitted.
+
+/**
+ * Resolve a Prisma LabTest (our `TestCatalog`) from a FHIR coding. Falls back
+ * to a generic OTHER entry if no match is found so the bundle can still land;
+ * the caller is expected to surface a warning OperationOutcome when this
+ * happens so data stewards notice the catalog drift.
+ */
+async function resolveOrCreateTestCatalog(
+  tx: Tx,
+  code: FhirServiceRequest["code"] | FhirObservation["code"] | FhirDiagnosticReport["code"]
+): Promise<{ testId: string; testName: string; created: boolean }> {
+  const coding = code?.coding?.[0];
+  const incomingCode = coding?.code?.trim();
+  const incomingName = coding?.display ?? code?.text ?? incomingCode ?? "Unknown test";
+
+  // Try match by explicit code first (that's the LabTest.code business key).
+  if (incomingCode) {
+    const byCode = await tx.labTest.findUnique({ where: { code: incomingCode } });
+    if (byCode) return { testId: byCode.id, testName: byCode.name, created: false };
+  }
+
+  // Fall back to name match — some upstream systems omit a machine code.
+  if (incomingName) {
+    const byName = await tx.labTest.findFirst({ where: { name: incomingName } });
+    if (byName) return { testId: byName.id, testName: byName.name, created: false };
+  }
+
+  // No match — mint a generic OTHER catalog entry rather than failing.
+  // We synthesise a code when none was provided so `LabTest.code` (unique)
+  // doesn't collide with an existing generic entry.
+  const generatedCode =
+    incomingCode ?? `FHIR-GEN-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+  const created = await tx.labTest.create({
+    data: {
+      code: generatedCode,
+      name: incomingName,
+      category: "OTHER",
+      price: 0,
+    },
+  });
+  return { testId: created.id, testName: created.name, created: true };
+}
+
+/**
+ * Inverse of `labOrderToServiceRequest`. Upserts a LabOrder keyed on
+ * `resource.id` (the forward mapper uses `order.id` directly). The order's
+ * first LabOrderItem is created/kept in sync with the ServiceRequest.code
+ * via `resolveOrCreateTestCatalog` — additional panel items from a single
+ * FHIR ServiceRequest are not modelled (ServiceRequest is one-test per
+ * resource in our forward mapper, so the reverse is symmetric).
+ *
+ * Returns an optional `warning` when the test code didn't match the catalog
+ * and a generic OTHER entry had to be minted — surfaced as an
+ * OperationOutcome entry by the bundle processor.
+ */
+export async function ingestServiceRequest(
+  tx: Tx,
+  resource: FhirServiceRequest,
+  refs: RefMap,
+  _recordedBy: string
+): Promise<IngestResult & { warning?: string }> {
+  const patientId = refs.resolve(resource.subject);
+  const doctorId = refs.resolve(resource.requester);
+  if (!patientId) throw new Error("ingestServiceRequest: unresolved subject reference");
+  if (!doctorId) throw new Error("ingestServiceRequest: unresolved requester reference");
+
+  const status = mapServiceRequestStatusBack(resource.status);
+  const priority = mapLabPriorityBack(resource.priority);
+  const stat = priority === "STAT";
+
+  const catalog = await resolveOrCreateTestCatalog(tx, resource.code);
+  const warning = catalog.created
+    ? `ServiceRequest.code '${resource.code?.coding?.[0]?.code ?? resource.code?.text ?? "<none>"}' did not match any TestCatalog entry; created a generic OTHER entry.`
+    : undefined;
+
+  const existing = resource.id
+    ? await tx.labOrder.findUnique({ where: { id: resource.id } })
+    : null;
+
+  if (existing) {
+    const updated = await tx.labOrder.update({
+      where: { id: existing.id },
+      data: {
+        status,
+        priority,
+        stat,
+        orderedAt: toDate(resource.authoredOn) ?? existing.orderedAt,
+        // Stamp a provenance note (see deliberately-skipped #2 re: billing).
+        notes:
+          existing.notes && /FHIR/.test(existing.notes)
+            ? existing.notes
+            : [existing.notes, "Imported/updated via FHIR bundle — billing not auto-reconciled."]
+                .filter(Boolean)
+                .join(" "),
+      },
+    });
+
+    // Ensure an OrderItem exists for this test; if not, create one.
+    const anyItem = await tx.labOrderItem.findFirst({
+      where: { orderId: updated.id, testId: catalog.testId },
+    });
+    if (!anyItem) {
+      await tx.labOrderItem.create({
+        data: { orderId: updated.id, testId: catalog.testId, status },
+      });
+    }
+
+    return {
+      id: updated.id,
+      action: "update",
+      location: locationFor("ServiceRequest", updated.id),
+      warning,
+    };
+  }
+
+  // Create path — generate an order number along the same convention as
+  // routes/lab.ts ("LAB" + sequential digits) but with an "F" suffix so it's
+  // obvious the row came in via FHIR, and unique-constraint-safe.
+  const orderNumber = `LAB-F-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1e4)
+    .toString(36)
+    .toUpperCase()
+    .padStart(3, "0")}`;
+
+  const created = await tx.labOrder.create({
+    data: {
+      id: resource.id,
+      orderNumber,
+      patientId,
+      doctorId,
+      status,
+      priority,
+      stat,
+      orderedAt: toDate(resource.authoredOn) ?? new Date(),
+      notes: "Imported via FHIR bundle — billing not auto-reconciled.",
+      items: {
+        create: [{ testId: catalog.testId, status }],
+      },
+    },
+  });
+
+  return {
+    id: created.id,
+    action: "create",
+    location: locationFor("ServiceRequest", created.id),
+    warning,
+  };
+}
+
+/**
+ * Inverse of `labResultToObservation`. A LabResult is keyed by the pair
+ * (LabOrderItem.orderId, LabResult.parameter) where parameter is the
+ * Observation's `code.text` (or coding display). This matches what the
+ * forward mapper emits and keeps repeat ingestion idempotent.
+ *
+ * Parent resolution order:
+ *   1. If `resource.basedOn` references a ServiceRequest in our ref map → use
+ *      that LabOrder.
+ *   2. Otherwise, if the Observation's `id` matches an existing LabResult
+ *      row, update it in place.
+ *   3. Otherwise, we can't land the Observation without a parent and throw —
+ *      the DiagnosticReport path is the only other way to associate them.
+ *
+ * Value handling:
+ *   - `valueQuantity` → numeric .value stored as string + unit preserved.
+ *   - `valueString`   → stored verbatim (useful for microbiology/culture text).
+ *   - Both absent     → empty string (Observation had no result payload — we
+ *     still persist a preliminary row so the link survives).
+ */
+export async function ingestObservation(
+  tx: Tx,
+  resource: FhirObservation,
+  refs: RefMap,
+  recordedBy: string
+): Promise<IngestResult & { warning?: string }> {
+  const patientId = refs.resolve(resource.subject);
+  if (!patientId) throw new Error("ingestObservation: unresolved subject reference");
+
+  // Find the parent LabOrder. FhirObservation in our forward mapper doesn't
+  // carry basedOn, but incoming bundles from other systems might. Accept any
+  // of: explicit basedOn → ServiceRequest, or a ref pre-registered under the
+  // Observation's own id as "<id>:parentOrder".
+  // Future cross-resource hints go through the ref map.
+  const basedOnRef = (resource as unknown as { basedOn?: FhirReference[] }).basedOn?.[0];
+  let labOrderId: string | undefined = basedOnRef ? refs.resolve(basedOnRef) : undefined;
+
+  // DiagnosticReport processing registers `Observation/<id>` → parent order
+  // in the ref map before (or after) this Observation is processed; check for
+  // that hint too.
+  if (!labOrderId && resource.id) {
+    labOrderId = refs.resolve(`ObservationParent/${resource.id}`);
+  }
+
+  // Fall back — update-in-place if the Observation id matches a LabResult row.
+  const existingResult = resource.id
+    ? await tx.labResult.findUnique({ where: { id: resource.id } })
+    : null;
+
+  if (!labOrderId && !existingResult) {
+    throw new Error(
+      "ingestObservation: Observation has no resolvable parent LabOrder " +
+        "(missing basedOn/ServiceRequest reference and no prior LabResult match). " +
+        "Include a ServiceRequest or a DiagnosticReport with basedOn in the bundle."
+    );
+  }
+
+  const catalog = await resolveOrCreateTestCatalog(tx, resource.code);
+  const warning = catalog.created
+    ? `Observation.code '${resource.code?.coding?.[0]?.code ?? resource.code?.text ?? "<none>"}' did not match any TestCatalog entry; created a generic OTHER entry.`
+    : undefined;
+
+  const parameter = resource.code?.text ?? resource.code?.coding?.[0]?.display ?? catalog.testName;
+
+  // Translate value.
+  let value: string;
+  let unit: string | undefined;
+  if (resource.valueQuantity && typeof resource.valueQuantity.value === "number") {
+    value = String(resource.valueQuantity.value);
+    unit = resource.valueQuantity.unit;
+  } else if (typeof resource.valueString === "string") {
+    value = resource.valueString;
+    unit = undefined;
+  } else {
+    value = "";
+    unit = undefined;
+  }
+
+  const flag = mapInterpretationBack(resource.interpretation);
+  const normalRange = resource.referenceRange?.[0]?.text;
+  const reportedAt = toDate(resource.effectiveDateTime) ?? toDate(resource.issued) ?? new Date();
+  const verifiedAt =
+    resource.status === "final" ? toDate(resource.issued) ?? reportedAt : null;
+
+  if (existingResult) {
+    const updated = await tx.labResult.update({
+      where: { id: existingResult.id },
+      data: {
+        parameter,
+        value,
+        unit: unit ?? existingResult.unit,
+        flag,
+        normalRange: normalRange ?? existingResult.normalRange,
+        verifiedAt: verifiedAt ?? existingResult.verifiedAt,
+        verifiedBy: verifiedAt ? existingResult.verifiedBy ?? recordedBy : existingResult.verifiedBy,
+      },
+    });
+    return {
+      id: updated.id,
+      action: "update",
+      location: locationFor("Observation", updated.id),
+      warning,
+    };
+  }
+
+  // At this point labOrderId is guaranteed (either directly from refs, or
+  // because existingResult would have been taken). TS still narrows, assert.
+  if (!labOrderId) {
+    throw new Error("ingestObservation: parent LabOrder resolution failed unexpectedly");
+  }
+
+  // Find or create the LabOrderItem for (order, test). Multiple Observations
+  // sharing the same test code attach to the same item.
+  let item = await tx.labOrderItem.findFirst({
+    where: { orderId: labOrderId, testId: catalog.testId },
+  });
+  if (!item) {
+    item = await tx.labOrderItem.create({
+      data: { orderId: labOrderId, testId: catalog.testId, status: "IN_PROGRESS" },
+    });
+  }
+
+  // Dedupe by (orderItemId, parameter) so repeated ingest is a no-op upsert.
+  const dup = await tx.labResult.findFirst({
+    where: { orderItemId: item.id, parameter },
+  });
+  if (dup) {
+    const updated = await tx.labResult.update({
+      where: { id: dup.id },
+      data: {
+        value,
+        unit: unit ?? dup.unit,
+        flag,
+        normalRange: normalRange ?? dup.normalRange,
+        verifiedAt: verifiedAt ?? dup.verifiedAt,
+        verifiedBy: verifiedAt ? dup.verifiedBy ?? recordedBy : dup.verifiedBy,
+      },
+    });
+    return {
+      id: updated.id,
+      action: "update",
+      location: locationFor("Observation", updated.id),
+      warning,
+    };
+  }
+
+  const created = await tx.labResult.create({
+    data: {
+      id: resource.id,
+      orderItemId: item.id,
+      parameter,
+      value,
+      unit,
+      flag,
+      normalRange,
+      enteredBy: recordedBy,
+      reportedAt,
+      verifiedAt: verifiedAt ?? undefined,
+      verifiedBy: verifiedAt ? recordedBy : null,
+    },
+  });
+
+  return {
+    id: created.id,
+    action: "create",
+    location: locationFor("Observation", created.id),
+    warning,
+  };
+}
+
+/**
+ * Inverse of `labOrderToDiagnosticReport`. The DiagnosticReport's role here is
+ * purely linking: it associates the result set with the parent LabOrder and,
+ * when `status=final`, flips the order to COMPLETED.
+ *
+ * The report's own id (`report-<orderId>` in our forward mapper) is not
+ * persisted — MedCore has no DiagnosticReport table; the LabOrder row *is*
+ * the report. We therefore return the LabOrder's id as the location, prefixed
+ * so callers can recognise it.
+ *
+ * Before doing anything the mapper pre-seeds the RefMap with
+ * `ObservationParent/<observationId>` → labOrderId hints so any subsequent
+ * Observation ingest in the same bundle can find its parent. This is why
+ * DiagnosticReport has the highest PRIORITY and runs last — the Observations
+ * it references have already been processed, but if a future refactor moves
+ * DR earlier this hint still lets Observations land correctly.
+ */
+export async function ingestDiagnosticReport(
+  tx: Tx,
+  resource: FhirDiagnosticReport,
+  refs: RefMap,
+  _recordedBy: string
+): Promise<IngestResult> {
+  const patientId = refs.resolve(resource.subject);
+  if (!patientId) throw new Error("ingestDiagnosticReport: unresolved subject reference");
+
+  // Parent LabOrder via basedOn[ServiceRequest/...]. Accept either a resolved
+  // ref or a raw id fallback.
+  const parentRef = resource.basedOn?.find((r) =>
+    r.reference?.includes("ServiceRequest/")
+  ) ?? resource.basedOn?.[0];
+  const labOrderId = refs.resolve(parentRef);
+  if (!labOrderId) {
+    throw new Error(
+      "ingestDiagnosticReport: cannot resolve parent LabOrder from basedOn[ServiceRequest]"
+    );
+  }
+
+  const labOrder = await tx.labOrder.findUnique({ where: { id: labOrderId } });
+  if (!labOrder) {
+    throw new Error(`ingestDiagnosticReport: LabOrder ${labOrderId} not found`);
+  }
+
+  // Register parent hints so Observations referenced by `result` can discover
+  // their parent regardless of processing order.
+  for (const obs of resource.result ?? []) {
+    const obsId = obs.reference?.split("/").pop();
+    if (obsId) {
+      refs.set(`ObservationParent/${obsId}`, labOrderId);
+    }
+  }
+
+  // Flip status to COMPLETED when the report is final — otherwise leave the
+  // existing status untouched so lifecycle progress isn't regressed.
+  const shouldComplete = resource.status === "final";
+  const updated = await tx.labOrder.update({
+    where: { id: labOrder.id },
+    data: {
+      status: shouldComplete ? "COMPLETED" : labOrder.status,
+      completedAt: shouldComplete
+        ? toDate(resource.issued) ?? toDate(resource.effectiveDateTime) ?? new Date()
+        : labOrder.completedAt,
+    },
+  });
+
+  return {
+    id: updated.id,
+    // `action` reflects that we updated the parent LabOrder; the
+    // DiagnosticReport itself has no dedicated row to "create".
+    action: "update",
+    location: locationFor("DiagnosticReport", `report-${updated.id}`),
+  };
+}
+
 // ─── Bundle processing ──────────────────────────────────────────────────────
 
 export interface ProcessBundleOptions {
@@ -768,7 +1294,7 @@ export async function processBundle(
 
       for (const { idx, entry } of processable) {
         const resource = entry.resource as FhirResource;
-        let result: IngestResult;
+        let result: IngestResult & { warning?: string };
 
         switch (resource.resourceType) {
           case "Patient":
@@ -792,9 +1318,22 @@ export async function processBundle(
           case "AllergyIntolerance":
             result = await ingestAllergyIntolerance(tx, resource, refs, recordedBy);
             break;
+          case "ServiceRequest":
+            result = await ingestServiceRequest(tx, resource, refs, recordedBy);
+            break;
+          case "Observation":
+            result = await ingestObservation(tx, resource, refs, recordedBy);
+            break;
+          case "DiagnosticReport":
+            result = await ingestDiagnosticReport(tx, resource, refs, recordedBy);
+            break;
           default:
-            // Should never hit this — guarded by SUPPORTED_TYPES above.
-            throw new Error(`Unsupported resourceType after filter: ${resource.resourceType}`);
+            // Should never hit this — guarded by SUPPORTED_TYPES above. TS
+            // narrows `resource` to `never` because every union arm is
+            // handled; cast for the diagnostic string only.
+            throw new Error(
+              `Unsupported resourceType after filter: ${(resource as FhirResource).resourceType}`
+            );
         }
 
         // Register resolution keys for downstream entries.
@@ -813,6 +1352,20 @@ export async function processBundle(
                 ? "200 OK"
                 : "200 OK",
           location: result.location,
+          // Surface any non-fatal warning (e.g. unknown test code → generic
+          // OTHER catalog entry created) so the client/data-steward sees it.
+          outcome: result.warning
+            ? {
+                resourceType: "OperationOutcome",
+                issue: [
+                  {
+                    severity: "warning",
+                    code: "informational",
+                    diagnostics: result.warning,
+                  },
+                ],
+              }
+            : undefined,
         };
       }
     });

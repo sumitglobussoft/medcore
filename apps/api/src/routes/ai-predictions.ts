@@ -27,7 +27,9 @@ router.get(
 
       const dateObj = new Date(date);
 
-      // Fetch BOOKED appointments with full patient/doctor/user info for the table
+      // security(2026-04-23): restricted `user` select — previous `user: true`
+      // leaked password hashes and all other User fields via `patientName` /
+      // `doctorName` response enrichment (see map below). Narrow to id+name.
       const appointments = await prisma.appointment.findMany({
         where: {
           date: dateObj,
@@ -36,12 +38,12 @@ router.get(
         include: {
           patient: {
             include: {
-              user: true,
+              user: { select: { id: true, name: true } },
             },
           },
           doctor: {
             include: {
-              user: true,
+              user: { select: { id: true, name: true } },
             },
           },
         },

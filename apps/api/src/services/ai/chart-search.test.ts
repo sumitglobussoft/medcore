@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockPrisma, mockGenerateText } = vi.hoisted(() => ({
+const { mockPrisma, mockGenerateText, mockRerankChunks } = vi.hoisted(() => ({
   mockPrisma: {
     doctor: { findFirst: vi.fn() },
     appointment: { findMany: vi.fn() },
@@ -13,16 +13,24 @@ const { mockPrisma, mockGenerateText } = vi.hoisted(() => ({
     $queryRaw: vi.fn(),
   },
   mockGenerateText: vi.fn(async () => "stubbed answer [1]"),
+  // Default: pass-through reranker (preserves caller order, marks all FTS-only).
+  mockRerankChunks: vi.fn(async (_q: string, chunks: any[]) =>
+    chunks.map((c) => ({ ...c, relevanceScore: c.ftsScore, rerankedByLLM: false }))
+  ),
 }));
 
 vi.mock("@medcore/db", () => ({ prisma: mockPrisma }));
 vi.mock("./sarvam", () => ({ generateText: mockGenerateText }));
+vi.mock("./reranker", () => ({ rerankChunks: mockRerankChunks }));
 
 import { searchPatientChart, searchCohort, resolveDoctorPanel } from "./chart-search";
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.$queryRaw.mockResolvedValue([]);
+  mockRerankChunks.mockImplementation(async (_q: string, chunks: any[]) =>
+    chunks.map((c) => ({ ...c, relevanceScore: c.ftsScore, rerankedByLLM: false }))
+  );
 });
 
 describe("resolveDoctorPanel", () => {
@@ -177,5 +185,85 @@ describe("searchCohort", () => {
       { dateFrom: new Date("2026-04-01") }
     );
     expect(r.hits.map((h) => h.id)).toEqual(["new"]);
+  });
+});
+
+describe("rerank integration", () => {
+  it("calls the reranker by default and order differs from FTS-only", async () => {
+    mockPrisma.doctor.findFirst.mockResolvedValueOnce({ id: "d1" });
+    mockPrisma.appointment.findMany.mockResolvedValueOnce([{ patientId: "pTarget" }]);
+    mockPrisma.prescription.findMany.mockResolvedValueOnce([]);
+    mockPrisma.consultation.findMany.mockResolvedValueOnce([]);
+
+    // FTS returns A (rank 0.9) above B (rank 0.5); rerank flips it.
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      {
+        id: "A",
+        documentType: "LAB_RESULT",
+        title: "A",
+        content: "A",
+        tags: ["patient:pTarget"],
+        rank: 0.9,
+      },
+      {
+        id: "B",
+        documentType: "LAB_RESULT",
+        title: "B",
+        content: "B",
+        tags: ["patient:pTarget"],
+        rank: 0.5,
+      },
+    ]);
+
+    mockRerankChunks.mockResolvedValueOnce([
+      { id: "B", title: "B", content: "B", ftsScore: 0.5, relevanceScore: 9, rerankedByLLM: true },
+      { id: "A", title: "A", content: "A", ftsScore: 0.9, relevanceScore: 3, rerankedByLLM: true },
+    ]);
+
+    const r = await searchPatientChart("HbA1c", "pTarget", { userId: "u-d", role: "DOCTOR" });
+    expect(mockRerankChunks).toHaveBeenCalledTimes(1);
+    // Order follows reranker, not FTS.
+    expect(r.hits.map((h) => h.id)).toEqual(["B", "A"]);
+    expect(r.hits[0].rerankScore).toBe(9);
+    expect(r.hits[0].ftsScore).toBe(0.5);
+    expect(r.hits[1].rerankScore).toBe(3);
+  });
+
+  it("skips the reranker and preserves FTS order when rerank=false", async () => {
+    mockPrisma.doctor.findFirst.mockResolvedValueOnce({ id: "d1" });
+    mockPrisma.appointment.findMany.mockResolvedValueOnce([{ patientId: "pTarget" }]);
+    mockPrisma.prescription.findMany.mockResolvedValueOnce([]);
+    mockPrisma.consultation.findMany.mockResolvedValueOnce([]);
+
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      {
+        id: "A",
+        documentType: "LAB_RESULT",
+        title: "A",
+        content: "A",
+        tags: ["patient:pTarget"],
+        rank: 0.9,
+      },
+      {
+        id: "B",
+        documentType: "LAB_RESULT",
+        title: "B",
+        content: "B",
+        tags: ["patient:pTarget"],
+        rank: 0.5,
+      },
+    ]);
+
+    const r = await searchPatientChart(
+      "HbA1c",
+      "pTarget",
+      { userId: "u-d", role: "DOCTOR" },
+      { rerank: false }
+    );
+    expect(mockRerankChunks).not.toHaveBeenCalled();
+    expect(r.hits.map((h) => h.id)).toEqual(["A", "B"]);
+    // rerankScore is null since no rerank happened.
+    expect(r.hits[0].rerankScore).toBeNull();
+    expect(r.hits[0].ftsScore).toBe(0.9);
   });
 });

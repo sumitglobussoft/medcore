@@ -20,11 +20,13 @@ router.post(
         limit,
         documentTypes,
         synthesize,
+        rerank,
       } = (req.body ?? {}) as {
         query?: string;
         limit?: number;
         documentTypes?: string[];
         synthesize?: boolean;
+        rerank?: boolean;
       };
 
       if (!query || typeof query !== "string" || !query.trim()) {
@@ -36,7 +38,7 @@ router.post(
         query.trim(),
         patientId,
         { userId: req.user!.userId, role: req.user!.role },
-        { limit, documentTypes, synthesize }
+        { limit, documentTypes, synthesize, rerank }
       );
 
       await auditLog(req, "AI_CHART_SEARCH_PATIENT", "Patient", patientId, {
@@ -69,6 +71,7 @@ router.post(
         dateFrom,
         dateTo,
         synthesize,
+        rerank,
       } = (req.body ?? {}) as {
         query?: string;
         limit?: number;
@@ -76,6 +79,7 @@ router.post(
         dateFrom?: string;
         dateTo?: string;
         synthesize?: boolean;
+        rerank?: boolean;
       };
 
       if (!query || typeof query !== "string" || !query.trim()) {
@@ -92,6 +96,7 @@ router.post(
           dateFrom: dateFrom ? new Date(dateFrom) : undefined,
           dateTo: dateTo ? new Date(dateTo) : undefined,
           synthesize,
+          rerank,
         }
       );
 

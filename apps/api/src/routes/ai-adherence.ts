@@ -163,6 +163,29 @@ router.get(
     try {
       const { patientId } = req.params;
 
+      // security(2026-04-23): IDOR fix — patients can only read their own
+      // schedules; ADMIN/DOCTOR may read any. Previously any authenticated
+      // user (including another patient) could enumerate schedules by id.
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { userId: true },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      const user = req.user!;
+      const isOwner = patient.userId === user.userId;
+      const isPrivileged = user.role === Role.ADMIN || user.role === Role.DOCTOR;
+      if (!isOwner && !isPrivileged) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Forbidden: you can only view your own schedules",
+        });
+        return;
+      }
+
       const schedules = await prisma.adherenceSchedule.findMany({
         where: { patientId, active: true },
         orderBy: { createdAt: "desc" },

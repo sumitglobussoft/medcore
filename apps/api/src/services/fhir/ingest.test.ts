@@ -18,6 +18,10 @@ interface FakeState {
   prescriptions: Map<string, any>;
   prescriptionItems: Map<string, any>;
   patientAllergies: Map<string, any>;
+  labTests: Map<string, any>;
+  labOrders: Map<string, any>;
+  labOrderItems: Map<string, any>;
+  labResults: Map<string, any>;
   /** When true the next write operation throws — used to simulate FK violations. */
   failNextWrite: boolean;
   /** Record of all write ops so tests can assert rollback. */
@@ -33,6 +37,10 @@ function freshState(): FakeState {
     prescriptions: new Map(),
     prescriptionItems: new Map(),
     patientAllergies: new Map(),
+    labTests: new Map(),
+    labOrders: new Map(),
+    labOrderItems: new Map(),
+    labResults: new Map(),
     failNextWrite: false,
     writeLog: [],
   };
@@ -212,6 +220,104 @@ function buildTxClient(snapshot: FakeState) {
         return merged;
       },
     },
+    labTest: {
+      findUnique: async (args: any) => {
+        if (args.where.code) {
+          for (const t of snapshot.labTests.values()) {
+            if (t.code === args.where.code) return t;
+          }
+          return null;
+        }
+        return snapshot.labTests.get(args.where.id) ?? null;
+      },
+      findFirst: async (args: any) => {
+        const where = args?.where ?? {};
+        for (const t of snapshot.labTests.values()) {
+          if (where.name && t.name !== where.name) continue;
+          return t;
+        }
+        return null;
+      },
+      create: async (args: any) => {
+        maybeFail("labTest.create");
+        const id = args.data.id ?? genId("lt");
+        const row = { id, ...args.data };
+        snapshot.labTests.set(id, row);
+        return row;
+      },
+    },
+    labOrder: {
+      findUnique: async (args: any) => snapshot.labOrders.get(args.where.id) ?? null,
+      create: async (args: any) => {
+        maybeFail("labOrder.create");
+        const id = args.data.id ?? genId("lo");
+        // Handle nested `items.create` in a single call.
+        const { items, ...rest } = args.data;
+        const row = { id, ...rest };
+        snapshot.labOrders.set(id, row);
+        if (items?.create) {
+          const nested = Array.isArray(items.create) ? items.create : [items.create];
+          for (const n of nested) {
+            const itemId = genId("loi");
+            snapshot.labOrderItems.set(itemId, { id: itemId, orderId: id, ...n });
+          }
+        }
+        return row;
+      },
+      update: async (args: any) => {
+        maybeFail("labOrder.update");
+        const existing = snapshot.labOrders.get(args.where.id);
+        if (!existing) throw new Error("labOrder not found");
+        const merged = { ...existing, ...args.data };
+        snapshot.labOrders.set(existing.id, merged);
+        return merged;
+      },
+    },
+    labOrderItem: {
+      findFirst: async (args: any) => {
+        const where = args?.where ?? {};
+        for (const it of snapshot.labOrderItems.values()) {
+          if (where.orderId && it.orderId !== where.orderId) continue;
+          if (where.testId && it.testId !== where.testId) continue;
+          return it;
+        }
+        return null;
+      },
+      create: async (args: any) => {
+        maybeFail("labOrderItem.create");
+        const id = args.data.id ?? genId("loi");
+        const row = { id, ...args.data };
+        snapshot.labOrderItems.set(id, row);
+        return row;
+      },
+    },
+    labResult: {
+      findUnique: async (args: any) => snapshot.labResults.get(args.where.id) ?? null,
+      findFirst: async (args: any) => {
+        const where = args?.where ?? {};
+        for (const r of snapshot.labResults.values()) {
+          if (where.orderItemId && r.orderItemId !== where.orderItemId) continue;
+          if (where.parameter && r.parameter !== where.parameter) continue;
+          return r;
+        }
+        return null;
+      },
+      create: async (args: any) => {
+        maybeFail("labResult.create");
+        const id = args.data.id ?? genId("lr");
+        const row = { id, ...args.data };
+        snapshot.labResults.set(id, row);
+        return row;
+      },
+      update: async (args: any) => {
+        maybeFail("labResult.update");
+        const existing = snapshot.labResults.get(args.where.id);
+        if (!existing) throw new Error("labResult not found");
+        const merged = { ...existing, ...args.data };
+        snapshot.labResults.set(existing.id, merged);
+        return merged;
+      },
+    },
   };
 }
 
@@ -229,6 +335,10 @@ async function fakeTransaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
     prescriptions: new Map(original.prescriptions),
     prescriptionItems: new Map(original.prescriptionItems),
     patientAllergies: new Map(original.patientAllergies),
+    labTests: new Map(original.labTests),
+    labOrders: new Map(original.labOrders),
+    labOrderItems: new Map(original.labOrderItems),
+    labResults: new Map(original.labResults),
     writeLog: [...original.writeLog],
   };
   state.current = snapshot;
@@ -764,5 +874,462 @@ describe("ingestPatient (direct call)", () => {
     await expect(
       ingestPatient(tx as any, patientResource("nope", "MR-nope"))
     ).rejects.toThrow(/cannot create new User accounts/);
+  });
+});
+
+// ─── Lab resource ingest (ServiceRequest / Observation / DiagnosticReport) ──
+
+function seedLabTest(code = "CBC", name = "Complete Blood Count") {
+  const row = {
+    id: `lt-${code}`,
+    code,
+    name,
+    category: "Hematology",
+    price: 200,
+  };
+  state.current.labTests.set(row.id, row);
+  return row;
+}
+
+function serviceRequestResource(
+  id: string,
+  patientId: string,
+  doctorId: string,
+  opts: { code?: string; display?: string; status?: string; priority?: string } = {}
+): any {
+  return {
+    resourceType: "ServiceRequest",
+    id,
+    status: opts.status ?? "active",
+    intent: "order",
+    priority: opts.priority ?? "routine",
+    code: {
+      coding: opts.code
+        ? [{ code: opts.code, display: opts.display ?? opts.code }]
+        : undefined,
+      text: opts.display ?? opts.code ?? "Laboratory test",
+    },
+    subject: { reference: `Patient/${patientId}` },
+    requester: { reference: `Practitioner/${doctorId}` },
+    authoredOn: "2026-04-22T09:00:00Z",
+  };
+}
+
+function observationResource(
+  id: string,
+  patientId: string,
+  opts: {
+    code?: string;
+    display?: string;
+    parameter?: string;
+    valueQuantity?: { value: number; unit?: string };
+    valueString?: string;
+    interpretation?: string;
+    basedOnOrderId?: string;
+    status?: string;
+    referenceRangeText?: string;
+  } = {}
+): any {
+  const res: any = {
+    resourceType: "Observation",
+    id,
+    status: opts.status ?? "final",
+    code: {
+      coding: opts.code ? [{ code: opts.code, display: opts.display ?? opts.code }] : undefined,
+      text: opts.parameter ?? opts.display ?? opts.code ?? "Observation",
+    },
+    subject: { reference: `Patient/${patientId}` },
+    effectiveDateTime: "2026-04-22T12:00:00Z",
+    issued: "2026-04-22T12:30:00Z",
+  };
+  if (opts.valueQuantity) res.valueQuantity = opts.valueQuantity;
+  if (opts.valueString !== undefined) res.valueString = opts.valueString;
+  if (opts.interpretation) {
+    res.interpretation = [{ coding: [{ code: opts.interpretation }], text: opts.interpretation }];
+  }
+  if (opts.basedOnOrderId) {
+    res.basedOn = [{ reference: `ServiceRequest/${opts.basedOnOrderId}` }];
+  }
+  if (opts.referenceRangeText) {
+    res.referenceRange = [{ text: opts.referenceRangeText }];
+  }
+  return res;
+}
+
+function diagnosticReportResource(
+  id: string,
+  patientId: string,
+  orderId: string,
+  observationIds: string[],
+  opts: { status?: string; code?: string; display?: string } = {}
+): any {
+  return {
+    resourceType: "DiagnosticReport",
+    id,
+    status: opts.status ?? "final",
+    code: {
+      coding: opts.code ? [{ code: opts.code, display: opts.display ?? opts.code }] : undefined,
+      text: opts.display ?? opts.code ?? "Laboratory report",
+    },
+    subject: { reference: `Patient/${patientId}` },
+    effectiveDateTime: "2026-04-22T12:30:00Z",
+    issued: "2026-04-22T12:30:00Z",
+    basedOn: [{ reference: `ServiceRequest/${orderId}` }],
+    result: observationIds.map((oid) => ({ reference: `Observation/${oid}` })),
+  };
+}
+
+describe("ingestServiceRequest", () => {
+  it("creates a LabOrder with ORDERED status and matches an existing TestCatalog entry", async () => {
+    seedPatient("pat-sr", "MR-SR-1");
+    seedDoctor("doc-sr");
+    seedLabTest("CBC", "Complete Blood Count");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-sr", "MR-SR-1")),
+      entry(serviceRequestResource("sr-1", "pat-sr", "doc-sr", { code: "CBC", display: "Complete Blood Count" })),
+    ]);
+
+    const { success, bundle: out } = await processBundle(bundle);
+    expect(success).toBe(true);
+
+    expect(state.current.labOrders.size).toBe(1);
+    const order = state.current.labOrders.get("sr-1");
+    expect(order).toBeDefined();
+    expect(order.patientId).toBe("pat-sr");
+    expect(order.doctorId).toBe("doc-sr");
+    expect(order.status).toBe("ORDERED");
+    expect(order.priority).toBe("ROUTINE");
+    expect(order.notes).toMatch(/FHIR/i);
+
+    // An OrderItem was created referencing the seeded LabTest (not a fresh OTHER one).
+    expect(state.current.labOrderItems.size).toBe(1);
+    const item = Array.from(state.current.labOrderItems.values())[0];
+    expect(item.testId).toBe("lt-CBC");
+    // No warning since the test code was known.
+    expect(state.current.labTests.size).toBe(1);
+
+    const resp = (out.entry[1] as any).response;
+    expect(resp.status).toBe("201 Created");
+    expect(resp.location).toBe("ServiceRequest/sr-1");
+    expect(resp.outcome).toBeUndefined();
+  });
+
+  it("maps STAT priority correctly and creates an urgent LabOrder", async () => {
+    seedPatient("pat-stat", "MR-STAT-1");
+    seedDoctor("doc-stat");
+    seedLabTest("TROP", "Troponin");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-stat", "MR-STAT-1")),
+      entry(
+        serviceRequestResource("sr-stat", "pat-stat", "doc-stat", {
+          code: "TROP",
+          priority: "stat",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+    const order = state.current.labOrders.get("sr-stat");
+    expect(order.priority).toBe("STAT");
+    expect(order.stat).toBe(true);
+  });
+});
+
+describe("ingestObservation", () => {
+  it("creates a LabResult with a numeric valueQuantity", async () => {
+    seedPatient("pat-obs", "MR-OBS-1");
+    seedDoctor("doc-obs");
+    seedLabTest("HGB", "Hemoglobin");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-obs", "MR-OBS-1")),
+      entry(serviceRequestResource("sr-obs", "pat-obs", "doc-obs", { code: "HGB", display: "Hemoglobin" })),
+      entry(
+        observationResource("obs-1", "pat-obs", {
+          code: "HGB",
+          display: "Hemoglobin",
+          parameter: "Hemoglobin",
+          valueQuantity: { value: 13.5, unit: "g/dL" },
+          interpretation: "N",
+          basedOnOrderId: "sr-obs",
+          referenceRangeText: "12-16 g/dL",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+    expect(state.current.labResults.size).toBe(1);
+    const result = state.current.labResults.get("obs-1");
+    expect(result.value).toBe("13.5");
+    expect(result.unit).toBe("g/dL");
+    expect(result.flag).toBe("NORMAL");
+    expect(result.parameter).toBe("Hemoglobin");
+    expect(result.normalRange).toBe("12-16 g/dL");
+    expect(result.verifiedAt).toBeTruthy(); // status=final → verifiedAt set
+  });
+
+  it("creates a LabResult with a valueString for culture/microbiology results", async () => {
+    seedPatient("pat-cul", "MR-CUL-1");
+    seedDoctor("doc-cul");
+    seedLabTest("BLDCULT", "Blood Culture");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-cul", "MR-CUL-1")),
+      entry(serviceRequestResource("sr-cul", "pat-cul", "doc-cul", { code: "BLDCULT", display: "Blood Culture" })),
+      entry(
+        observationResource("obs-cul", "pat-cul", {
+          code: "BLDCULT",
+          display: "Blood Culture",
+          parameter: "Blood Culture",
+          valueString: "No growth after 5 days",
+          interpretation: "N",
+          basedOnOrderId: "sr-cul",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+    const result = state.current.labResults.get("obs-cul");
+    expect(result.value).toBe("No growth after 5 days");
+    expect(result.unit).toBeUndefined();
+    expect(result.flag).toBe("NORMAL");
+  });
+
+  it("maps HH/LL interpretation codes to CRITICAL flag", async () => {
+    seedPatient("pat-crit", "MR-CRIT-1");
+    seedDoctor("doc-crit");
+    seedLabTest("K", "Potassium");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-crit", "MR-CRIT-1")),
+      entry(serviceRequestResource("sr-crit", "pat-crit", "doc-crit", { code: "K", display: "Potassium" })),
+      entry(
+        observationResource("obs-crit", "pat-crit", {
+          code: "K",
+          display: "Potassium",
+          parameter: "Potassium",
+          valueQuantity: { value: 2.1, unit: "mmol/L" },
+          interpretation: "LL",
+          basedOnOrderId: "sr-crit",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+    const result = state.current.labResults.get("obs-crit");
+    expect(result.flag).toBe("CRITICAL");
+  });
+});
+
+describe("ingestDiagnosticReport", () => {
+  it("links observations to the parent LabOrder and flips status to COMPLETED on status=final", async () => {
+    seedPatient("pat-dr", "MR-DR-1");
+    seedDoctor("doc-dr");
+    seedLabTest("GLU", "Glucose");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-dr", "MR-DR-1")),
+      entry(serviceRequestResource("sr-dr", "pat-dr", "doc-dr", { code: "GLU", display: "Glucose" })),
+      entry(
+        observationResource("obs-dr", "pat-dr", {
+          code: "GLU",
+          display: "Glucose",
+          parameter: "Glucose",
+          valueQuantity: { value: 95, unit: "mg/dL" },
+          interpretation: "N",
+          basedOnOrderId: "sr-dr",
+        })
+      ),
+      entry(
+        diagnosticReportResource("rep-dr", "pat-dr", "sr-dr", ["obs-dr"], {
+          status: "final",
+          code: "GLU",
+          display: "Glucose",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+
+    const order = state.current.labOrders.get("sr-dr");
+    expect(order.status).toBe("COMPLETED");
+    expect(order.completedAt).toBeInstanceOf(Date);
+  });
+
+  it("does NOT flip the order status when DiagnosticReport.status is not final", async () => {
+    seedPatient("pat-drp", "MR-DRP-1");
+    seedDoctor("doc-drp");
+    seedLabTest("CRP", "C-Reactive Protein");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-drp", "MR-DRP-1")),
+      entry(serviceRequestResource("sr-drp", "pat-drp", "doc-drp", { code: "CRP", display: "C-Reactive Protein" })),
+      entry(
+        observationResource("obs-drp", "pat-drp", {
+          code: "CRP",
+          display: "C-Reactive Protein",
+          parameter: "C-Reactive Protein",
+          valueQuantity: { value: 2.0, unit: "mg/L" },
+          interpretation: "N",
+          basedOnOrderId: "sr-drp",
+          status: "preliminary",
+        })
+      ),
+      entry(
+        diagnosticReportResource("rep-drp", "pat-drp", "sr-drp", ["obs-drp"], {
+          status: "preliminary",
+          code: "CRP",
+        })
+      ),
+    ]);
+
+    const { success } = await processBundle(bundle);
+    expect(success).toBe(true);
+
+    const order = state.current.labOrders.get("sr-drp");
+    // Still ORDERED — the ServiceRequest was active and the report wasn't final.
+    expect(order.status).toBe("ORDERED");
+    expect(order.completedAt).toBeFalsy();
+  });
+});
+
+describe("ingestServiceRequest — unknown test code", () => {
+  it("creates a generic OTHER TestCatalog entry and emits a warning OperationOutcome", async () => {
+    seedPatient("pat-un", "MR-UN-1");
+    seedDoctor("doc-un");
+    // NO labTest seeded — we expect a generic OTHER entry to be minted.
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-un", "MR-UN-1")),
+      entry(
+        serviceRequestResource("sr-un", "pat-un", "doc-un", {
+          code: "UNKNOWN-XYZ",
+          display: "Mystery Panel",
+        })
+      ),
+    ]);
+
+    const { success, bundle: out } = await processBundle(bundle);
+    expect(success).toBe(true);
+
+    // A fresh LabTest was synthesised with category OTHER.
+    expect(state.current.labTests.size).toBe(1);
+    const synthesized = Array.from(state.current.labTests.values())[0];
+    expect(synthesized.category).toBe("OTHER");
+    expect(synthesized.name).toBe("Mystery Panel");
+    expect(synthesized.code).toBe("UNKNOWN-XYZ");
+
+    // The order was still created.
+    expect(state.current.labOrders.size).toBe(1);
+
+    // The response carries a warning OperationOutcome.
+    const resp = (out.entry[1] as any).response;
+    expect(resp.status).toBe("201 Created");
+    expect(resp.outcome).toBeDefined();
+    expect(resp.outcome.issue[0].severity).toBe("warning");
+    expect(resp.outcome.issue[0].diagnostics).toMatch(/UNKNOWN-XYZ/);
+  });
+});
+
+describe("processBundle — full lab bundle (ServiceRequest + 3 Observations + DiagnosticReport)", () => {
+  it("ingests a complete lab graph in a single transaction with correct FKs", async () => {
+    seedPatient("pat-lab", "MR-LAB-1");
+    seedDoctor("doc-lab");
+    const cbcTest = seedLabTest("CBC", "Complete Blood Count");
+
+    const bundle = txnBundle([
+      entry(patientResource("pat-lab", "MR-LAB-1")),
+      entry(practitionerResource("doc-lab")),
+      entry(
+        serviceRequestResource("lab-order-1", "pat-lab", "doc-lab", {
+          code: "CBC",
+          display: "Complete Blood Count",
+          priority: "urgent",
+        })
+      ),
+      entry(
+        observationResource("obs-hgb", "pat-lab", {
+          code: "CBC",
+          display: "Complete Blood Count",
+          parameter: "Hemoglobin",
+          valueQuantity: { value: 14.2, unit: "g/dL" },
+          interpretation: "N",
+          basedOnOrderId: "lab-order-1",
+        })
+      ),
+      entry(
+        observationResource("obs-wbc", "pat-lab", {
+          code: "CBC",
+          display: "Complete Blood Count",
+          parameter: "WBC Count",
+          valueQuantity: { value: 14500, unit: "/uL" },
+          interpretation: "H",
+          basedOnOrderId: "lab-order-1",
+        })
+      ),
+      entry(
+        observationResource("obs-plt", "pat-lab", {
+          code: "CBC",
+          display: "Complete Blood Count",
+          parameter: "Platelets",
+          valueQuantity: { value: 250000, unit: "/uL" },
+          interpretation: "N",
+          basedOnOrderId: "lab-order-1",
+        })
+      ),
+      entry(
+        diagnosticReportResource(
+          "rep-1",
+          "pat-lab",
+          "lab-order-1",
+          ["obs-hgb", "obs-wbc", "obs-plt"],
+          { status: "final", code: "CBC" }
+        )
+      ),
+    ]);
+
+    const { success, bundle: out } = await processBundle(bundle);
+    expect(success).toBe(true);
+
+    // Every entry responded 2xx.
+    for (const e of out.entry as any[]) {
+      expect(e.response.status).toMatch(/^2\d\d /);
+    }
+
+    // Order exists and is COMPLETED (via DR final).
+    const order = state.current.labOrders.get("lab-order-1");
+    expect(order).toBeDefined();
+    expect(order.status).toBe("COMPLETED");
+    expect(order.priority).toBe("URGENT");
+
+    // Exactly one OrderItem (CBC) — all three observations share the same test.
+    expect(state.current.labOrderItems.size).toBe(1);
+    const item = Array.from(state.current.labOrderItems.values())[0];
+    expect(item.orderId).toBe("lab-order-1");
+    expect(item.testId).toBe(cbcTest.id);
+
+    // Three results, each linked to that item.
+    expect(state.current.labResults.size).toBe(3);
+    for (const r of state.current.labResults.values()) {
+      expect(r.orderItemId).toBe(item.id);
+    }
+
+    // Flags mapped correctly (H → HIGH, N → NORMAL).
+    const byParam = new Map(
+      Array.from(state.current.labResults.values()).map((r: any) => [r.parameter, r])
+    );
+    expect(byParam.get("Hemoglobin")!.flag).toBe("NORMAL");
+    expect(byParam.get("WBC Count")!.flag).toBe("HIGH");
+    expect(byParam.get("Platelets")!.flag).toBe("NORMAL");
+
+    // No extra LabTest rows — we matched the seeded CBC.
+    expect(state.current.labTests.size).toBe(1);
   });
 });

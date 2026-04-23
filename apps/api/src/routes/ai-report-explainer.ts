@@ -9,9 +9,13 @@ import { NotificationType } from "@medcore/shared";
 const router = Router();
 
 // POST /api/v1/ai/reports/explain
+// security(2026-04-23): added role guard — endpoint triggers LLM work + reveals
+// other patients' lab data by labOrderId without an ownership check, so keep
+// it clinician-only (DOCTOR/ADMIN approve & send; patient views via GET).
 router.post(
   "/explain",
   authenticate,
+  authorize(Role.DOCTOR, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { labOrderId, language = "en" } = req.body as {

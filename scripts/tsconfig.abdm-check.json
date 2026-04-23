@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowImportingTsExtensions": false,
+    "types": ["node"],
+    "baseUrl": "..",
+    "paths": {
+      "@medcore/db": ["packages/db/src/index.ts"]
+    }
+  },
+  "include": [
+    "./abdm-mock-server.ts",
+    "./abdm-mock-server.test.ts",
+    "./abdm-e2e.ts"
+  ]
+}

@@ -12,6 +12,7 @@
 
 import { prisma } from "@medcore/db";
 import { generateText } from "./sarvam";
+import { rerankChunks, type RerankableChunk } from "./reranker";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,15 @@ export interface ChartSearchHit {
   title: string;
   content: string;
   tags: string[];
+  /** Raw ts_rank score from Postgres FTS. Alias: kept as `rank` for
+   *  backward compatibility with existing clients. */
   rank: number;
+  /** Explicit FTS score (same value as `rank`, surfaced by name so clients
+   *  can distinguish FTS vs rerank scores). */
+  ftsScore: number;
+  /** LLM relevance score 0-10 when reranking was applied; null when the
+   *  rerank pass was skipped or failed for this chunk. */
+  rerankScore: number | null;
   patientId: string | null;
   doctorId: string | null;
   date: string | null;
@@ -66,10 +75,55 @@ function toHit(row: {
     content: row.content,
     tags: row.tags,
     rank: row.rank,
+    ftsScore: row.rank,
+    rerankScore: null,
     patientId: extractTag(row.tags, "patient"),
     doctorId: extractTag(row.tags, "doctor"),
     date: extractTag(row.tags, "date"),
   };
+}
+
+// Apply the LLM rerank pass to a set of hits. Never throws — if the LLM
+// is unreachable or misbehaves, returns the original FTS-ordered hits with
+// `rerankScore=null` and logs a warning. Chart search remains functional
+// either way; rerank is a precision enhancement, not a correctness
+// requirement.
+async function applyRerank(
+  query: string,
+  hits: ChartSearchHit[],
+  rerankEnabled: boolean
+): Promise<ChartSearchHit[]> {
+  if (!rerankEnabled || hits.length === 0) return hits;
+
+  try {
+    const rerankables: RerankableChunk[] = hits.map((h) => ({
+      id: h.id,
+      title: h.title,
+      content: h.content,
+      ftsScore: h.ftsScore,
+    }));
+
+    const reranked = await rerankChunks(query, rerankables, { enabled: true });
+    const byId = new Map(hits.map((h) => [h.id, h]));
+    const out: ChartSearchHit[] = [];
+    for (const r of reranked) {
+      const orig = byId.get(r.id);
+      if (!orig) continue;
+      out.push({
+        ...orig,
+        rerankScore: r.rerankedByLLM ? r.relevanceScore : null,
+      });
+    }
+    return out;
+  } catch (err) {
+    // Defensive: rerankChunks is itself designed not to throw, but if it
+    // ever does, don't bubble that up — log and return FTS-ordered hits.
+    console.warn(
+      `[chart-search] rerank failed, returning FTS-ordered hits: ` +
+        (err instanceof Error ? err.message : String(err))
+    );
+    return hits;
+  }
 }
 
 // Compile patientId tags as a safely-typed string[] for the raw FTS query.
@@ -242,7 +296,7 @@ export async function searchPatientChart(
   query: string,
   patientId: string,
   user: { userId: string; role: string },
-  opts: { limit?: number; documentTypes?: string[]; synthesize?: boolean } = {}
+  opts: { limit?: number; documentTypes?: string[]; synthesize?: boolean; rerank?: boolean } = {}
 ): Promise<ChartSearchResult> {
   const limit = Math.min(opts.limit ?? 10, 50);
 
@@ -256,7 +310,16 @@ export async function searchPatientChart(
     }
   }
 
-  const hits = await ftsSearchScoped(query, [`patient:${patientId}`], limit, opts.documentTypes);
+  const rawHits = await ftsSearchScoped(
+    query,
+    [`patient:${patientId}`],
+    limit,
+    opts.documentTypes
+  );
+
+  // Default: rerank enabled. Callers can pass `rerank: false` to skip.
+  const rerankEnabled = opts.rerank !== false;
+  const hits = await applyRerank(query, rawHits, rerankEnabled);
 
   let answer = "";
   if (opts.synthesize !== false && hits.length > 0) {
@@ -285,7 +348,7 @@ export async function searchPatientChart(
 export async function searchCohort(
   query: string,
   user: { userId: string; role: string },
-  filters: CohortFilters & { synthesize?: boolean } = {}
+  filters: CohortFilters & { synthesize?: boolean; rerank?: boolean } = {}
 ): Promise<ChartSearchResult> {
   const limit = Math.min(filters.limit ?? 25, 100);
   const panel = await resolveDoctorPanel(user);
@@ -326,6 +389,10 @@ export async function searchCohort(
       return true;
     });
   }
+
+  // Default: rerank enabled. Callers can pass `rerank: false` to skip.
+  const rerankEnabled = filters.rerank !== false;
+  hits = await applyRerank(query, hits, rerankEnabled);
 
   let answer = "";
   if (filters.synthesize !== false && hits.length > 0) {

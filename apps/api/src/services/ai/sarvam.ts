@@ -27,14 +27,18 @@ export class AIServiceUnavailableError extends Error {
 
 // ── Observability ─────────────────────────────────────────────────────────────
 
-function logAICall(opts: {
-  feature: "triage" | "scribe" | "drug-safety" | "hallucination-check";
+export function logAICall(opts: {
+  feature: "triage" | "scribe" | "drug-safety" | "hallucination-check" | "chart-search-rerank";
   model: string;
   promptTokens: number;
   completionTokens: number;
   latencyMs: number;
   toolUsed?: string;
   error?: string;
+  // Optional reranker-specific fields so batches surface in ai_call logs.
+  batchIndex?: number;
+  batchSize?: number;
+  chunkCount?: number;
 }) {
   console.log(JSON.stringify({ level: "info", event: "ai_call", ...opts, ts: new Date().toISOString() }));
 }
@@ -137,6 +141,62 @@ export async function generateText(opts: {
     });
     return "";
   }
+}
+
+// ── generateStructured ────────────────────────────────────────────────────────
+
+/**
+ * Tool-calling helper that forces the model to emit structured JSON via a named
+ * function tool. Returns the parsed tool arguments (typed as T) plus token usage.
+ * Throws on transport failure — callers that want graceful degradation should
+ * wrap in try/catch.
+ *
+ * Intended for small, repetitive structured tasks (reranker batches, verification
+ * checks) where writing tool-call boilerplate inline would balloon the service.
+ */
+export async function generateStructured<T>(opts: {
+  systemPrompt: string;
+  userPrompt: string;
+  toolName: string;
+  toolDescription: string;
+  parameters: Record<string, unknown>;
+  maxTokens?: number;
+  temperature?: number;
+}): Promise<{
+  data: T | null;
+  promptTokens: number;
+  completionTokens: number;
+}> {
+  const response = await withRetry(() =>
+    sarvam.chat.completions.create({
+      model: MODEL,
+      max_tokens: opts.maxTokens ?? 1024,
+      temperature: opts.temperature ?? 0,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: opts.toolName,
+            description: opts.toolDescription,
+            parameters: opts.parameters as any,
+          },
+        },
+      ],
+      tool_choice: { type: "function", function: { name: opts.toolName } },
+      messages: [
+        { role: "system", content: opts.systemPrompt },
+        { role: "user", content: opts.userPrompt },
+      ],
+    })
+  );
+
+  const toolCall = getFnCall(response);
+  const data = toolCall ? (JSON.parse(toolCall.function.arguments) as T) : null;
+  return {
+    data,
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    completionTokens: response.usage?.completion_tokens ?? 0,
+  };
 }
 
 // ── runTriageTurn ─────────────────────────────────────────────────────────────

@@ -279,7 +279,10 @@ router.post(
  * GET /api/v1/claims — list with filters.
  * Query params: status, tpa, from (ISO date), to (ISO date), patientId.
  */
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// security(2026-04-23): role guard added — claims list contains PHI
+// (diagnosis/ICD/amount/patientId) and was previously readable by any
+// authenticated role, including PATIENT. Only billing-facing roles may list.
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status, tpa, from, to, patientId } = req.query as Record<
       string,
@@ -302,7 +305,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
  * GET /api/v1/claims/:id — detail + timeline.
  * Optionally refreshes from the TPA when `?sync=1` is passed.
  */
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+// security(2026-04-23): role guard added — same rationale as GET /.
+router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const row = await getClaim(req.params.id);
     if (!row) {

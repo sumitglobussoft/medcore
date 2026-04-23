@@ -1,50 +1,100 @@
 #!/bin/bash
-# One-command deployment script for MedCore
-# Usage: ./deploy.sh [--seed]
+# One-command deployment script for MedCore.
+# Usage: ./deploy.sh [--seed] [--yes]
+#
+# Guard rails (see docs/DEPLOY.md for the full runbook):
+#   * refuses to run with uncommitted local changes
+#   * shows pending migrations and asks to confirm (skip with --yes)
+#   * verifies migrate status is clean after deploy
+#   * exits non-zero on ANY step failure
 
-set -e
+set -euo pipefail
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
 MEDCORE_DIR="/home/empcloud-development/medcore"
 DB_URL="postgresql://medcore:medcore_secure_2024@localhost:5433/medcore?schema=public"
+SCHEMA_PATH="packages/db/prisma/schema.prisma"
+
+AUTO_YES=0
+DO_SEED=0
+for arg in "$@"; do
+    case "$arg" in
+        --yes|-y) AUTO_YES=1 ;;
+        --seed)   DO_SEED=1 ;;
+    esac
+done
 
 cd "$MEDCORE_DIR"
 
-echo "=== Pulling latest code ==="
-git pull origin main
+echo "=== 0. Pre-flight: working tree clean ==="
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "  ABORT — uncommitted local changes on prod checkout."
+    echo "  git status:"
+    git status --short
+    exit 1
+fi
+PREV_SHA="$(git rev-parse HEAD)"
+echo "  OK — HEAD=${PREV_SHA}"
+echo "$PREV_SHA" > /tmp/medcore-prev-sha
 
-echo "=== Installing dependencies ==="
-npm install --ignore-scripts 2>/dev/null || npm install
+echo "=== 1. Pulling latest code ==="
+git fetch origin
+git checkout main
+git pull --ff-only origin main
 
-echo "=== Generating Prisma client ==="
-DATABASE_URL="$DB_URL" npx prisma generate --schema packages/db/prisma/schema.prisma
+echo "=== 2. Installing dependencies ==="
+npm ci --ignore-scripts 2>/dev/null || npm ci
 
-echo "=== Applying database migrations ==="
-# Use prisma migrate deploy in production: it applies pending migrations from
-# packages/db/prisma/migrations and never resets data. Schema changes must go
-# through `prisma migrate dev --name <descriptor>` in development first.
-DATABASE_URL="$DB_URL" npx prisma migrate deploy --schema packages/db/prisma/schema.prisma
+echo "=== 3. Generating Prisma client ==="
+DATABASE_URL="$DB_URL" npx prisma generate --schema "$SCHEMA_PATH"
 
-echo "=== Building web app ==="
-cd apps/web && npx next build && cd ../..
+echo "=== 4. Pending migrations ==="
+DATABASE_URL="$DB_URL" npx prisma migrate status --schema "$SCHEMA_PATH" || true
+if [ "$AUTO_YES" -ne 1 ]; then
+    read -r -p "Apply the above migrations? [y/N] " reply
+    case "$reply" in
+        y|Y|yes|YES) : ;;
+        *) echo "  Aborted by user."; exit 1 ;;
+    esac
+fi
 
-echo "=== Restarting services ==="
+echo "=== 5. Applying database migrations ==="
+# `migrate deploy` applies pending migrations only — never resets, never prompts.
+# New migrations must come from `prisma migrate dev` locally and be committed.
+DATABASE_URL="$DB_URL" npx prisma migrate deploy --schema "$SCHEMA_PATH"
+
+echo "=== 5b. Verifying no pending migrations remain ==="
+STATUS_OUT="$(DATABASE_URL="$DB_URL" npx prisma migrate status --schema "$SCHEMA_PATH" 2>&1 || true)"
+echo "$STATUS_OUT"
+if echo "$STATUS_OUT" | grep -qiE "following migration.*have not yet been applied|pending"; then
+    echo "  ABORT — prisma migrate status still shows pending after deploy."
+    exit 1
+fi
+
+echo "=== 6. Building web app ==="
+npm --prefix apps/web run build
+
+echo "=== 7. Restarting services ==="
 pm2 restart medcore-api medcore-web
 sleep 3
 
-echo "=== Verifying ==="
-curl -sf http://localhost:4100/api/health && echo " API OK" || echo " API FAILED"
-curl -sf http://localhost:3200 > /dev/null && echo "Web OK" || echo "Web FAILED"
+echo "=== 8. Verifying ==="
+curl -sf http://localhost:4100/api/health && echo " API OK" || { echo " API FAILED"; exit 1; }
+curl -sf http://localhost:3200 > /dev/null && echo "Web OK" || { echo "Web FAILED"; exit 1; }
 
 pm2 save
-echo "=== Deployment complete ==="
+echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
-# Optional: re-seed
-if [ "$1" == "--seed" ]; then
+# Optional: re-seed (destructive — triple-guarded in docs/DEPLOYMENT.md).
+if [ "$DO_SEED" -eq 1 ]; then
+    if [ "${ALLOW_PROD_SEED_RESET:-}" != "YES_I_WILL_WIPE_THE_HOSPITAL" ]; then
+        echo "--seed requested but ALLOW_PROD_SEED_RESET guard is not set. Refusing."
+        exit 1
+    fi
     echo "=== Re-seeding database ==="
-    DATABASE_URL="$DB_URL" npx prisma db push --schema packages/db/prisma/schema.prisma --force-reset --accept-data-loss
+    DATABASE_URL="$DB_URL" npx prisma db push --schema "$SCHEMA_PATH" --force-reset --accept-data-loss
     DATABASE_URL="$DB_URL" npx tsx packages/db/src/seed-realistic.ts
     pm2 restart medcore-api
     echo "=== Seed complete ==="
