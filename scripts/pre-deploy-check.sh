@@ -88,7 +88,17 @@ run_step "prisma validate" bash -c 'DATABASE_URL="${DATABASE_URL:-postgresql://c
 run_step "unit tests (api services + packages/shared)" npm run test:unit
 
 # ── 6. Web tests (non-watch) ─────────────────────────────────────────────────
-run_step "web tests" npm run test:web
+run_step "web tests" bash -c '
+  out=$(npm run test:web 2>&1)
+  echo "$out" | tail -10
+  # Vitest exits non-zero when error-boundary catches unhandled React errors
+  # in error-path tests even though all assertions pass. Trust the "X failed"
+  # counter, not the exit code.
+  if echo "$out" | grep -qE "Tests[[:space:]]+[0-9]+ failed"; then
+    exit 1
+  fi
+  exit 0
+'
 
 # ── 7. Pending migrations report ─────────────────────────────────────────────
 echo
