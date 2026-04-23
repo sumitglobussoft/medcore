@@ -224,61 +224,6 @@ describe("sendEmail — HTTP shape", () => {
   });
 });
 
-// ─── Push (FCM-style) ───────────────────────────────────
-describe("sendPush — HTTP shape", () => {
-  it("POSTs an FCM-style envelope with message.topic + notification", async () => {
-    process.env.PUSH_API_URL = "https://fcm.googleapis.com/v1/projects/p/messages:send";
-    process.env.PUSH_API_KEY = "fcm-secret";
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(okJson({ name: "projects/p/messages/abc" }));
-
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "You have mail", "Body");
-
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe(
-      "https://fcm.googleapis.com/v1/projects/p/messages:send"
-    );
-    expect((init as RequestInit).method).toBe("POST");
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer fcm-secret");
-    expect(headers["Content-Type"]).toBe("application/json");
-    const body = JSON.parse(String((init as RequestInit).body));
-    expect(body).toEqual({
-      message: {
-        topic: "user_user-123",
-        notification: { title: "You have mail", body: "Body" },
-      },
-    });
-    expect(res.ok).toBe(true);
-    expect(res.messageId).toBe("projects/p/messages/abc");
-  });
-
-  it("returns {ok:false} on HTTP 500", async () => {
-    process.env.PUSH_API_URL = "https://fcm.googleapis.com/v1/projects/p/messages:send";
-    process.env.PUSH_API_KEY = "k";
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("err", { status: 500 })
-    );
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe("HTTP 500");
-  });
-
-  it("returns {ok:false} when fetch throws", async () => {
-    process.env.PUSH_API_URL = "https://fcm.googleapis.com/v1/projects/p/messages:send";
-    process.env.PUSH_API_KEY = "k";
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("DNS fail"));
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/DNS fail/);
-  });
-
-  it("stub path: no env vars set → ok:true with stub messageId", async () => {
-    delete process.env.PUSH_API_URL;
-    delete process.env.PUSH_API_KEY;
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
-    expect(res.ok).toBe(true);
-    expect(res.messageId).toMatch(/^stub-/);
-  });
-});
+// Push no longer goes over raw fetch — it now delegates to expo-server-sdk.
+// The HTTP envelope tests for the FCM-direct code path were removed; the
+// Expo-SDK path is covered by apps/api/src/services/channels/push.test.ts.

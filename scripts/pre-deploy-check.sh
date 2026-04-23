@@ -78,11 +78,11 @@ fi
 
 # ── 3. TypeScript across all three apps ──────────────────────────────────────
 run_step "tsc --noEmit (api)"     npm --prefix apps/api    run lint
-run_step "tsc --noEmit (web)"     npm --prefix apps/web    run lint
+run_step "tsc --noEmit (web)"     npx tsc --noEmit -p apps/web/tsconfig.json
 run_step "tsc --noEmit (mobile)"  bash -c "test -d apps/mobile && cd apps/mobile && npx tsc --noEmit || true"
 
 # ── 4. Prisma schema validity ────────────────────────────────────────────────
-run_step "prisma validate" npx prisma validate --schema "$SCHEMA_PATH"
+run_step "prisma validate" bash -c 'DATABASE_URL="${DATABASE_URL:-postgresql://check:check@localhost:5432/check}" npx prisma validate --schema "$0"' "$SCHEMA_PATH"
 
 # ── 5. Unit tests (API services + shared) ────────────────────────────────────
 run_step "unit tests (api services + packages/shared)" npm run test:unit

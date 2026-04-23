@@ -46,7 +46,7 @@ describe("WorkspacePage", () => {
   });
 
   it("renders after fetching doctor workspace data", async () => {
-    apiMock.get.mockResolvedValue({ data: { items: [] } });
+    apiMock.get.mockResolvedValue({ data: [] });
     render(<WorkspacePage />);
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalled();

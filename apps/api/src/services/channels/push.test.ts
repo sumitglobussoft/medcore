@@ -1,56 +1,71 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const { sendPushNotificationsAsyncMock, chunkPushNotificationsMock, isExpoPushTokenMock } =
+  vi.hoisted(() => ({
+    sendPushNotificationsAsyncMock: vi.fn(),
+    chunkPushNotificationsMock: vi.fn((messages: unknown[]) => [messages]),
+    isExpoPushTokenMock: vi.fn((t: unknown) =>
+      typeof t === "string" && t.startsWith("ExponentPushToken["),
+    ),
+  }));
+
+vi.mock("expo-server-sdk", () => ({
+  Expo: class {
+    static isExpoPushToken = isExpoPushTokenMock;
+    chunkPushNotifications = chunkPushNotificationsMock;
+    sendPushNotificationsAsync = sendPushNotificationsAsyncMock;
+  },
+}));
+
 import { sendPush } from "./push";
 
-const ENV_KEYS = ["PUSH_API_URL", "PUSH_API_KEY"] as const;
-const savedEnv: Record<string, string | undefined> = {};
-
 beforeEach(() => {
-  for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
+  sendPushNotificationsAsyncMock.mockReset();
+  chunkPushNotificationsMock.mockClear();
+  isExpoPushTokenMock.mockClear();
+  isExpoPushTokenMock.mockImplementation(
+    (t: unknown) => typeof t === "string" && t.startsWith("ExponentPushToken["),
+  );
 });
 afterEach(() => {
-  for (const k of ENV_KEYS) {
-    if (savedEnv[k] == null) delete process.env[k];
-    else process.env[k] = savedEnv[k]!;
-  }
   vi.restoreAllMocks();
 });
 
 describe("sendPush", () => {
-  it("returns stub success when env vars are missing", async () => {
-    delete process.env.PUSH_API_KEY;
-    delete process.env.PUSH_API_URL;
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
+  it("returns stub success when no valid Expo tokens are supplied", async () => {
+    isExpoPushTokenMock.mockReturnValue(false);
+    const res = await sendPush(["not-an-expo-token"], "t", "b");
     expect(res.ok).toBe(true);
-    expect(res.messageId).toMatch(/^stub-/);
+    expect(res.messageId).toBe("no-tokens");
+    expect(sendPushNotificationsAsyncMock).not.toHaveBeenCalled();
   });
 
-  it("POSTs to FCM endpoint with authorization when configured", async () => {
-    process.env.PUSH_API_KEY = "k";
-    process.env.PUSH_API_URL = "https://fcm.example.com/send";
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ name: "projects/xxx/messages/abc" }), {
-          status: 200,
-        })
-      );
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "T", "B");
-    expect(fetchSpy).toHaveBeenCalled();
-    const [, init] = fetchSpy.mock.calls[0];
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer k");
-    expect(res.ok).toBe(true);
-    expect(res.messageId).toBe("projects/xxx/messages/abc");
-  });
-
-  it("returns error on HTTP failure", async () => {
-    process.env.PUSH_API_KEY = "k";
-    process.env.PUSH_API_URL = "https://fcm.example.com/send";
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("", { status: 403 })
+  it("dispatches valid Expo tokens via the SDK and collects ticket ids", async () => {
+    sendPushNotificationsAsyncMock.mockResolvedValueOnce([
+      { status: "ok", id: "receipt-1" },
+      { status: "ok", id: "receipt-2" },
+    ]);
+    const res = await sendPush(
+      ["ExponentPushToken[aaa]", "ExponentPushToken[bbb]"],
+      "Title",
+      "Body",
     );
-    const res = await sendPush(["ExponentPushToken[xxxxxx]"], "t", "b");
+    expect(sendPushNotificationsAsyncMock).toHaveBeenCalledTimes(1);
+    const chunk = sendPushNotificationsAsyncMock.mock.calls[0][0] as any[];
+    expect(chunk).toHaveLength(2);
+    expect(chunk[0]).toMatchObject({
+      to: "ExponentPushToken[aaa]",
+      title: "Title",
+      body: "Body",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.messageId).toBe("receipt-1,receipt-2");
+  });
+
+  it("returns {ok:false} when the SDK throws", async () => {
+    sendPushNotificationsAsyncMock.mockRejectedValueOnce(new Error("network down"));
+    const res = await sendPush(["ExponentPushToken[xxx]"], "t", "b");
     expect(res.ok).toBe(false);
-    expect(res.error).toContain("HTTP 403");
+    expect(res.error).toContain("network down");
   });
 });
