@@ -3,6 +3,9 @@ import path from "path";
 import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification, drainScheduled } from "./notification";
+import { runDailyFraudScan } from "../routes/ai-fraud";
+import { runDailyDocQAScheduledTask } from "../routes/ai-doc-qa";
+import { runDailyNpsDriverRollup } from "../routes/ai-sentiment";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -478,6 +481,25 @@ const TASKS: ScheduledTask[] = [
     name: "cleanup_orphaned_uploads",
     intervalMinutes: 24 * 60,
     run: cleanupOrphanedUploads,
+  },
+  // ── Ops-quality AI features (Apr 2026) ─────────────────
+  {
+    name: "ai_doc_qa_daily_sample",
+    intervalMinutes: 24 * 60,
+    runAtHour: 2,
+    run: runDailyDocQAScheduledTask,
+  },
+  {
+    name: "ai_fraud_daily_scan",
+    intervalMinutes: 24 * 60,
+    runAtHour: 4,
+    run: runDailyFraudScan,
+  },
+  {
+    name: "ai_sentiment_nps_rollup",
+    intervalMinutes: 24 * 60,
+    runAtHour: 5,
+    run: runDailyNpsDriverRollup,
   },
 ];
 

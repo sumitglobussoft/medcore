@@ -168,13 +168,55 @@ router.post(
         gender: appointment?.patient.gender ?? undefined,
       };
 
-      let soapDraft = session.soapDraft;
+      let soapDraft: any = session.soapDraft;
       let rxSafetyReport = (session.rxDraft as any) || null;
 
-      // Only regenerate if we have substantial transcript (3+ entries)
-      if (updatedTranscript.length >= 3) {
+      // GAP-S8: Time-based SOAP flush. PRD §4.8 wants 30–60s freshness, not
+      // per-utterance regeneration. Keep the updatedTranscript.length >= 3
+      // minimum gate so very short sessions don't burn tokens, but otherwise
+      // regenerate only when either:
+      //   (a) 5+ new entries have arrived since the last regen, or
+      //   (b) 30s+ has elapsed since the last regen.
+      // First regen (no prior `_meta.lastRegenAt`) always fires so the initial
+      // draft is produced immediately after 3+ entries — this matches the
+      // existing integration-test expectation.
+      // NOTE: we can't persist `lastRegenAt` on AIScribeSession without a
+      // schema change (see .prisma-models-triage-scribe.md), so we stash it
+      // inside soapDraft._meta until the dedicated column lands.
+      const prevMeta = (soapDraft && typeof soapDraft === "object" && (soapDraft as any)._meta) || null;
+      const lastRegenAtStr: string | null = prevMeta?.lastRegenAt ?? null;
+      const lastRegenAt = lastRegenAtStr ? new Date(lastRegenAtStr).getTime() : null;
+      const entriesAtLastRegen: number = typeof prevMeta?.entriesAtLastRegen === "number"
+        ? prevMeta.entriesAtLastRegen
+        : 0;
+      const now = Date.now();
+      const newEntriesSinceLastRegen = updatedTranscript.length - entriesAtLastRegen;
+      const timeSinceLastRegenMs = lastRegenAt != null ? now - lastRegenAt : Number.POSITIVE_INFINITY;
+
+      const shouldRegen = updatedTranscript.length >= 3 && (
+        lastRegenAt == null
+          || newEntriesSinceLastRegen >= 5
+          || timeSinceLastRegenMs >= 30_000
+      );
+
+      if (shouldRegen) {
         try {
-          soapDraft = await generateSOAPNote(updatedTranscript, patientContext) as any;
+          const fresh: any = await generateSOAPNote(updatedTranscript, patientContext);
+          if (fresh && typeof fresh === "object") {
+            // Clone so we don't mutate the returned object (matters for tests
+            // that reuse a shared mock across calls), then stamp our regen
+            // metadata. Preserve any prior _meta keys.
+            soapDraft = {
+              ...fresh,
+              _meta: {
+                ...(prevMeta ?? {}),
+                lastRegenAt: new Date(now).toISOString(),
+                entriesAtLastRegen: updatedTranscript.length,
+              },
+            };
+          } else {
+            soapDraft = fresh;
+          }
         } catch {
           // Non-fatal — keep previous draft
         }
@@ -445,6 +487,117 @@ router.post(
           draftLabOrders: draftLabOrdersCount,
           draftReferrals: draftReferralsCount,
         },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GAP-S6: GET /api/v1/ai/scribe/:sessionId/previous-consultation
+// Returns the patient's most recent completed consultation (excluding the
+// current session's appointment). The web review UI uses this to render a
+// side-by-side diff so the doctor can spot changes vs the last visit without
+// leaving the scribe screen.
+router.get(
+  "/:sessionId/previous-consultation",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await prisma.aIScribeSession.findUnique({
+        where: { id: sessionId },
+        select: { id: true, patientId: true, appointmentId: true },
+      });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+
+      // Find the most recent consultation for this patient other than the
+      // current visit. We join through Appointment to filter by patientId
+      // because Consultation itself has no direct patient FK (yet — see the
+      // proposal in .prisma-models-triage-scribe.md).
+      const previous = await prisma.consultation.findFirst({
+        where: {
+          appointment: { patientId: session.patientId },
+          appointmentId: { not: session.appointmentId },
+        },
+        orderBy: { createdAt: "desc" },
+        include: {
+          appointment: {
+            select: { id: true, date: true, slotStart: true, slotEnd: true },
+          },
+        },
+      });
+
+      safeAudit(req, "AI_SCRIBE_PREV_CONSULT_READ", "AIScribeSession", session.id, {
+        hasPrevious: !!previous,
+      });
+
+      res.json({
+        success: true,
+        data: { previous: previous ?? null },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GAP-S4: PATCH /api/v1/ai/scribe/:sessionId/transcript/:index/speaker
+// Let the doctor re-assign a transcript entry to DOCTOR | PATIENT | ATTENDANT
+// after the fact (our live heuristic assumes alternating speakers, which is
+// often wrong in practice). Acoustic diarization is tracked as a separate
+// future gap — this endpoint is the minimum useful piece to power the
+// client-side dropdown tagging.
+router.patch(
+  "/:sessionId/transcript/:index/speaker",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { sessionId, index } = req.params;
+      const { speaker } = req.body as { speaker?: string };
+      if (speaker !== "DOCTOR" && speaker !== "PATIENT" && speaker !== "ATTENDANT") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "speaker must be DOCTOR | PATIENT | ATTENDANT",
+        });
+        return;
+      }
+      const idx = Number.parseInt(index, 10);
+      if (!Number.isFinite(idx) || idx < 0) {
+        res.status(400).json({ success: false, data: null, error: "invalid index" });
+        return;
+      }
+
+      const session = await prisma.aIScribeSession.findUnique({ where: { id: sessionId } });
+      if (!session) {
+        res.status(404).json({ success: false, data: null, error: "Session not found" });
+        return;
+      }
+      if (session.status !== "ACTIVE") {
+        res.status(400).json({ success: false, data: null, error: `Session is ${session.status}` });
+        return;
+      }
+      const transcript = (session.transcript as any[]) || [];
+      if (idx >= transcript.length) {
+        res.status(404).json({ success: false, data: null, error: "transcript entry not found" });
+        return;
+      }
+      transcript[idx] = { ...transcript[idx], speaker };
+
+      await prisma.aIScribeSession.update({
+        where: { id: sessionId },
+        data: { transcript: transcript as any },
+      });
+
+      res.json({
+        success: true,
+        data: { transcript, updatedIndex: idx, speaker },
         error: null,
       });
     } catch (err) {

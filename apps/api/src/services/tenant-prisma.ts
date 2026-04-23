@@ -90,6 +90,22 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "Vitals",
   "WaitlistEntry",
   "Ward",
+  // Patient-tools bundle (Apr 2026)
+  "BillExplanation",
+  "PrevisitChecklist",
+  "SymptomDiaryEntry",
+  "ChronicCarePlan",
+  "ChronicCareCheckIn",
+  "ChronicCareAlert",
+  // Ops-quality bundle
+  "FraudAlert",
+  "DocQAReport",
+  "FeedbackSentiment",
+  "NpsDailyRollup",
+  // Ops-forecast bundle
+  "StaffRosterProposal",
+  // Claims AI bundle
+  "ClaimDenialHistory",
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

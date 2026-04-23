@@ -79,8 +79,36 @@ export default function LabPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [statOnly, setStatOnly] = useState(false);
+  const [aiInsights, setAiInsights] = useState<Record<string, {
+    loading: boolean;
+    data?: {
+      interpretation: string;
+      trend: string;
+      baselineComparison: string;
+      recommendedActions: string[];
+      urgency: string;
+    };
+    error?: string;
+  }>>({});
 
   const canOrder = user?.role === "DOCTOR";
+  const canSeeAI = user?.role === "DOCTOR" || user?.role === "ADMIN";
+
+  async function fetchAIInsights(resultId: string) {
+    setAiInsights((m) => ({ ...m, [resultId]: { loading: true } }));
+    try {
+      const res = await api.get<any>(`/ai/lab-intel/${resultId}`);
+      setAiInsights((m) => ({
+        ...m,
+        [resultId]: { loading: false, data: res.data?.analysis ?? res.data?.data?.analysis },
+      }));
+    } catch (err: any) {
+      setAiInsights((m) => ({
+        ...m,
+        [resultId]: { loading: false, error: err?.message ?? "Failed" },
+      }));
+    }
+  }
 
   useEffect(() => {
     if (tab === "orders") loadOrders();
@@ -340,31 +368,77 @@ export default function LabPage() {
                                 </div>
                                 {item.results && item.results.length > 0 && (
                                   <div className="mt-2 space-y-1">
-                                    {item.results.map((r) => (
-                                      <div
-                                        key={r.id}
-                                        className="flex items-center gap-2 text-sm"
-                                      >
-                                        <span className="font-medium">
-                                          {r.parameter}:
-                                        </span>
-                                        <span>
-                                          {r.value} {r.unit}
-                                        </span>
-                                        {r.normalRange && (
-                                          <span className="text-xs text-gray-500">
-                                            (normal: {r.normalRange})
-                                          </span>
-                                        )}
-                                        {r.flag && (
-                                          <span
-                                            className={`rounded px-1.5 py-0.5 text-xs font-medium ${FLAG_COLORS[r.flag]}`}
-                                          >
-                                            {r.flag}
-                                          </span>
-                                        )}
-                                      </div>
-                                    ))}
+                                    {item.results.map((r) => {
+                                      const insight = aiInsights[r.id];
+                                      return (
+                                        <div key={r.id} className="text-sm">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium">
+                                              {r.parameter}:
+                                            </span>
+                                            <span>
+                                              {r.value} {r.unit}
+                                            </span>
+                                            {r.normalRange && (
+                                              <span className="text-xs text-gray-500">
+                                                (normal: {r.normalRange})
+                                              </span>
+                                            )}
+                                            {r.flag && (
+                                              <span
+                                                className={`rounded px-1.5 py-0.5 text-xs font-medium ${FLAG_COLORS[r.flag]}`}
+                                              >
+                                                {r.flag}
+                                              </span>
+                                            )}
+                                            {canSeeAI && !insight && (
+                                              <button
+                                                onClick={() => fetchAIInsights(r.id)}
+                                                className="text-xs text-indigo-600 hover:underline ml-2"
+                                              >
+                                                AI Insights
+                                              </button>
+                                            )}
+                                            {insight?.loading && (
+                                              <span className="text-xs text-gray-500 ml-2">
+                                                analysing...
+                                              </span>
+                                            )}
+                                          </div>
+                                          {insight?.data && (
+                                            <div className="mt-1 bg-indigo-50 border border-indigo-100 rounded p-2 text-xs space-y-1">
+                                              <p>
+                                                <strong>Interpretation:</strong>{" "}
+                                                {insight.data.interpretation}
+                                              </p>
+                                              <p>
+                                                <strong>Trend:</strong> {insight.data.trend}{" "}
+                                                <span className="text-gray-500">·</span>{" "}
+                                                <strong>Urgency:</strong> {insight.data.urgency}
+                                              </p>
+                                              <p>
+                                                <strong>Baseline:</strong>{" "}
+                                                {insight.data.baselineComparison}
+                                              </p>
+                                              {insight.data.recommendedActions.length > 0 && (
+                                                <ul className="list-disc list-inside">
+                                                  {insight.data.recommendedActions.map(
+                                                    (a, i) => (
+                                                      <li key={i}>{a}</li>
+                                                    )
+                                                  )}
+                                                </ul>
+                                              )}
+                                            </div>
+                                          )}
+                                          {insight?.error && (
+                                            <p className="text-xs text-red-600 mt-1">
+                                              {insight.error}
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 )}
                               </div>

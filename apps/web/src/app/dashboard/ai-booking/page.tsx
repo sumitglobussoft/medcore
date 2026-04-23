@@ -42,6 +42,9 @@ interface DoctorSuggestion {
   photoUrl?: string;
   reasoning: string;
   confidence: number;
+  // GAP-T8: present when this card was prepended because Claude's confidence
+  // was low OR because the suggested specialty is thinly staffed.
+  isGPFallback?: boolean;
 }
 
 interface Slot {
@@ -859,7 +862,15 @@ export default function AIBookingPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-medium text-sm text-gray-800">{doc.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-medium text-sm text-gray-800">{doc.name}</p>
+                        {/* GAP-T8: GP-first badge */}
+                        {doc.isGPFallback && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                            GP recommended first
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-blue-600">{doc.specialty}</p>
                       {doc.qualification && <p className="text-xs text-gray-400">{doc.qualification}</p>}
                     </div>

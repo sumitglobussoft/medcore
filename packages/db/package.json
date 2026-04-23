@@ -24,6 +24,7 @@
     "db:seed-lab-panels": "tsx src/seed-lab-panels.ts",
     "db:seed-templates": "tsx src/seed-notification-templates.ts",
     "db:seed-hospital-config": "tsx src/seed-hospital-config.ts",
+    "db:seed-prompts": "tsx src/seed-prompts.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import Link from "next/link";
 import {
   Plus,
   Video,
@@ -12,6 +13,7 @@ import {
   Square,
   UserCheck,
   UserX,
+  Mic,
 } from "lucide-react";
 import { getSocket } from "@/lib/socket";
 
@@ -421,6 +423,21 @@ export default function TelemedicinePage() {
                     >
                       <Square size={14} /> End
                     </button>
+                  )}
+                  {/* GAP-S14: Start Ambient Scribe (DOCTOR only, only while
+                      the tele-consult is in progress). Opens the scribe page
+                      in a new tab pre-focused on this patient so the doctor
+                      can capture audio while Jitsi is still active. */}
+                  {user?.role === "DOCTOR" && s.status === "IN_PROGRESS" && (
+                    <Link
+                      href={`/dashboard/scribe?patientId=${s.patient.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                      title="Start ambient scribe in a new tab while the call continues"
+                    >
+                      <Mic size={14} /> Start Ambient Scribe
+                    </Link>
                   )}
                   {(s.status === "SCHEDULED" || s.status === "WAITING") && (
                     <button

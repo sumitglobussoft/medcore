@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -622,6 +623,98 @@ function DrugAlertBanner({
   );
 }
 
+// ─── Simple inline diff (GAP-S6) ──────────────────────────
+// Word-level longest-common-subsequence diff. Kept tiny and dep-free — this
+// is a visual aid, not a merge tool, and the visit notes are short.
+
+type DiffOp = { type: "same" | "del" | "ins"; text: string };
+
+function computeWordDiff(a: string, b: string): DiffOp[] {
+  const tokens = (s: string): string[] => (s ? s.match(/\S+|\s+/g) || [] : []);
+  const A = tokens(a);
+  const B = tokens(b);
+  const m = A.length;
+  const n = B.length;
+
+  // Cap on LCS matrix size to protect the browser from pathologically long
+  // notes. If exceeded we degrade to a trivial "delete all + insert all" diff.
+  if (m * n > 40000) {
+    const ops: DiffOp[] = [];
+    if (a) ops.push({ type: "del", text: a });
+    if (b) ops.push({ type: "ins", text: b });
+    return ops;
+  }
+
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = A[i - 1] === B[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const out: DiffOp[] = [];
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (A[i - 1] === B[j - 1]) {
+      out.push({ type: "same", text: A[i - 1] });
+      i--; j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      out.push({ type: "del", text: A[i - 1] });
+      i--;
+    } else {
+      out.push({ type: "ins", text: B[j - 1] });
+      j--;
+    }
+  }
+  while (i > 0) { out.push({ type: "del", text: A[--i] }); }
+  while (j > 0) { out.push({ type: "ins", text: B[--j] }); }
+  return out.reverse();
+}
+
+function InlineDiff({ previous, current }: { previous: string; current: string }) {
+  const ops = computeWordDiff(previous || "", current || "");
+  return (
+    <p className="text-xs leading-relaxed whitespace-pre-wrap">
+      {ops.map((op, i) => {
+        if (op.type === "same") return <span key={i}>{op.text}</span>;
+        if (op.type === "del")
+          return (
+            <span
+              key={i}
+              className="bg-red-100 text-red-800 line-through px-0.5 rounded"
+            >
+              {op.text}
+            </span>
+          );
+        return (
+          <span
+            key={i}
+            className="bg-green-100 text-green-800 px-0.5 rounded"
+          >
+            {op.text}
+          </span>
+        );
+      })}
+    </p>
+  );
+}
+
+/**
+ * Flatten a SOAPNote into a single plain-text block so it can be diffed
+ * against the previous consultation's free-text `notes` field.
+ */
+function soapToPlainText(soap: SOAPNote | null): string {
+  if (!soap) return "";
+  const parts: string[] = [];
+  parts.push(soapSectionToText("S", soap));
+  parts.push(soapSectionToText("O", soap));
+  parts.push(soapSectionToText("A", soap));
+  parts.push(soapSectionToText("P", soap));
+  return parts.filter(Boolean).join("\n\n");
+}
+
 // ─── Constants ────────────────────────────────────────────
 
 const INITIAL_SECTION_STATUS: SectionStatusMap = {
@@ -635,6 +728,14 @@ const INITIAL_SECTION_STATUS: SectionStatusMap = {
 
 export default function ScribePage() {
   const { token } = useAuthStore();
+  // GAP-S14: tele-consult integration. When the doctor clicks "Start Ambient
+  // Scribe" on the telemedicine page we jump here with ?appointmentId=... (or
+  // ?patientId=...). Both params are optional; when present we auto-advance
+  // to the consent modal for the matching appointment on load.
+  const searchParams = useSearchParams();
+  const urlAppointmentId = searchParams?.get("appointmentId") ?? null;
+  const urlPatientId = searchParams?.get("patientId") ?? null;
+  const [autoStartedFromUrl, setAutoStartedFromUrl] = useState(false);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -657,6 +758,19 @@ export default function ScribePage() {
     ...INITIAL_SECTION_STATUS,
   });
   const [reviewSoap, setReviewSoap] = useState<SOAPNote | null>(null);
+
+  // GAP-S4: live transcript with speaker tags editable by the doctor.
+  const [transcriptEntries, setTranscriptEntries] = useState<
+    { speaker: "DOCTOR" | "PATIENT" | "ATTENDANT" | "UNKNOWN"; text: string; timestamp: string; confidence?: number }[]
+  >([]);
+  const [transcriptPanelOpen, setTranscriptPanelOpen] = useState(false);
+
+  // GAP-S6: compare-to-previous-visit.
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [previousConsultation, setPreviousConsultation] = useState<
+    { id: string; notes: string | null; findings: string | null; createdAt: string; appointment?: any } | null
+  >(null);
+  const [previousLoading, setPreviousLoading] = useState(false);
 
   // ── Voice command state (review mode) ─────────────────
   const [voiceListening, setVoiceListening] = useState(false);
@@ -685,13 +799,30 @@ export default function ScribePage() {
           `/appointments?date=${today}&status=CHECKED_IN,BOOKED`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        setAppointments(res.data.data?.appointments || []);
+        const list = res.data.data?.appointments || [];
+        setAppointments(list);
+
+        // GAP-S14: if URL params point at a specific appointment/patient,
+        // auto-open the consent modal so the doctor can start scribe with one
+        // click from the tele-consult page. Only runs once per mount.
+        if (!autoStartedFromUrl && !sessionId) {
+          let target: any = null;
+          if (urlAppointmentId) {
+            target = list.find((a: any) => a.id === urlAppointmentId);
+          } else if (urlPatientId) {
+            target = list.find((a: any) => a.patientId === urlPatientId);
+          }
+          if (target) {
+            setConsentTarget(target);
+            setAutoStartedFromUrl(true);
+          }
+        }
       } catch {
         // silent
       }
     };
     fetchAppts();
-  }, [token]);
+  }, [token, urlAppointmentId, urlPatientId, autoStartedFromUrl, sessionId]);
 
   // Poll for SOAP updates while recording
   useEffect(() => {
@@ -708,6 +839,11 @@ export default function ScribePage() {
           if (res.data.data?.rxDraft?.alerts) {
             setRxSafetyReport(res.data.data.rxDraft);
             setAlertsAcknowledged(false);
+          }
+          // GAP-S4: keep transcript panel in sync with server-side edits
+          // (reconnects, multi-tab usage).
+          if (Array.isArray(res.data.data?.transcript)) {
+            setTranscriptEntries(res.data.data.transcript);
           }
         } catch { /* silent */ }
       }, 15000);
@@ -738,14 +874,13 @@ export default function ScribePage() {
   const handleFinalTranscript = useCallback(
     async (text: string, speaker: "DOCTOR" | "PATIENT") => {
       if (!text.trim() || !sessionId) return;
-      const entries = [
-        {
-          speaker,
-          text,
-          timestamp: new Date().toISOString(),
-          confidence: 0.9,
-        },
-      ];
+      const newEntry = {
+        speaker,
+        text,
+        timestamp: new Date().toISOString(),
+        confidence: 0.9,
+      };
+      const entries = [newEntry];
       try {
         const res = await api.post<any>(
           `/ai/scribe/${sessionId}/transcript`,
@@ -753,6 +888,9 @@ export default function ScribePage() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         setTranscriptLength(res.data.data.transcriptLength);
+        // GAP-S4: keep local transcript state in sync so the doctor can edit
+        // speaker tags on entries we just sent.
+        setTranscriptEntries((prev) => [...prev, newEntry]);
         if (res.data.data.soapDraft) {
           setSoapDraft(res.data.data.soapDraft);
           setEditedSOAP(res.data.data.soapDraft);
@@ -767,6 +905,49 @@ export default function ScribePage() {
     },
     [sessionId, token]
   );
+
+  // GAP-S4: update speaker on a single transcript entry.
+  const updateEntrySpeaker = useCallback(
+    async (
+      index: number,
+      speaker: "DOCTOR" | "PATIENT" | "ATTENDANT",
+    ) => {
+      if (!sessionId) return;
+      // Optimistic update
+      setTranscriptEntries((prev) => {
+        const copy = [...prev];
+        if (copy[index]) copy[index] = { ...copy[index], speaker };
+        return copy;
+      });
+      try {
+        await api.patch<any>(
+          `/ai/scribe/${sessionId}/transcript/${index}/speaker`,
+          { speaker },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+      } catch {
+        toast.error("Failed to update speaker tag");
+      }
+    },
+    [sessionId, token],
+  );
+
+  // GAP-S6: lazy-load previous consultation when toggle is flipped on.
+  const fetchPreviousConsultation = useCallback(async () => {
+    if (!sessionId) return;
+    setPreviousLoading(true);
+    try {
+      const res = await api.get<any>(
+        `/ai/scribe/${sessionId}/previous-consultation`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setPreviousConsultation(res.data.data?.previous ?? null);
+    } catch {
+      setPreviousConsultation(null);
+    } finally {
+      setPreviousLoading(false);
+    }
+  }, [sessionId, token]);
 
   // Flush accumulated audio chunks to Sarvam ASR and push transcript
   const flushAudioChunks = useCallback(
@@ -1329,6 +1510,71 @@ export default function ScribePage() {
           </div>
         )}
 
+        {/* GAP-S6: Compare to previous visit toggle + diff panel */}
+        <div className="px-6 pt-4 flex-shrink-0">
+          <div className="flex items-center gap-3 text-sm">
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-blue-600"
+                checked={compareOpen}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setCompareOpen(next);
+                  if (next && !previousConsultation && !previousLoading) {
+                    fetchPreviousConsultation();
+                  }
+                }}
+              />
+              <span className="font-medium text-gray-700">Compare to previous visit</span>
+            </label>
+            {previousLoading && (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+            )}
+          </div>
+          {compareOpen && (
+            <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+              <div className="px-4 py-2 border-b border-gray-200 bg-white">
+                <p className="text-xs font-semibold text-gray-700">
+                  Side-by-side: previous consultation vs current AI draft
+                </p>
+                {previousConsultation?.createdAt && (
+                  <p className="text-xs text-gray-500">
+                    Previous visit: {new Date(previousConsultation.createdAt).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+              {previousLoading ? (
+                <div className="p-4 text-xs text-gray-500">Loading previous consultation…</div>
+              ) : !previousConsultation ? (
+                <div className="p-4 text-xs text-gray-500 italic">
+                  No prior completed consultation found for this patient.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-gray-200">
+                  <div className="p-4 space-y-1 min-h-[120px]">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                      Previous visit notes
+                    </p>
+                    <pre className="text-xs whitespace-pre-wrap font-sans text-gray-700">
+                      {previousConsultation.notes || <span className="italic text-gray-400">No notes saved.</span>}
+                    </pre>
+                  </div>
+                  <div className="p-4 space-y-1 min-h-[120px]">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                      Current draft — diff vs previous (red = removed, green = added)
+                    </p>
+                    <InlineDiff
+                      previous={previousConsultation.notes || ""}
+                      current={soapToPlainText(reviewSoap)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* 4 review cards */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {SECTIONS.map(({ key, title, icon }) => (
@@ -1572,6 +1818,70 @@ export default function ScribePage() {
               >
                 <X className="w-4 h-4" /> Withdraw Consent
               </button>
+            </div>
+          )}
+
+          {/* GAP-S4: Transcript with per-entry speaker dropdowns. */}
+          {sessionId && transcriptEntries.length > 0 && (
+            <div className="bg-white rounded-2xl shadow border border-gray-100 overflow-hidden flex-1 min-h-0 flex flex-col">
+              <button
+                onClick={() => setTranscriptPanelOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors flex-shrink-0"
+              >
+                <span className="flex items-center gap-2 text-xs font-semibold text-gray-700">
+                  <FileText className="w-3.5 h-3.5 text-gray-500" />
+                  Transcript · {transcriptEntries.length}
+                </span>
+                {transcriptPanelOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                )}
+              </button>
+              {transcriptPanelOpen && (
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {transcriptEntries.map((entry, i) => {
+                    const speakerClass =
+                      entry.speaker === "DOCTOR"
+                        ? "bg-blue-50 border-blue-200"
+                        : entry.speaker === "PATIENT"
+                        ? "bg-emerald-50 border-emerald-200"
+                        : entry.speaker === "ATTENDANT"
+                        ? "bg-purple-50 border-purple-200"
+                        : "bg-gray-50 border-gray-200";
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-lg border px-2.5 py-2 text-xs ${speakerClass}`}
+                      >
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <select
+                            value={
+                              entry.speaker === "UNKNOWN" ? "DOCTOR" : entry.speaker
+                            }
+                            onChange={(e) =>
+                              updateEntrySpeaker(
+                                i,
+                                e.target.value as "DOCTOR" | "PATIENT" | "ATTENDANT",
+                              )
+                            }
+                            className="text-[10px] font-semibold border border-gray-200 rounded px-1 py-0.5 bg-white"
+                            aria-label={`Speaker for entry ${i + 1}`}
+                          >
+                            <option value="DOCTOR">DOCTOR</option>
+                            <option value="PATIENT">PATIENT</option>
+                            <option value="ATTENDANT">ATTENDANT</option>
+                          </select>
+                          <span className="text-[10px] text-gray-400">
+                            #{i + 1}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 break-words">{entry.text}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

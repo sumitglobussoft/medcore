@@ -20,6 +20,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { analyzeSentiment, computeSlaDueAt } from "../services/ops-helpers";
+import { triggerFeedbackAnalysis } from "../services/ai/sentiment-ai";
 
 const feedbackRouter = Router();
 
@@ -76,6 +77,9 @@ feedbackRouter.post(
           sentimentScore: sent?.score,
         },
       });
+
+      // Fire-and-forget AI sentiment analysis (non-blocking).
+      triggerFeedbackAnalysis(fb.id);
 
       res.status(201).json({ success: true, data: fb, error: null });
     } catch (err) {

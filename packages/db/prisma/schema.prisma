@@ -94,6 +94,11 @@ enum NotificationType {
   LAB_RESULT_READY
   MEDICATION_DUE
   LOW_STOCK_ALERT
+  // Patient-facing AI tools (merged from .prisma-models-patient-tools.md)
+  BILL_EXPLANATION_READY
+  PREVISIT_CHECKLIST_READY
+  CHRONIC_CARE_CHECKIN
+  CHRONIC_CARE_ALERT
 }
 
 // ─── PHASE 2 ENUMS ──────────────────────────────────────
@@ -503,6 +508,20 @@ model Tenant {
   chatMessages             ChatMessage[]
   chatParticipants         ChatParticipant[]
 
+  // ── Back-relations merged from .prisma-models-*.md (see end of file) ──
+  billExplanations         BillExplanation[]
+  previsitChecklists       PrevisitChecklist[]
+  symptomDiaryEntries      SymptomDiaryEntry[]
+  chronicCarePlans         ChronicCarePlan[]
+  chronicCareCheckIns      ChronicCareCheckIn[]
+  chronicCareAlerts        ChronicCareAlert[]
+  staffRosterProposals     StaffRosterProposal[]
+  fraudAlerts              FraudAlert[]
+  docQaReports             DocQAReport[]
+  feedbackSentiments       FeedbackSentiment[]
+  npsDailyRollups          NpsDailyRollup[]
+  claimDenialHistories     ClaimDenialHistory[]
+
   @@map("tenants")
 }
 
@@ -554,6 +573,10 @@ model User {
   overtimeRecords           OvertimeRecord[]
   passwordResetCodes        PasswordResetCode[]
   twoFactorTempTokens       TwoFactorTempToken[]
+
+  // ── Back-relations merged from .prisma-models-ops-forecast.md ────────
+  proposalsCreated          StaffRosterProposal[] @relation("RosterProposalCreator")
+  proposalsApplied          StaffRosterProposal[] @relation("RosterProposalApplier")
 
   @@index([email])
   @@index([phone])
@@ -755,6 +778,14 @@ model Patient {
   insuranceClaimsV2    InsuranceClaim2[]
   doseLogs             AdherenceDoseLog[]
 
+  // ── Back-relations merged from .prisma-models-patient-tools.md ───────
+  billExplanations     BillExplanation[]
+  previsitChecklists   PrevisitChecklist[]
+  symptomDiaryEntries  SymptomDiaryEntry[]
+  chronicCarePlans     ChronicCarePlan[]
+  chronicCareCheckIns  ChronicCareCheckIn[]
+  chronicCareAlerts    ChronicCareAlert[]
+
   @@index([mrNumber])
   @@index([tenantId])
   @@map("patients")
@@ -801,6 +832,9 @@ model Appointment {
   coordinatedVisit  CoordinatedVisit? @relation("CoordinatedAppointments", fields: [coordinatedVisitId], references: [id])
   aiTriageSession   AITriageSession?
   aiScribeSession   AIScribeSession?
+
+  // ── Back-relation merged from .prisma-models-patient-tools.md ────────
+  previsitChecklist PrevisitChecklist?
 
   @@unique([doctorId, date, tokenNumber])
   @@index([doctorId, date])
@@ -881,6 +915,9 @@ model Consultation {
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
+
+  // ── Back-relation merged from .prisma-models-ops-quality.md ──────────
+  docQaReport DocQAReport?
 
   @@index([tenantId])
   @@map("consultations")
@@ -1005,6 +1042,9 @@ model Invoice {
   paymentPlans      PaymentPlan[]
   discountApprovals DiscountApproval[]
   creditNotes     CreditNote[]
+
+  // ── Back-relation merged from .prisma-models-patient-tools.md ────────
+  billExplanation   BillExplanation?
 
   @@index([patientId])
   @@index([invoiceNumber])
@@ -2649,6 +2689,9 @@ model PatientFeedback {
 
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
+  // ── Back-relation merged from .prisma-models-ops-quality.md ──────────
+  aiSentiment FeedbackSentiment?
+
   @@index([patientId])
   @@index([category])
   @@index([submittedAt])
@@ -3939,4 +3982,395 @@ model IngestLog {
   @@index([doctorId])
   @@index([status])
   @@map("ingest_logs")
+}
+
+// ─── AI PROMPT REGISTRY (GAP-P3) ────────────────────────
+//
+// Versioned prompt templates for all LLM features. Replaces the hardcoded
+// string constants in apps/api/src/services/ai/prompts.ts so prompt edits
+// no longer require a code deploy. Exactly one row per `key` has
+// `active = true`; flipping a different version's `active` flag is an
+// instant rollback/rollout. Enforcement of the single-active invariant is
+// done at the application layer (services/ai/prompt-registry.ts) inside
+// a transaction — the partial unique index below is a defense-in-depth
+// guard at the DB level.
+
+model Prompt {
+  id        String   @id @default(uuid())
+  key       String
+  version   Int
+  content   String   @db.Text
+  createdBy String
+  createdAt DateTime @default(now())
+  active    Boolean  @default(false)
+  notes     String?
+
+  // One row per (key, version); many versions per key.
+  @@unique([key, version])
+  // Filterable by key for the "list versions" admin endpoint.
+  @@index([key])
+  // Partial unique index on (key) WHERE active = true is declared in the
+  // migration SQL (Prisma cannot express partial indexes in the schema).
+  @@map("prompts")
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// MERGED FROM .prisma-models-*.md (schema-owner agent consolidation)
+//
+// Each section below was proposed by a sibling agent in a markdown stub
+// because they could not touch schema.prisma directly. The Prompt-registry
+// / model-router agent owns the schema in this batch and is responsible
+// for merging these. See the source .md files for full feature rationale,
+// TENANT_SCOPED_MODELS updates and companion migrations.
+//
+// Sources:
+//   1. .prisma-models-patient-tools.md   — bill explainer, pre-visit checklist,
+//                                          symptom diary, chronic-care coaching.
+//   2. .prisma-models-ops-forecast.md    — staff roster proposals.
+//   3. .prisma-models-ops-quality.md     — fraud alerts, doc-QA reports,
+//                                          feedback sentiment, NPS rollups.
+//   4. .prisma-models-ai-claims.md       — claim denial history (standalone
+//                                          portion only; InsuranceClaim2
+//                                          column additions + enum extension
+//                                          deferred to a coordinated PR).
+//
+// NOTE: companion migration SQL for these tables is NOT included in
+// 20260423000006_prompts/migration.sql — that migration is scoped to the
+// Prompt table. Feature owners should open a follow-up migration once they
+// take their routes off the 503 fallback. `prisma generate` alone is
+// enough to produce types so already-written route code compiles today.
+// ═════════════════════════════════════════════════════════════════════
+
+// ─── Enums (merged) ──────────────────────────────────────
+
+enum BillExplanationStatus {
+  DRAFT
+  APPROVED
+  SENT
+}
+
+/// Enum for chronic-care coaching plans. Named `ChronicConditionCode` to
+/// avoid colliding with the existing `ChronicCondition` MODEL in this
+/// schema (which tracks per-patient chronic conditions as free-text).
+enum ChronicConditionCode {
+  DIABETES
+  HYPERTENSION
+  ASTHMA
+  TB
+  OTHER
+}
+
+enum ChronicCareAlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RosterProposalStatus {
+  PROPOSED
+  APPLIED
+  REJECTED
+}
+
+enum FraudAlertType {
+  DUPLICATE_CHARGE
+  PRESCRIPTION_OUTLIER
+  HIGH_FREQUENCY_PATIENT
+  LARGE_REFUND
+  LARGE_DISCOUNT
+  GENERIC_TO_BRAND_UPSELL
+  OTHER
+}
+
+enum FraudAlertSeverity {
+  INFO
+  SUSPICIOUS
+  HIGH_RISK
+}
+
+enum FraudAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  DISMISSED
+  ESCALATED
+}
+
+enum SentimentBucket {
+  positive
+  neutral
+  negative
+}
+
+// ─── 1. Patient-facing AI tools (.prisma-models-patient-tools.md) ────
+
+model BillExplanation {
+  id           String                @id @default(uuid())
+  invoiceId    String                @unique
+  patientId    String
+  language     String                @default("en")
+  content      String                @db.Text
+  status       BillExplanationStatus @default(DRAFT)
+  flaggedItems Json                  @default("[]")
+  approvedBy   String?
+  approvedAt   DateTime?
+  sentAt       DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([status])
+  @@index([tenantId])
+  @@map("bill_explanations")
+}
+
+model PrevisitChecklist {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique
+  patientId     String
+  items         Json     @default("[]")
+  generatedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  patient     Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([tenantId])
+  @@map("previsit_checklists")
+}
+
+model SymptomDiaryEntry {
+  id             String    @id @default(uuid())
+  patientId      String
+  symptomDate    DateTime  @db.Date
+  entries        Json      @default("[]")
+  lastAnalysis   Json?
+  lastAnalysisAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, symptomDate])
+  @@index([patientId, symptomDate])
+  @@index([tenantId])
+  @@map("symptom_diary_entries")
+}
+
+model ChronicCarePlan {
+  id                   String               @id @default(uuid())
+  patientId            String
+  condition            ChronicConditionCode
+  checkInFrequencyDays Int                  @default(7)
+  thresholds           Json                 @default("{}")
+  active               Boolean              @default(true)
+  createdBy            String
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  patient  Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  checkIns ChronicCareCheckIn[]
+  alerts   ChronicCareAlert[]
+
+  @@index([patientId, active])
+  @@index([tenantId])
+  @@map("chronic_care_plans")
+}
+
+model ChronicCareCheckIn {
+  id                 String   @id @default(uuid())
+  planId             String
+  patientId          String
+  loggedAt           DateTime @default(now())
+  responses          Json     @default("{}")
+  thresholdsBreached Json?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  plan    ChronicCarePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([planId, loggedAt])
+  @@index([patientId, loggedAt])
+  @@index([tenantId])
+  @@map("chronic_care_checkins")
+}
+
+model ChronicCareAlert {
+  id             String                   @id @default(uuid())
+  planId         String
+  patientId      String
+  severity       ChronicCareAlertSeverity @default(MEDIUM)
+  reason         String                   @db.Text
+  createdAt      DateTime                 @default(now())
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  plan    ChronicCarePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  patient Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([planId, createdAt])
+  @@index([patientId, acknowledgedAt])
+  @@index([tenantId])
+  @@map("chronic_care_alerts")
+}
+
+// ─── 2. Staff roster proposals (.prisma-models-ops-forecast.md) ──────
+
+model StaffRosterProposal {
+  id         String               @id @default(uuid())
+  status     RosterProposalStatus @default(PROPOSED)
+  startDate  DateTime             @db.Date
+  days       Int
+  department String
+  proposal   Json
+  warnings   Json
+  createdBy  String
+  createdAt  DateTime             @default(now())
+  appliedAt  DateTime?
+  appliedBy  String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  creator User  @relation("RosterProposalCreator", fields: [createdBy], references: [id])
+  applier User? @relation("RosterProposalApplier", fields: [appliedBy], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([department, startDate])
+  @@index([tenantId])
+  @@map("staff_roster_proposals")
+}
+
+// ─── 3. Ops quality (.prisma-models-ops-quality.md) ──────────────────
+
+model FraudAlert {
+  id             String             @id @default(uuid())
+  type           FraudAlertType
+  severity       FraudAlertSeverity @default(SUSPICIOUS)
+  status         FraudAlertStatus   @default(OPEN)
+  entityType     String
+  entityId       String
+  description    String
+  evidence       Json
+  detectedAt     DateTime           @default(now())
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolutionNote String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([status, severity])
+  @@index([type])
+  @@index([entityType, entityId])
+  @@index([detectedAt])
+  @@index([tenantId])
+  @@map("fraud_alerts")
+}
+
+model DocQAReport {
+  consultationId    String   @id
+  score             Int
+  issues            Json
+  recommendations   Json
+  auditedAt         DateTime @default(now())
+  auditedBy         String   @default("SYSTEM")
+  completenessScore Int?
+  icdAccuracyScore  Int?
+  medicationScore   Int?
+  clarityScore      Int?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@index([auditedAt])
+  @@index([score])
+  @@index([tenantId])
+  @@map("doc_qa_reports")
+}
+
+model FeedbackSentiment {
+  feedbackId      String          @id
+  sentiment       SentimentBucket
+  emotions        Json
+  themes          Json
+  actionableItems Json
+  analyzedAt      DateTime        @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  feedback PatientFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@index([sentiment])
+  @@index([analyzedAt])
+  @@index([tenantId])
+  @@map("feedback_sentiment")
+}
+
+model NpsDailyRollup {
+  date               DateTime @id @db.Date
+  windowDays         Int      @default(30)
+  positiveThemes     Json
+  negativeThemes     Json
+  actionableInsights Json
+  totalFeedback      Int
+  generatedAt        DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("nps_daily_rollup")
+}
+
+// ─── 4. AI claims (.prisma-models-ai-claims.md) ──────────────────────
+//
+// Only the standalone `ClaimDenialHistory` table is merged here. The
+// proposed `NormalisedClaimStatus.DRAFT_PENDING_REVIEW` extension and
+// new columns on `InsuranceClaim2` (aiDraftedFromConsultationId, etc.)
+// are intentionally deferred — they require a coordinated backfill of
+// existing in-flight claims and are best handled in their own
+// migration PR, not sneaked into the prompt-registry batch.
+
+model ClaimDenialHistory {
+  id            String      @id @default(uuid())
+  tpaProvider   TpaProvider
+  icd10Code     String?
+  procedureCode String?
+  denialReason  String
+  denialCount   Int         @default(1)
+  firstSeenAt   DateTime    @default(now())
+  lastSeenAt    DateTime    @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tpaProvider, icd10Code])
+  @@index([tenantId])
+  @@map("claim_denial_history")
 }

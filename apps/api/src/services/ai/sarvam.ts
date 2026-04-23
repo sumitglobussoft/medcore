@@ -1,16 +1,42 @@
 import OpenAI from "openai";
 import type { SOAPNote, SpecialtySuggestion, SymptomCapture, TranscriptEntry } from "@medcore/shared";
-import { PROMPTS } from "./prompts";
+import { PROMPTS, type PromptKey } from "./prompts";
 import { retrieveContext } from "./rag";
 import { sanitizeUserInput } from "./prompt-safety";
+import { getChatClient } from "./model-router";
+import { getActivePrompt } from "./prompt-registry";
+import { logAICall } from "./sarvam-logging";
 
-// Sarvam AI — India-region servers, DPDP-compliant
-const sarvam = new OpenAI({
-  apiKey: process.env.SARVAM_API_KEY ?? "",
-  baseURL: "https://api.sarvam.ai/v1",
-});
+// GAP-P5: the chat client comes from the multi-provider router so flipping
+// `AI_PROVIDER` env var swaps backends fleet-wide without touching call sites.
+// Default remains Sarvam (India-region, DPDP-compliant). Tests that mock the
+// `openai` module still work because the router also constructs an `OpenAI`.
+const sarvam = getChatClient();
 
 const MODEL = "sarvam-105b";
+
+// Re-export so existing callers that `import { logAICall } from ".../sarvam"`
+// keep working after the logging split into sarvam-logging.ts.
+export { logAICall };
+
+/**
+ * Resolve a prompt from the registry, falling back to the compiled constant
+ * if the registry is empty or errors out. Centralised here so every prompt
+ * read in this file has identical fallback semantics.
+ */
+async function resolvePrompt(key: PromptKey): Promise<string> {
+  try {
+    const value = await getActivePrompt(key);
+    // getActivePrompt itself falls back to PROMPTS[key] when there is no DB
+    // row, so a non-empty string here is always safe to return.
+    if (value && value.length > 0) return value;
+  } catch {
+    // Belt-and-braces: the registry already catches its own DB errors, but
+    // if something slips through (e.g. unexpected Prisma exception) we still
+    // want the LLM call to succeed.
+  }
+  return PROMPTS[key];
+}
 
 // ── Custom error ──────────────────────────────────────────────────────────────
 
@@ -24,24 +50,6 @@ export class AIServiceUnavailableError extends Error {
     super("AI service temporarily unavailable");
     this.name = "AIServiceUnavailableError";
   }
-}
-
-// ── Observability ─────────────────────────────────────────────────────────────
-
-export function logAICall(opts: {
-  feature: "triage" | "scribe" | "drug-safety" | "hallucination-check" | "chart-search-rerank";
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  latencyMs: number;
-  toolUsed?: string;
-  error?: string;
-  // Optional reranker-specific fields so batches surface in ai_call logs.
-  batchIndex?: number;
-  batchSize?: number;
-  chunkCount?: number;
-}) {
-  console.log(JSON.stringify({ level: "info", event: "ai_call", ...opts, ts: new Date().toISOString() }));
 }
 
 // ── Retry / fallback ──────────────────────────────────────────────────────────
@@ -225,10 +233,15 @@ export async function runTriageTurn(
   const lastUserMsg = sanitizedMessages.at(-1)?.content ?? "";
   const ragContext = await retrieveContext(lastUserMsg, 3, ["ICD10", "MEDICINE"]).catch(() => "");
 
-  const baseSystemPrompt =
-    language === "hi"
-      ? PROMPTS.TRIAGE_SYSTEM + PROMPTS.TRIAGE_SYSTEM_HINDI_SUFFIX
-      : PROMPTS.TRIAGE_SYSTEM;
+  // GAP-P3: read prompt + Hindi suffix from the versioned registry instead
+  // of compiled constants. resolvePrompt transparently falls back to the
+  // static PROMPTS object when the DB is empty or errors out, so this swap
+  // is safe to roll out before any DB row is seeded.
+  const [triageSystem, hindiSuffix] = await Promise.all([
+    resolvePrompt("TRIAGE_SYSTEM"),
+    language === "hi" ? resolvePrompt("TRIAGE_SYSTEM_HINDI_SUFFIX") : Promise.resolve(""),
+  ]);
+  const baseSystemPrompt = language === "hi" ? triageSystem + hindiSuffix : triageSystem;
   const systemPrompt = baseSystemPrompt + (ragContext ? "\n\n" + ragContext : "");
 
   const t0 = Date.now();
@@ -314,6 +327,10 @@ export async function extractSymptomSummary(
   const t0 = Date.now();
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
+  // GAP-P3: resolve versioned prompt BEFORE withRetry so the non-async arrow
+  // doesn't need to await.
+  const triageSystemPrompt = await resolvePrompt("TRIAGE_SYSTEM");
+
   try {
     response = await withRetry(() =>
       sarvam.chat.completions.create({
@@ -362,7 +379,8 @@ export async function extractSymptomSummary(
         ],
         tool_choice: { type: "function", function: { name: "structured_symptom_summary" } },
         messages: [
-          { role: "system", content: PROMPTS.TRIAGE_SYSTEM },
+          // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
+          { role: "system", content: triageSystemPrompt },
           ...messages,
           {
             role: "user",
@@ -398,6 +416,37 @@ export async function extractSymptomSummary(
   }
 
   const input = JSON.parse(toolCall.function.arguments) as any;
+
+  // GAP-T8: GP fallback on low confidence. If the overall confidence score
+  // indicates Claude is uncertain about the specialty match, prepend a General
+  // Physician so the patient starts there rather than with a potentially
+  // mis-matched specialist. The route layer additionally inspects the live
+  // doctor pool and may prepend GP again when fewer than 2 matching doctors
+  // exist for the suggested specialty; `isGPFallback` + dedup guards protect
+  // against duplicates.
+  const specialties: SpecialtySuggestion[] = Array.isArray(input.specialties)
+    ? (input.specialties as SpecialtySuggestion[])
+    : [];
+  const confidenceNum = typeof input.overallConfidence === "number" ? input.overallConfidence : 0;
+  const alreadyHasGP = specialties.some(
+    (s) => s?.specialty?.toLowerCase?.().includes("general physician")
+      || s?.specialty?.toLowerCase?.().includes("general practitioner"),
+  );
+  const finalSpecialties: SpecialtySuggestion[] =
+    confidenceNum < 0.5 && !alreadyHasGP
+      ? [
+          {
+            specialty: "General Physician",
+            subSpecialty: null as any,
+            confidence: 0.9,
+            reasoning:
+              "Starting with a General Physician given the complexity/uncertainty of your symptoms.",
+            isGPFallback: true,
+          } as unknown as SpecialtySuggestion,
+          ...specialties,
+        ]
+      : specialties;
+
   return {
     chiefComplaint: input.chiefComplaint,
     onset: input.onset,
@@ -410,7 +459,7 @@ export async function extractSymptomSummary(
     knownAllergies: input.knownAllergies,
     age: input.age,
     gender: input.gender,
-    specialties: input.specialties,
+    specialties: finalSpecialties,
     confidence: input.overallConfidence,
   };
 }
@@ -567,6 +616,9 @@ Patient Context:
 
   const ragContext = await retrieveContext(transcriptText, 4).catch(() => "");
 
+  // GAP-P3: resolve versioned scribe prompt before the retry-wrapped call.
+  const scribeSystemPrompt = await resolvePrompt("SCRIBE_SYSTEM");
+
   const t0 = Date.now();
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
@@ -708,10 +760,11 @@ Patient Context:
         ],
         tool_choice: { type: "function", function: { name: "generate_soap_note" } },
         messages: [
-          { role: "system", content: PROMPTS.SCRIBE_SYSTEM },
+          // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
+          { role: "system", content: scribeSystemPrompt },
           {
             role: "user",
-            content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.`,
+            content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
           },
         ],
       })

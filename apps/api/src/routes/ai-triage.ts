@@ -216,18 +216,55 @@ router.post(
           if (skipCount > 0) {
             summary.confidence = Math.max(0.1, summary.confidence - 0.1 * skipCount);
           }
-          if (summary.confidence < 0.5) {
-            const gpEntry = {
-              specialty: "General Physician",
-              subSpecialty: null,
-              confidence: 0.9,
-              reasoning: "Confidence in specialty match is low — a General Physician can assess and refer appropriately.",
-              isGPFallback: true,
-            };
-            suggestedSpecialties = [gpEntry, ...(summary.specialties || [])] as any;
-          } else {
-            suggestedSpecialties = summary.specialties as any;
+
+          // GAP-T8: GP fallback on low confidence OR thin specialty pool.
+          // extractSymptomSummary may already prepend GP on low confidence;
+          // dedup and additionally check the live doctor pool so the patient
+          // starts with a GP when the suggested specialty is sparsely staffed.
+          const specialtiesFromSummary = summary.specialties || [];
+          const hasGP = (list: any[]) =>
+            list.some(
+              (s) => typeof s?.specialty === "string"
+                && (s.specialty.toLowerCase().includes("general physician")
+                  || s.specialty.toLowerCase().includes("general practitioner")),
+            );
+          const gpEntry = {
+            specialty: "General Physician",
+            subSpecialty: null,
+            confidence: 0.9,
+            reasoning:
+              "Starting with a General Physician given the complexity/uncertainty of your symptoms.",
+            isGPFallback: true,
+          };
+
+          let candidateSpecialties: any[] = [...specialtiesFromSummary];
+          if (summary.confidence < 0.5 && !hasGP(candidateSpecialties)) {
+            candidateSpecialties = [gpEntry, ...candidateSpecialties];
           }
+
+          // "Fewer than 2 matching doctors" check — even with high confidence
+          // if the suggested specialty is thinly staffed the patient should
+          // start with a GP who can triage and refer onward.
+          const topSpecialty = candidateSpecialties.find(
+            (s) => !s.isGPFallback,
+          )?.specialty;
+          if (topSpecialty && !hasGP(candidateSpecialties)) {
+            try {
+              const matchingCount = await prisma.doctor.count({
+                where: {
+                  specialization: topSpecialty,
+                  user: { isActive: true },
+                },
+              });
+              if (matchingCount < 2) {
+                candidateSpecialties = [gpEntry, ...candidateSpecialties];
+              }
+            } catch {
+              // Non-fatal — skip the doctor-count fallback if DB lookup fails.
+            }
+          }
+
+          suggestedSpecialties = candidateSpecialties as any;
           confidence = summary.confidence;
           symptoms = summary as any;
         } catch {
@@ -312,8 +349,16 @@ router.get(
             consultationMode: "in-person",          // default; extend later
             reasoning: specialty?.reasoning || `Specialist in ${d.specialization}`,
             confidence: specialty?.confidence || 0.7,
+            // GAP-T8: flag GP cards so the UI can surface a "GP recommended
+            // first" badge when Claude's confidence was low or the suggested
+            // specialty pool is thin.
+            isGPFallback: !!specialty?.isGPFallback,
           };
         });
+        // Ensure GP-fallback cards appear first so patients see them prominently.
+        doctorSuggestions.sort((a, b) =>
+          (b.isGPFallback ? 1 : 0) - (a.isGPFallback ? 1 : 0)
+        );
       }
 
       safeAudit(req, "AI_TRIAGE_SESSION_READ", "AITriageSession", session.id, {
@@ -364,15 +409,37 @@ router.post(
         return;
       }
 
-      // Build pre-visit summary from session data
+      // GAP-T2: Build structured pre-visit summary blob from session data.
+      // This includes the symptom summary, full conversation transcript, confidence
+      // and language so the attending doctor can see exactly what was captured
+      // pre-visit. The blob is also prepended to appointment.notes as JSON so it's
+      // machine-parseable (see the `aiSummary Json?` proposal in
+      // services/.prisma-models-triage-scribe.md for the future dedicated column).
       const symptoms = session.symptoms as any;
+      const rawMessages = (session.messages as any[]) ?? [];
+      const transcript = rawMessages
+        .filter((m: any) => m.role === "user" || m.role === "assistant")
+        .map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp ?? null,
+        }));
       const preVisitSummary = {
+        version: 1,
+        sessionId,
         chiefComplaint: session.chiefComplaint || symptoms?.chiefComplaint || "Not specified",
+        onset: symptoms?.onset ?? null,
+        duration: symptoms?.duration ?? null,
+        severity: typeof symptoms?.severity === "number" ? symptoms.severity : null,
+        location: symptoms?.location ?? null,
+        associatedSymptoms: Array.isArray(symptoms?.associatedSymptoms) ? symptoms.associatedSymptoms : [],
+        relevantHistory: symptoms?.relevantHistory ?? null,
         hpi: symptoms?.associatedSymptoms?.join(", ") || "",
         redFlagsNoted: session.redFlagDetected ? [session.redFlagReason!] : [],
         confidence: session.confidence,
         language: session.language,
-        transcriptSummary: `AI-assisted triage session. ${(session.messages as any[]).filter((m: any) => m.role === "user").length} patient turns.`,
+        transcript,
+        transcriptSummary: `AI-assisted triage session. ${rawMessages.filter((m: any) => m.role === "user").length} patient turns.`,
         capturedAt: new Date().toISOString(),
       };
 
@@ -395,6 +462,24 @@ router.post(
         return;
       }
 
+      // GAP-T2: prepend a structured JSON blob wrapped in a fenced marker so
+      // the full summary (symptom fields + transcript + confidence + language)
+      // is recoverable from notes until the dedicated aiSummary Json? column
+      // in packages/db/prisma/schema.prisma lands.
+      const humanSummary = [
+        `[AI Triage Booking]`,
+        `Chief Complaint: ${preVisitSummary.chiefComplaint}`,
+        preVisitSummary.hpi ? `HPI: ${preVisitSummary.hpi}` : null,
+        preVisitSummary.redFlagsNoted.length ? `Red Flags: ${preVisitSummary.redFlagsNoted.join(", ")}` : `Red Flags: None`,
+        `Confidence: ${preVisitSummary.confidence != null ? Math.round((preVisitSummary.confidence as number) * 100) + "%" : "N/A"}`,
+        `Language: ${preVisitSummary.language}`,
+        preVisitSummary.transcriptSummary,
+      ].filter(Boolean).join("\n");
+      const jsonBlob =
+        `<!-- AI_TRIAGE_SUMMARY_JSON\n` +
+        JSON.stringify(preVisitSummary) +
+        `\nAI_TRIAGE_SUMMARY_JSON -->`;
+
       const appointment = await prisma.appointment.create({
         data: {
           patientId,
@@ -405,15 +490,7 @@ router.post(
           tokenNumber,
           type: "SCHEDULED",
           status: "BOOKED",
-          notes: [
-            `[AI Triage Booking]`,
-            `Chief Complaint: ${preVisitSummary.chiefComplaint}`,
-            preVisitSummary.hpi ? `HPI: ${preVisitSummary.hpi}` : null,
-            preVisitSummary.redFlagsNoted.length ? `Red Flags: ${preVisitSummary.redFlagsNoted.join(", ")}` : `Red Flags: None`,
-            `Confidence: ${preVisitSummary.confidence != null ? Math.round((preVisitSummary.confidence as number) * 100) + "%" : "N/A"}`,
-            `Language: ${preVisitSummary.language}`,
-            preVisitSummary.transcriptSummary,
-          ].filter(Boolean).join("\n"),
+          notes: `${humanSummary}\n\n${jsonBlob}`,
         },
       });
 

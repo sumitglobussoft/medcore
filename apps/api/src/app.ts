@@ -80,6 +80,21 @@ import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
 import { hl7v2Router } from "./routes/hl7v2";
+import { aiAdminRouter } from "./routes/ai-admin";
+import { aiBillExplainerRouter } from "./routes/ai-bill-explainer";
+import { aiPrevisitRouter } from "./routes/ai-previsit";
+import { aiSymptomDiaryRouter } from "./routes/ai-symptom-diary";
+import { aiCoachingRouter } from "./routes/ai-coaching";
+import { aiDifferentialRouter } from "./routes/ai-differential";
+import { aiFollowupRouter } from "./routes/ai-followup";
+import { aiLabIntelRouter } from "./routes/ai-lab-intel";
+import { aiClaimsRouter } from "./routes/ai-claims";
+import { aiCapacityRouter } from "./routes/ai-capacity";
+import { aiRosterRouter } from "./routes/ai-roster";
+import { aiFraudRouter } from "./routes/ai-fraud";
+import { aiDocQaRouter } from "./routes/ai-doc-qa";
+import { aiSentimentRouter } from "./routes/ai-sentiment";
+import { startChronicCareScheduler } from "./services/chronic-care-scheduler";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
@@ -207,6 +222,20 @@ export function buildApp() {
   app.use("/api/v1/abdm", abdmRouter);
   app.use("/api/v1/claims", insuranceClaimsRouter);
   app.use("/api/v1/hl7v2", hl7v2Router);
+  app.use("/api/v1/ai/admin", aiAdminRouter);
+  app.use("/api/v1/ai/bill-explainer", aiBillExplainerRouter);
+  app.use("/api/v1/ai/previsit", aiPrevisitRouter);
+  app.use("/api/v1/ai/symptom-diary", aiSymptomDiaryRouter);
+  app.use("/api/v1/ai/coaching", aiCoachingRouter);
+  app.use("/api/v1/ai/differential", aiDifferentialRouter);
+  app.use("/api/v1/ai/followup", aiFollowupRouter);
+  app.use("/api/v1/ai/lab-intel", aiLabIntelRouter);
+  app.use("/api/v1/ai/claims", aiClaimsRouter);
+  app.use("/api/v1/ai/capacity", aiCapacityRouter);
+  app.use("/api/v1/ai/roster", aiRosterRouter);
+  app.use("/api/v1/ai/fraud", aiFraudRouter);
+  app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
+  app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1", patientExtrasRouter);
 
   // Health check
@@ -251,4 +280,5 @@ export const io = built.io;
 if (process.env.NODE_ENV !== "test") {
   startRetentionScheduler();
   startClaimsScheduler();
+  startChronicCareScheduler();
 }

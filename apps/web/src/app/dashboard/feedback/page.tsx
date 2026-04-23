@@ -11,6 +11,45 @@ interface Feedback {
   comment: string | null;
   submittedAt: string;
   patient?: { user: { name: string; phone: string } };
+  aiSentiment?: {
+    sentiment: "positive" | "neutral" | "negative";
+    emotions: string[];
+    themes: string[];
+  } | null;
+}
+
+interface NpsDriversSummary {
+  windowDays: number;
+  totalFeedback: number;
+  positiveThemes: Array<{ theme: string; count: number; sampleQuotes: string[] }>;
+  negativeThemes: Array<{ theme: string; count: number; sampleQuotes: string[] }>;
+  actionableInsights: string[];
+  generatedAt: string;
+}
+
+function SentimentBadge({
+  sentiment,
+}: {
+  sentiment?: "positive" | "neutral" | "negative" | null;
+}) {
+  if (!sentiment) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">
+        analyzing…
+      </span>
+    );
+  }
+  const color =
+    sentiment === "positive"
+      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+      : sentiment === "negative"
+        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+        : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200";
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${color}`}>
+      {sentiment}
+    </span>
+  );
 }
 
 interface Summary {
@@ -49,6 +88,7 @@ function StarDisplay({ rating }: { rating: number }) {
 export default function FeedbackPage() {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [npsDrivers, setNpsDrivers] = useState<NpsDriversSummary | null>(null);
   const [category, setCategory] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -58,6 +98,14 @@ export default function FeedbackPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, from, to]);
+
+  useEffect(() => {
+    // Load AI NPS-drivers widget once on mount. Never blocks the main list.
+    api
+      .get<{ data: NpsDriversSummary }>("/ai/sentiment/nps-drivers?days=30")
+      .then((r) => setNpsDrivers(r.data))
+      .catch(() => setNpsDrivers(null));
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -134,6 +182,68 @@ export default function FeedbackPage() {
           </p>
         </div>
       </div>
+
+      {/* NPS Drivers widget (AI) */}
+      {npsDrivers && (
+        <div className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100">
+              NPS Drivers (AI, last {npsDrivers.windowDays} days)
+            </h2>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {npsDrivers.totalFeedback} feedback analysed
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div>
+              <div className="mb-2 text-xs font-semibold text-green-700 dark:text-green-400">
+                Top Positive Themes
+              </div>
+              <ul className="space-y-1 text-sm">
+                {npsDrivers.positiveThemes.length === 0 ? (
+                  <li className="text-xs text-gray-400">None</li>
+                ) : (
+                  npsDrivers.positiveThemes.slice(0, 5).map((t, i) => (
+                    <li key={i} className="text-gray-700 dark:text-gray-300">
+                      <span className="font-semibold">{t.theme}</span>{" "}
+                      <span className="text-xs text-gray-500">({t.count})</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-semibold text-red-700 dark:text-red-400">
+                Top Negative Themes
+              </div>
+              <ul className="space-y-1 text-sm">
+                {npsDrivers.negativeThemes.length === 0 ? (
+                  <li className="text-xs text-gray-400">None</li>
+                ) : (
+                  npsDrivers.negativeThemes.slice(0, 5).map((t, i) => (
+                    <li key={i} className="text-gray-700 dark:text-gray-300">
+                      <span className="font-semibold">{t.theme}</span>{" "}
+                      <span className="text-xs text-gray-500">({t.count})</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-semibold text-blue-700 dark:text-blue-400">
+                Actionable Insights
+              </div>
+              <ul className="list-inside list-disc space-y-1 text-xs text-gray-600 dark:text-gray-400">
+                {npsDrivers.actionableInsights.length === 0 ? (
+                  <li className="text-gray-400">None</li>
+                ) : (
+                  npsDrivers.actionableInsights.slice(0, 5).map((a, i) => <li key={i}>{a}</li>)
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Category bar chart */}
       <div className="mb-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
@@ -220,6 +330,7 @@ export default function FeedbackPage() {
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Rating</th>
                 <th className="px-4 py-3">NPS</th>
+                <th className="px-4 py-3">Sentiment</th>
                 <th className="px-4 py-3">Comment</th>
               </tr>
             </thead>
@@ -240,6 +351,9 @@ export default function FeedbackPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                     {f.nps !== null ? f.nps : "-"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <SentimentBadge sentiment={f.aiSentiment?.sentiment} />
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                     {f.comment
