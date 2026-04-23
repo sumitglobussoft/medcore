@@ -201,7 +201,7 @@ router.post(
           notes: body.notes ?? null,
         },
       });
-      auditLog(req, "CREATE_MED_RECONCILIATION", "med_reconciliation", created.id, {
+      auditLog(req, "MED_RECONCILIATION_CREATE", "med_reconciliation", created.id, {
         patientId: body.patientId,
         type: body.reconciliationType,
       }).catch(console.error);

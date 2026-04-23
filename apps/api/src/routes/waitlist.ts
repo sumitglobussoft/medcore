@@ -67,7 +67,7 @@ router.post(
         },
       });
 
-      auditLog(req, "JOIN_WAITLIST", "waitlistEntry", entry.id, {
+      auditLog(req, "WAITLIST_JOIN", "waitlistEntry", entry.id, {
         patientId,
         doctorId,
       }).catch(console.error);
@@ -148,7 +148,7 @@ router.patch(
         data: { status: "CANCELLED" },
       });
 
-      auditLog(req, "CANCEL_WAITLIST", "waitlistEntry", req.params.id).catch(
+      auditLog(req, "WAITLIST_CANCEL", "waitlistEntry", req.params.id).catch(
         console.error
       );
 
@@ -166,7 +166,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await notifyNextInWaitlist(req.params.doctorId);
-      auditLog(req, "NOTIFY_WAITLIST_NEXT", "doctor", req.params.doctorId).catch(
+      auditLog(req, "WAITLIST_NOTIFY_NEXT", "doctor", req.params.doctorId).catch(
         console.error
       );
       res.json({ success: true, data: { notified: true }, error: null });

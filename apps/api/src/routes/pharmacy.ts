@@ -174,7 +174,7 @@ router.post(
         return item;
       });
 
-      auditLog(req, "ADD_INVENTORY", "inventory_item", result.id, {
+      auditLog(req, "INVENTORY_CREATE", "inventory_item", result.id, {
         medicineId,
         batchNumber,
         quantity,
@@ -199,7 +199,7 @@ router.patch(
         data: req.body,
         include: { medicine: true },
       });
-      auditLog(req, "UPDATE_INVENTORY", "inventory_item", item.id, req.body).catch(
+      auditLog(req, "INVENTORY_UPDATE", "inventory_item", item.id, req.body).catch(
         console.error
       );
       res.json({ success: true, data: item, error: null });
@@ -472,7 +472,7 @@ router.post(
         }
       }
 
-      auditLog(req, "DISPENSE_PRESCRIPTION", "prescription", prescriptionId, {
+      auditLog(req, "PRESCRIPTION_DISPENSE", "prescription", prescriptionId, {
         dispensedCount: dispensed.length,
         warningCount: warnings.length,
         autoBilledInvoiceId: autoBilled.invoiceId,
@@ -631,7 +631,7 @@ router.post(
         return u;
       });
 
-      auditLog(req, "RECALL_INVENTORY_BATCH", "inventory_item", item.id, {
+      auditLog(req, "INVENTORY_BATCH_RECALL", "inventory_item", item.id, {
         reason: req.body.reason,
         batchNumber: item.batchNumber,
       }).catch(console.error);
@@ -764,7 +764,7 @@ router.post(
         });
       });
 
-      auditLog(req, "STOCK_ADJUSTMENT", "stock_movement", movement.id, {
+      auditLog(req, "STOCK_ADJUST", "stock_movement", movement.id, {
         reasonCode,
         quantity,
       }).catch(console.error);

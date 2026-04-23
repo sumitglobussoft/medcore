@@ -552,7 +552,7 @@ router.post(
         },
       });
 
-      auditLog(req, "RECORD_IPD_VITALS", "ipdVitals", vitals.id, { admissionId }).catch(console.error);
+      auditLog(req, "IPD_VITALS_CREATE", "ipdVitals", vitals.id, { admissionId }).catch(console.error);
       res.status(201).json({ success: true, data: vitals, error: null });
     } catch (err) {
       next(err);
@@ -667,7 +667,7 @@ router.post(
         },
       });
 
-      auditLog(req, "RECORD_INTAKE_OUTPUT", "ipdIntakeOutput", io.id, {
+      auditLog(req, "INTAKE_OUTPUT_CREATE", "ipdIntakeOutput", io.id, {
         admissionId: req.params.id,
         type: io.type,
         amountMl: io.amountMl,
@@ -1026,7 +1026,7 @@ router.patch(
         where: { id: req.params.id },
         data,
       });
-      auditLog(req, "UPDATE_ISOLATION", "admission", updated.id, body).catch(console.error);
+      auditLog(req, "ISOLATION_UPDATE", "admission", updated.id, body).catch(console.error);
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);

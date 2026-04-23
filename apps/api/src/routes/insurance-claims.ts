@@ -284,7 +284,7 @@ router.post(
         createdBy: req.user!.userId,
       }))!;
 
-      auditLog(req, "SUBMIT_CLAIM", "insurance_claim", row.id, {
+      auditLog(req, "CLAIM_SUBMIT", "insurance_claim", row.id, {
         tpaProvider: body.tpaProvider,
         providerRef: result.data.providerRef,
         amountClaimed: body.amountClaimed,
@@ -570,7 +570,7 @@ router.post(
         createdBy: req.user!.userId,
       }))!;
 
-      auditLog(req, "CANCEL_CLAIM", "insurance_claim", row.id, { reason }).catch(
+      auditLog(req, "CLAIM_CANCEL", "insurance_claim", row.id, { reason }).catch(
         console.error
       );
 
@@ -593,7 +593,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await reconcilePendingClaims();
-      auditLog(req, "RECONCILE_CLAIMS", "insurance_claim", undefined, {
+      auditLog(req, "CLAIM_RECONCILE", "insurance_claim", undefined, {
         checked: result.checked,
         updated: result.updated,
         errorCount: result.errors.length,

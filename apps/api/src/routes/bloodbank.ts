@@ -151,7 +151,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_BLOOD_DONOR", "blood_donor", donor.id, {
+      auditLog(req, "BLOOD_DONOR_CREATE", "blood_donor", donor.id, {
         donorNumber,
       }).catch(console.error);
 
@@ -205,7 +205,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_BLOOD_DONOR", "blood_donor", donor.id, req.body).catch(
+      auditLog(req, "BLOOD_DONOR_UPDATE", "blood_donor", donor.id, req.body).catch(
         console.error
       );
 
@@ -262,7 +262,7 @@ router.post(
         return d;
       });
 
-      auditLog(req, "CREATE_BLOOD_DONATION", "blood_donation", donation.id, {
+      auditLog(req, "BLOOD_DONATION_CREATE", "blood_donation", donation.id, {
         unitNumber,
       }).catch(console.error);
 
@@ -502,7 +502,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_BLOOD_UNIT", "blood_unit", unit.id, {
+      auditLog(req, "BLOOD_UNIT_CREATE", "blood_unit", unit.id, {
         unitNumber,
       }).catch(console.error);
 
@@ -541,7 +541,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_BLOOD_REQUEST", "blood_request", request.id, {
+      auditLog(req, "BLOOD_REQUEST_CREATE", "blood_request", request.id, {
         requestNumber,
         urgency: req.body.urgency,
       }).catch(console.error);
@@ -726,7 +726,7 @@ router.post(
         return req2;
       });
 
-      auditLog(req, "ISSUE_BLOOD_UNITS", "blood_request", request.id, {
+      auditLog(req, "BLOOD_UNIT_ISSUE", "blood_request", request.id, {
         unitIds,
       }).catch(console.error);
 
@@ -803,7 +803,7 @@ router.post(
         });
       }
 
-      auditLog(req, "RECORD_BLOOD_SCREENING", "blood_screening", screening.id, {
+      auditLog(req, "BLOOD_SCREENING_CREATE", "blood_screening", screening.id, {
         donationId: donation.id,
         passed,
       }).catch(console.error);
@@ -1060,7 +1060,7 @@ router.post(
         },
       });
 
-      auditLog(req, "RECORD_CROSS_MATCH", "blood_cross_match", record.id, {
+      auditLog(req, "BLOOD_CROSS_MATCH_CREATE", "blood_cross_match", record.id, {
         requestId: req.body.requestId,
         unitId: req.body.unitId,
         compatible: req.body.compatible,
@@ -1146,7 +1146,7 @@ router.post(
         },
       });
 
-      auditLog(req, "RESERVE_BLOOD_UNIT", "blood_unit", updated.id, {
+      auditLog(req, "BLOOD_UNIT_RESERVE", "blood_unit", updated.id, {
         requestId,
         reservedUntil,
         durationHours: hours,
@@ -1189,7 +1189,7 @@ router.post(
           reservedBy: null,
         },
       });
-      auditLog(req, "RELEASE_BLOOD_UNIT_RESERVATION", "blood_unit", updated.id).catch(
+      auditLog(req, "BLOOD_UNIT_RESERVATION_RELEASE", "blood_unit", updated.id).catch(
         console.error
       );
       res.json({ success: true, data: updated, error: null });
@@ -1226,7 +1226,7 @@ router.post(
           reservedBy: null,
         },
       });
-      auditLog(req, "RELEASE_EXPIRED_RESERVATIONS", "blood_unit", "batch", {
+      auditLog(req, "BLOOD_RESERVATION_EXPIRE", "blood_unit", "batch", {
         released: expired.length,
         unitNumbers: expired.map((u) => u.unitNumber),
       }).catch(console.error);
@@ -1300,7 +1300,7 @@ router.post(
         });
       }
 
-      auditLog(req, "ADD_DONOR_DEFERRAL", "donorDeferral", d.id, {
+      auditLog(req, "BLOOD_DONOR_DEFERRAL_CREATE", "donorDeferral", d.id, {
         donorId: req.params.id,
         deferralType: req.body.deferralType,
       }).catch(console.error);
@@ -1376,7 +1376,7 @@ router.post(
         }
       }
 
-      auditLog(req, "SEND_DONATION_REMINDERS", "blood_donor", "batch", {
+      auditLog(req, "BLOOD_DONATION_REMINDER_SEND", "blood_donor", "batch", {
         count: eligible.length,
       }).catch(console.error);
 
@@ -1489,7 +1489,7 @@ router.post(
         }
       });
 
-      auditLog(req, "SEPARATE_COMPONENTS", "blood_donation", donation.id, {
+      auditLog(req, "BLOOD_COMPONENT_SEPARATE", "blood_donation", donation.id, {
         components: req.body.components,
       }).catch(console.error);
 

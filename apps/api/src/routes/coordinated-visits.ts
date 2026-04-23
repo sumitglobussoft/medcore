@@ -159,7 +159,7 @@ router.post(
         );
       }
 
-      auditLog(req, "CREATE_COORDINATED_VISIT", "coordinatedVisit", result.visit.id, {
+      auditLog(req, "COORDINATED_VISIT_CREATE", "coordinatedVisit", result.visit.id, {
         patientId,
         visitDate,
         doctorCount: doctorIds.length,
@@ -279,7 +279,7 @@ router.patch(
         );
       }
 
-      auditLog(req, "CANCEL_COORDINATED_VISIT", "coordinatedVisit", visit.id, {
+      auditLog(req, "COORDINATED_VISIT_CANCEL", "coordinatedVisit", visit.id, {
         cancelledAppointments: toCancel.length,
       }).catch(console.error);
 

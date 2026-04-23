@@ -176,7 +176,7 @@ router.post(
         return created;
       });
 
-      auditLog(req, "PURCHASE_PACKAGE", "package_purchase", purchase.id, {
+      auditLog(req, "PACKAGE_PURCHASE", "package_purchase", purchase.id, {
         purchaseNumber,
         packageId,
         patientId,

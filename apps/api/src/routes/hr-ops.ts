@@ -288,7 +288,7 @@ router.post(
           notes: body.notes ?? null,
         },
       });
-      auditLog(req, "CREATE_CERTIFICATION", "staff_certification", created.id, {
+      auditLog(req, "CERTIFICATION_CREATE", "staff_certification", created.id, {
         userId: body.userId,
         title: body.title,
       }).catch(console.error);
@@ -334,7 +334,7 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await prisma.staffCertification.delete({ where: { id: req.params.id } });
-      auditLog(req, "DELETE_CERTIFICATION", "staff_certification", req.params.id).catch(
+      auditLog(req, "CERTIFICATION_DELETE", "staff_certification", req.params.id).catch(
         console.error
       );
       res.json({ success: true, data: { id: req.params.id }, error: null });
@@ -408,7 +408,7 @@ router.post(
           notes: body.notes ?? null,
         },
       });
-      auditLog(req, "CREATE_OVERTIME", "overtime_record", created.id, body).catch(
+      auditLog(req, "OVERTIME_CREATE", "overtime_record", created.id, body).catch(
         console.error
       );
       res.status(201).json({ success: true, data: created, error: null });
@@ -478,7 +478,7 @@ router.post(
         created.push(rec);
       }
 
-      auditLog(req, "AUTO_CALC_OVERTIME", "overtime_record", undefined, {
+      auditLog(req, "OVERTIME_AUTO_CALC", "overtime_record", undefined, {
         year,
         month,
         created: created.length,
@@ -501,7 +501,7 @@ router.patch(
         where: { id: req.params.id },
         data: { approved: true, approvedBy: req.user!.userId },
       });
-      auditLog(req, "APPROVE_OVERTIME", "overtime_record", updated.id).catch(console.error);
+      auditLog(req, "OVERTIME_APPROVE", "overtime_record", updated.id).catch(console.error);
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
@@ -531,7 +531,7 @@ router.patch(
         where: { id: req.params.id },
         data,
       });
-      auditLog(req, "UPDATE_OVERTIME", "overtime_record", updated.id, req.body).catch(console.error);
+      auditLog(req, "OVERTIME_UPDATE", "overtime_record", updated.id, req.body).catch(console.error);
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);

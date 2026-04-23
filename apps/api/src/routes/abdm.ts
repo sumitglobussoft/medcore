@@ -271,7 +271,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await verifyAbha(req.body);
-      await auditLog(req, "ABDM_ABHA_VERIFIED", "AbhaLink", undefined, {
+      await auditLog(req, "ABDM_ABHA_VERIFY", "AbhaLink", undefined, {
         abhaAddress: req.body.abhaAddress,
         abhaNumber: req.body.abhaNumber,
         ok: result.ok,
@@ -293,7 +293,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await linkAbha(req.body);
-      await auditLog(req, "ABDM_ABHA_LINK_INITIATED", "AbhaLink", result.linkId, {
+      await auditLog(req, "ABDM_ABHA_LINK_CREATE", "AbhaLink", result.linkId, {
         patientId: req.body.patientId,
         abhaAddress: req.body.abhaAddress,
       });
@@ -314,7 +314,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await delinkAbha(req.body.patientId, req.body.abhaAddress);
-      await auditLog(req, "ABDM_ABHA_DELINKED", "AbhaLink", undefined, req.body);
+      await auditLog(req, "ABDM_ABHA_LINK_DELETE", "AbhaLink", undefined, req.body);
       res.json({ success: true, data: { delinked: true }, error: null });
     } catch (err) {
       next(err);
@@ -331,7 +331,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await requestConsent(req.body);
-      await auditLog(req, "ABDM_CONSENT_REQUESTED", "ConsentArtefact", result.consentRequestId, {
+      await auditLog(req, "ABDM_CONSENT_REQUEST", "ConsentArtefact", result.consentRequestId, {
         patientId: req.body.patientId,
         purpose: req.body.purpose,
         hiTypes: req.body.hiTypes,
@@ -355,7 +355,7 @@ abdmRouter.get(
         res.status(404).json({ success: false, data: null, error: "Consent not found" });
         return;
       }
-      await auditLog(req, "ABDM_CONSENT_VIEWED", "ConsentArtefact", req.params.id);
+      await auditLog(req, "ABDM_CONSENT_VIEW", "ConsentArtefact", req.params.id);
       res.json({ success: true, data: row, error: null });
     } catch (err) {
       next(err);
@@ -371,7 +371,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await revokeConsent(req.params.id);
-      await auditLog(req, "ABDM_CONSENT_REVOKED", "ConsentArtefact", req.params.id);
+      await auditLog(req, "ABDM_CONSENT_REVOKE", "ConsentArtefact", req.params.id);
       res.json({ success: true, data: { revoked: true }, error: null });
     } catch (err) {
       next(err);
@@ -388,7 +388,7 @@ abdmRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await linkCareContext(req.body);
-      await auditLog(req, "ABDM_CARE_CONTEXT_LINKED", "CareContext", req.body.careContextRef, {
+      await auditLog(req, "ABDM_CARE_CONTEXT_LINK", "CareContext", req.body.careContextRef, {
         abhaAddress: req.body.abhaAddress,
         type: req.body.type,
       });
@@ -443,7 +443,7 @@ abdmRouter.get(
         take: 50,
       });
 
-      await auditLog(req, "ABDM_CONSENTS_LISTED", "ConsentArtefact", undefined, {
+      await auditLog(req, "ABDM_CONSENT_LIST", "ConsentArtefact", undefined, {
         patientId,
         count: rows.length,
       });
@@ -473,7 +473,7 @@ abdmRouter.get(
         res.status(404).json({ success: false, data: null, error: "Consent not found" });
         return;
       }
-      await auditLog(req, "ABDM_CONSENT_READ_LOCAL", "ConsentArtefact", req.params.id);
+      await auditLog(req, "ABDM_CONSENT_READ", "ConsentArtefact", req.params.id);
       res.json({ success: true, data: row, error: null });
     } catch (err) {
       next(err);

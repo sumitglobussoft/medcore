@@ -86,7 +86,7 @@ router.post(
         },
       });
 
-      auditLog(req, "SCHEDULE_TELEMEDICINE", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_SCHEDULE", "telemedicineSession", session.id, {
         sessionNumber,
         patientId,
         doctorId,
@@ -230,7 +230,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "START_TELEMEDICINE", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_START", "telemedicineSession", session.id, {
         sessionNumber: session.sessionNumber,
       }).catch(console.error);
 
@@ -278,7 +278,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "END_TELEMEDICINE", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_END", "telemedicineSession", session.id, {
         sessionNumber: session.sessionNumber,
         durationMin,
       }).catch(console.error);
@@ -336,7 +336,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "CANCEL_TELEMEDICINE", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_CANCEL", "telemedicineSession", session.id, {
         sessionNumber: session.sessionNumber,
       }).catch(console.error);
 
@@ -394,7 +394,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "RATE_TELEMEDICINE", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_RATE", "telemedicineSession", session.id, {
         rating: req.body.patientRating,
       }).catch(console.error);
 
@@ -427,7 +427,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "TELEMED_JOIN_WAITING", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_WAITING_JOIN", "telemedicineSession", session.id, {
         sessionNumber: session.sessionNumber,
       }).catch(console.error);
 
@@ -472,7 +472,7 @@ router.patch(
           followUpScheduledAt: new Date(req.body.followUpScheduledAt),
         },
       });
-      auditLog(req, "TELEMED_FOLLOWUP_SCHEDULED", "telemedicineSession", session.id, {
+      auditLog(req, "TELEMED_FOLLOWUP_SCHEDULE", "telemedicineSession", session.id, {
         followUpScheduledAt: req.body.followUpScheduledAt,
       }).catch(console.error);
       res.json({ success: true, data: session, error: null });

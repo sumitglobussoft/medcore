@@ -334,7 +334,7 @@ router.post(
           createdBy: req.user!.userId,
         },
       });
-      auditLog(req, "BROADCAST", "notification_broadcast", broadcast.id, {
+      auditLog(req, "NOTIFICATION_BROADCAST", "notification_broadcast", broadcast.id, {
         sentCount,
         failedCount,
       }).catch(console.error);

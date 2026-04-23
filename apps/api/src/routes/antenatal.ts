@@ -261,7 +261,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_ANC_CASE", "antenatalCase", created.id, {
+      auditLog(req, "ANC_CASE_CREATE", "antenatalCase", created.id, {
         caseNumber,
         patientId,
       }).catch(console.error);
@@ -386,7 +386,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_ANC_CASE", "antenatalCase", updated.id, req.body)
+      auditLog(req, "ANC_CASE_UPDATE", "antenatalCase", updated.id, req.body)
         .catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
@@ -438,7 +438,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "RECORD_DELIVERY", "antenatalCase", updated.id, {
+      auditLog(req, "DELIVERY_CREATE", "antenatalCase", updated.id, {
         deliveryType: req.body.deliveryType,
       }).catch(console.error);
 
@@ -480,7 +480,7 @@ router.post(
         },
       });
 
-      auditLog(req, "ADD_ANC_VISIT", "ancVisit", visit.id, {
+      auditLog(req, "ANC_VISIT_CREATE", "ancVisit", visit.id, {
         ancCaseId,
         type: visit.type,
       }).catch(console.error);
@@ -703,7 +703,7 @@ router.post(
           performedBy: req.user!.userId,
         },
       });
-      auditLog(req, "START_PARTOGRAPH", "partograph", partograph.id, {
+      auditLog(req, "PARTOGRAPH_START", "partograph", partograph.id, {
         ancCaseId: req.params.id,
       }).catch(console.error);
       res.status(201).json({ success: true, data: partograph, error: null });
@@ -742,7 +742,7 @@ router.patch(
           observations: [...existing, req.body] as never,
         },
       });
-      auditLog(req, "ADD_PARTOGRAPH_OBSERVATION", "partograph", p.id, {}).catch(
+      auditLog(req, "PARTOGRAPH_OBSERVATION_CREATE", "partograph", p.id, {}).catch(
         console.error
       );
       res.json({ success: true, data: updated, error: null });
@@ -849,7 +849,7 @@ router.patch(
           interventions: req.body.interventions,
         },
       });
-      auditLog(req, "END_PARTOGRAPH", "partograph", updated.id, {
+      auditLog(req, "PARTOGRAPH_END", "partograph", updated.id, {
         outcome: req.body.outcome,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });

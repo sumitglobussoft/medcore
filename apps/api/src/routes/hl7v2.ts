@@ -12,7 +12,7 @@
  * CR and legacy parsers break if LF is added.
  */
 
-import { Router, Request, Response, NextFunction } from "express";
+import express, { Router, Request, Response, NextFunction } from "express";
 // Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
 // auto-injects tenantId on create and auto-filters on read for the 20
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
@@ -21,6 +21,7 @@ import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
 import {
   buildADT_A04,
   buildORM_O01,
@@ -30,6 +31,12 @@ import {
   type HL7LabResult,
   type HL7Admission,
 } from "../services/hl7v2/messages";
+import { parseMessage } from "../services/hl7v2/parser";
+import {
+  dispatchMessage,
+  buildACK,
+  type AckStatus,
+} from "../services/hl7v2/inbound";
 
 const router = Router();
 router.use(authenticate);
@@ -243,5 +250,162 @@ router.get(
     }
   }
 );
+
+// ─── POST /api/v1/hl7v2/inbound — Ingestion endpoint ────────────────────────
+
+/**
+ * Accepted MIME types for inbound HL7 v2. RFC-registered `application/hl7-v2`
+ * is the canonical one; `text/plain` with UTF-8 is the common legacy
+ * interpretation when a sender can't set the application type.
+ */
+const INBOUND_ALLOWED_MIMES = new Set([
+  "application/hl7-v2",
+  "text/plain; charset=utf-8",
+  "text/plain;charset=utf-8",
+  "text/plain",
+]);
+
+/**
+ * Rate limiter: 60 messages / minute per source IP. Labs burst when they
+ * catch up after an outage but we don't want a single bad uploader to flood
+ * the endpoint. Disabled under NODE_ENV=test so the inbound tests don't get
+ * throttled; tests can opt back in by setting HL7_RATE_LIMIT=1.
+ */
+const inboundRateLimit =
+  process.env.NODE_ENV !== "test" || process.env.HL7_RATE_LIMIT === "1"
+    ? rateLimit(60, 60_000)
+    : (_req: Request, _res: Response, next: NextFunction) => next();
+
+/**
+ * Raw text body parser — we MUST use this instead of express.json() for
+ * inbound HL7 because the body is pipe-delimited, not JSON. The wildcard
+ * `type` option catches `application/hl7-v2` and any `text/plain` variant.
+ * 1 MiB limit is comfortable for even very long lab reports.
+ */
+const hl7TextParser = express.text({ type: "*/*", limit: "1mb" });
+
+/** Helper: emit an ACK body with the correct Content-Type and HTTP status. */
+function sendAck(res: Response, body: string, httpStatus = 200) {
+  res.status(httpStatus).type("application/hl7-v2").send(body);
+}
+
+/**
+ * Build a minimal ACK without a parsed source message — used only for the
+ * 415 Content-Type error path where we don't have an MSH to echo. Always
+ * produces a valid HL7 v2 MSH + MSA pair with CR terminators.
+ */
+function synthACK(status: AckStatus, text: string): string {
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const ctrlId = `ACK${Date.now()}`;
+  const msh = `MSH|^~\\&|MEDCORE|MEDCORE_HIS|UNKNOWN|UNKNOWN|${ts}||ACK^^ACK|${ctrlId}|P|2.5.1|||||||UNICODE UTF-8`;
+  const msa = `MSA|${status}|UNKNOWN|${text
+    .replace(/\\/g, "\\E\\")
+    .replace(/\|/g, "\\F\\")
+    .replace(/\r/g, " ")
+    .replace(/\n/g, " ")}`;
+  return `${msh}\r${msa}\r`;
+}
+
+router.post(
+  "/inbound",
+  inboundRateLimit,
+  // `authenticate` already applied globally by `router.use(authenticate)` above.
+  authorize(Role.ADMIN),
+  hl7TextParser,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // 1. Content-Type gate. Reject non-HL7 / non-text bodies; still try to
+      //    emit an ACK(AR) so the sender sees a proper HL7 response instead
+      //    of JSON / HTML.
+      const rawCt = (req.headers["content-type"] || "").toLowerCase().trim();
+      const ctMain = rawCt.split(";")[0].trim();
+      const ctAccepted =
+        INBOUND_ALLOWED_MIMES.has(rawCt) ||
+        INBOUND_ALLOWED_MIMES.has(ctMain) ||
+        ctMain === "application/hl7-v2" ||
+        ctMain === "text/plain";
+      if (!ctAccepted) {
+        const bodyStr = typeof req.body === "string" ? req.body : "";
+        let parsed;
+        try {
+          parsed = parseMessage(bodyStr);
+        } catch {
+          parsed = null;
+        }
+        const ack = parsed
+          ? buildACK(parsed, "AR", `Unsupported Content-Type: ${rawCt}`)
+          : synthACK("AR", `Unsupported Content-Type: ${rawCt}`);
+        sendAck(res, ack, 415);
+        return;
+      }
+
+      const bodyStr = typeof req.body === "string" ? req.body : "";
+      if (!bodyStr || bodyStr.length === 0) {
+        res.status(400).type("text/plain").send("Empty HL7 body");
+        return;
+      }
+
+      // 2. Parse the MSH. If we can't read an MSH we return HTTP 400 —
+      //    there is no ACK envelope we can meaningfully build without it.
+      let parsed;
+      try {
+        parsed = parseMessage(bodyStr);
+      } catch (e) {
+        res
+          .status(400)
+          .type("text/plain")
+          .send(
+            `Malformed HL7 v2: ${(e as Error).message || "MSH segment missing"}`
+          );
+        return;
+      }
+
+      // 3. Audit. Every inbound message is logged with its MSH-9 type and
+      //    MSH-10 control id — PHI is NOT written to the audit blob.
+      let msgTypeLabel = "UNKNOWN";
+      let controlId = "UNKNOWN";
+      try {
+        msgTypeLabel = parsed.segments[0]?.fields[9] || "UNKNOWN";
+        controlId = parsed.segments[0]?.fields[10] || "UNKNOWN";
+      } catch {
+        // non-fatal — audit uses UNKNOWN
+      }
+      auditLog(req, "HL7V2_INBOUND", "HL7v2Message", undefined, {
+        messageType: msgTypeLabel,
+        controlId,
+      }).catch(() => {
+        /* non-fatal */
+      });
+
+      // 4. Dispatch to the right reverse mapper. Unsupported types throw —
+      //    we catch and build ACK(AR). Skipped outcomes map to ACK(AE).
+      try {
+        const result = await dispatchMessage(parsed);
+        let status: AckStatus = "AA";
+        if (result.action === "skipped") status = "AE";
+        const warnText = (result.warnings || []).join("; ");
+        const msaText =
+          result.action === "skipped"
+            ? warnText || "Processing skipped"
+            : warnText;
+        const ack = buildACK(parsed, status, msaText || undefined);
+        sendAck(res, ack, 200);
+      } catch (dispatchErr) {
+        const ack = buildACK(
+          parsed,
+          "AR",
+          (dispatchErr as Error).message || "Dispatch error"
+        );
+        sendAck(res, ack, 200);
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Re-use prisma import at module scope so it's not tree-shaken out when the
+// export-only routes above are the only consumers.
+void prisma;
 
 export { router as hl7v2Router };

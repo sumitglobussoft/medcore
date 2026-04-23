@@ -90,7 +90,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const ward = await prisma.ward.create({ data: req.body });
-      auditLog(req, "CREATE_WARD", "ward", ward.id, { name: ward.name }).catch(console.error);
+      auditLog(req, "WARD_CREATE", "ward", ward.id, { name: ward.name }).catch(console.error);
       res.status(201).json({ success: true, data: ward, error: null });
     } catch (err) {
       next(err);
@@ -120,7 +120,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_BED", "bed", bed.id, { wardId, bedNumber: bed.bedNumber }).catch(console.error);
+      auditLog(req, "BED_CREATE", "bed", bed.id, { wardId, bedNumber: bed.bedNumber }).catch(console.error);
       res.status(201).json({ success: true, data: bed, error: null });
     } catch (err) {
       next(err);
@@ -145,7 +145,7 @@ bedsRouter.patch(
         where: { id: req.params.id },
         data: { status: req.body.status, notes: req.body.notes },
       });
-      auditLog(req, "UPDATE_BED_STATUS", "bed", bed.id, { status: req.body.status }).catch(console.error);
+      auditLog(req, "BED_STATUS_UPDATE", "bed", bed.id, { status: req.body.status }).catch(console.error);
       res.json({ success: true, data: bed, error: null });
     } catch (err) {
       next(err);

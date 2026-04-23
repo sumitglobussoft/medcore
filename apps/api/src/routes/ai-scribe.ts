@@ -98,7 +98,7 @@ router.post(
         },
       });
 
-      await auditLog(req, "AI_SCRIBE_SESSION_STARTED", "AIScribeSession", session.id, { appointmentId, audioRetentionDays });
+      await auditLog(req, "AI_SCRIBE_SESSION_START", "AIScribeSession", session.id, { appointmentId, audioRetentionDays });
 
       res.status(201).json({
         success: true,
@@ -436,7 +436,7 @@ router.post(
         console.error("[AI Scribe] Patient notification failed (non-fatal):", notifyErr);
       }
 
-      await auditLog(req, "AI_SCRIBE_SIGNED_OFF", "AIScribeSession", sessionId, { rxApproved, editCount: doctorEdits?.length || 0 });
+      await auditLog(req, "AI_SCRIBE_SIGN_OFF", "AIScribeSession", sessionId, { rxApproved, editCount: doctorEdits?.length || 0 });
 
       res.json({
         success: true,
@@ -510,7 +510,7 @@ router.delete(
         },
       });
 
-      await auditLog(req, "AI_SCRIBE_CONSENT_WITHDRAWN", "AIScribeSession", req.params.sessionId, {});
+      await auditLog(req, "AI_SCRIBE_CONSENT_WITHDRAW", "AIScribeSession", req.params.sessionId, {});
 
       res.json({ success: true, data: null, error: null });
     } catch (err) {

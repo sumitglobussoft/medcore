@@ -74,7 +74,7 @@ router.post(
       const ot = await prisma.operatingTheater.create({
         data: req.body,
       });
-      auditLog(req, "CREATE_OT", "operatingTheater", ot.id, {
+      auditLog(req, "OT_CREATE", "operatingTheater", ot.id, {
         name: ot.name,
       }).catch(console.error);
       res.status(201).json({ success: true, data: ot, error: null });
@@ -95,7 +95,7 @@ router.patch(
         where: { id: req.params.id },
         data: req.body,
       });
-      auditLog(req, "UPDATE_OT", "operatingTheater", ot.id, req.body).catch(
+      auditLog(req, "OT_UPDATE", "operatingTheater", ot.id, req.body).catch(
         console.error
       );
       res.json({ success: true, data: ot, error: null });
@@ -204,7 +204,7 @@ router.post(
         },
       });
 
-      auditLog(req, "SCHEDULE_SURGERY", "surgery", surgery.id, {
+      auditLog(req, "SURGERY_SCHEDULE", "surgery", surgery.id, {
         caseNumber,
         patientId,
         surgeonId,
@@ -353,7 +353,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_SURGERY", "surgery", surgery.id, req.body).catch(
+      auditLog(req, "SURGERY_UPDATE", "surgery", surgery.id, req.body).catch(
         console.error
       );
 
@@ -432,7 +432,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "START_SURGERY", "surgery", surgery.id, {
+      auditLog(req, "SURGERY_START", "surgery", surgery.id, {
         caseNumber: surgery.caseNumber,
         overrideChecklist,
         previousSurgeryId: prev?.id ?? null,
@@ -499,7 +499,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "COMPLETE_SURGERY", "surgery", surgery.id, {
+      auditLog(req, "SURGERY_COMPLETE", "surgery", surgery.id, {
         caseNumber: surgery.caseNumber,
       }).catch(console.error);
 
@@ -559,7 +559,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "CANCEL_SURGERY", "surgery", surgery.id, {
+      auditLog(req, "SURGERY_CANCEL", "surgery", surgery.id, {
         caseNumber: surgery.caseNumber,
         reason: req.body.reason,
       }).catch(console.error);
@@ -608,7 +608,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_PREOP_CHECKLIST", "surgery", surgery.id, data).catch(
+      auditLog(req, "PREOP_CHECKLIST_UPDATE", "surgery", surgery.id, data).catch(
         console.error
       );
       res.json({ success: true, data: surgery, error: null });
@@ -638,7 +638,7 @@ router.patch(
         where: { id: req.params.id },
         data,
       });
-      auditLog(req, "UPDATE_INTRAOP_TIMING", "surgery", surgery.id, data).catch(
+      auditLog(req, "INTRAOP_TIMING_UPDATE", "surgery", surgery.id, data).catch(
         console.error
       );
       res.json({ success: true, data: surgery, error: null });
@@ -663,7 +663,7 @@ router.patch(
           bloodLossMl: req.body.bloodLossMl,
         },
       });
-      auditLog(req, "RECORD_SURGERY_COMPLICATIONS", "surgery", surgery.id, {
+      auditLog(req, "SURGERY_COMPLICATION_CREATE", "surgery", surgery.id, {
         severity: req.body.complicationSeverity,
       }).catch(console.error);
       res.json({ success: true, data: surgery, error: null });
@@ -869,7 +869,7 @@ router.post(
         update: data as never,
       });
 
-      auditLog(req, "UPSERT_ANESTHESIA_RECORD", "anesthesiaRecord", record.id, {
+      auditLog(req, "ANESTHESIA_RECORD_UPSERT", "anesthesiaRecord", record.id, {
         surgeryId: req.params.id,
       }).catch(console.error);
 
@@ -1059,7 +1059,7 @@ router.post(
         },
       });
 
-      auditLog(req, "ADD_POSTOP_OBSERVATION", "postOpObservation", obs.id, {
+      auditLog(req, "POSTOP_OBSERVATION_CREATE", "postOpObservation", obs.id, {
         surgeryId: req.params.id,
       }).catch(console.error);
 
@@ -1104,7 +1104,7 @@ router.patch(
           ssiTreatment: req.body.treatment,
         },
       });
-      auditLog(req, "REPORT_SSI", "surgery", surgery.id, {
+      auditLog(req, "SSI_REPORT", "surgery", surgery.id, {
         ssiType: req.body.ssiType,
       }).catch(console.error);
       res.json({ success: true, data: surgery, error: null });

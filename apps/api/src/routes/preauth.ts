@@ -60,7 +60,7 @@ router.post(
         return doc;
       });
 
-      auditLog(req, "CREATE_PREAUTH", "preauth_request", created.id, {
+      auditLog(req, "PREAUTH_CREATE", "preauth_request", created.id, {
         requestNumber,
         patientId: body.patientId,
       }).catch(console.error);
@@ -159,7 +159,7 @@ router.patch(
           resolvedAt: new Date(),
         },
       });
-      auditLog(req, "UPDATE_PREAUTH_STATUS", "preauth_request", updated.id, {
+      auditLog(req, "PREAUTH_STATUS_UPDATE", "preauth_request", updated.id, {
         status,
         approvedAmount,
       }).catch(console.error);

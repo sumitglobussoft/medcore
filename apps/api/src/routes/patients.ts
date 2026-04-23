@@ -475,7 +475,7 @@ router.post(
         return marked;
       });
 
-      auditLog(req, "MERGE_PATIENT", "patient", keepId, {
+      auditLog(req, "PATIENT_MERGE", "patient", keepId, {
         mergedFrom: otherPatientId,
       }).catch(console.error);
 
@@ -1134,7 +1134,7 @@ router.post(
         });
       }
 
-      auditLog(req, "LINK_FAMILY", "patient", patientId, {
+      auditLog(req, "FAMILY_LINK", "patient", patientId, {
         relatedPatientId,
         relationship,
       }).catch(console.error);
@@ -1165,7 +1165,7 @@ router.delete(
           where: { patientId: relatedId, relatedPatientId: id },
         }),
       ]);
-      auditLog(req, "UNLINK_FAMILY", "patient", id, { relatedId }).catch(
+      auditLog(req, "FAMILY_UNLINK", "patient", id, { relatedId }).catch(
         console.error
       );
       res.json({ success: true, data: { unlinked: true }, error: null });

@@ -131,7 +131,7 @@ router.post(
           },
         });
 
-        await auditLog(req, "AI_TRIAGE_EMERGENCY_DETECTED", "AITriageSession", sessionId, { redFlagReason: redFlag.reason });
+        await auditLog(req, "AI_TRIAGE_EMERGENCY_DETECT", "AITriageSession", sessionId, { redFlagReason: redFlag.reason });
 
         res.json({
           success: true,
@@ -427,7 +427,7 @@ router.post(
         },
       });
 
-      await auditLog(req, "AI_TRIAGE_APPOINTMENT_BOOKED", "Appointment", appointment.id, { sessionId, triageConfidence: session.confidence });
+      await auditLog(req, "AI_TRIAGE_APPOINTMENT_BOOK", "Appointment", appointment.id, { sessionId, triageConfidence: session.confidence });
 
       res.status(201).json({
         success: true,

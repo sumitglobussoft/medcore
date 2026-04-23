@@ -190,7 +190,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_SCHEDULED_REPORT", "scheduled_report", created.id, {
+      auditLog(req, "SCHEDULED_REPORT_CREATE", "scheduled_report", created.id, {
         name: created.name,
         reportType: created.reportType,
       }).catch(console.error);
@@ -343,7 +343,7 @@ router.patch(
 router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
     await prisma.scheduledReport.delete({ where: { id: req.params.id } });
-    auditLog(req, "DELETE_SCHEDULED_REPORT", "scheduled_report", req.params.id).catch(
+    auditLog(req, "SCHEDULED_REPORT_DELETE", "scheduled_report", req.params.id).catch(
       console.error
     );
     res.json({ success: true, data: null, error: null });
@@ -436,7 +436,7 @@ router.post(
         });
       }
 
-      auditLog(req, "RUN_SCHEDULED_REPORT", "scheduled_report", sched.id, {
+      auditLog(req, "SCHEDULED_REPORT_RUN", "scheduled_report", sched.id, {
         runId: run.id,
         status: run.status,
       }).catch(console.error);

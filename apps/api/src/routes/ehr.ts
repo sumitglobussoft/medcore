@@ -140,7 +140,7 @@ router.post(
           notedBy: req.user!.userId,
         },
       });
-      auditLog(req, "CREATE_ALLERGY", "patient_allergy", allergy.id, {
+      auditLog(req, "ALLERGY_CREATE", "patient_allergy", allergy.id, {
         patientId,
         allergen,
         severity,
@@ -218,7 +218,7 @@ router.post(
           notes,
         },
       });
-      auditLog(req, "CREATE_CONDITION", "chronic_condition", created.id, {
+      auditLog(req, "CONDITION_CREATE", "chronic_condition", created.id, {
         patientId,
         condition,
       }).catch(console.error);
@@ -564,7 +564,7 @@ router.post(
           notes: body.notes,
         },
       });
-      auditLog(req, "CREATE_IMMUNIZATION", "immunization", created.id, {
+      auditLog(req, "IMMUNIZATION_CREATE", "immunization", created.id, {
         patientId: body.patientId,
         vaccine: body.vaccine,
       }).catch(console.error);
@@ -683,7 +683,7 @@ router.post(
           notes,
         },
       });
-      auditLog(req, "CREATE_DOCUMENT", "patient_document", doc.id, {
+      auditLog(req, "DOCUMENT_CREATE", "patient_document", doc.id, {
         patientId,
         type,
         title,
@@ -871,7 +871,7 @@ router.post(
           createdBy: req.user!.userId,
         },
       });
-      auditLog(req, "CREATE_ADVANCE_DIRECTIVE", "advance_directive", created.id, {
+      auditLog(req, "ADVANCE_DIRECTIVE_CREATE", "advance_directive", created.id, {
         patientId,
         type: body.type,
       }).catch(console.error);

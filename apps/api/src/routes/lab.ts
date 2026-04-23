@@ -67,7 +67,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const test = await prisma.labTest.create({ data: req.body });
-      auditLog(req, "CREATE_LAB_TEST", "lab_test", test.id, {
+      auditLog(req, "LAB_TEST_CREATE", "lab_test", test.id, {
         code: test.code,
         name: test.name,
       }).catch(console.error);
@@ -89,7 +89,7 @@ router.patch(
         where: { id: req.params.id },
         data: req.body,
       });
-      auditLog(req, "UPDATE_LAB_TEST", "lab_test", test.id, req.body).catch(
+      auditLog(req, "LAB_TEST_UPDATE", "lab_test", test.id, req.body).catch(
         console.error
       );
       res.json({ success: true, data: test, error: null });
@@ -472,7 +472,7 @@ router.post(
         });
       }
 
-      auditLog(req, "RECORD_LAB_RESULT", "lab_result", result.id, {
+      auditLog(req, "LAB_RESULT_CREATE", "lab_result", result.id, {
         orderItemId,
         parameter,
         flag: flag ?? "NORMAL",
@@ -541,7 +541,7 @@ router.post(
         testId: req.params.id,
       });
       const range = await prisma.labTestReferenceRange.create({ data: parsed });
-      auditLog(req, "CREATE_LAB_REFERENCE_RANGE", "lab_test_reference_range", range.id, {
+      auditLog(req, "LAB_REFERENCE_RANGE_CREATE", "lab_test_reference_range", range.id, {
         testId: range.testId,
       }).catch(console.error);
       res.status(201).json({ success: true, data: range, error: null });
@@ -557,7 +557,7 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await prisma.labTestReferenceRange.delete({ where: { id: req.params.id } });
-      auditLog(req, "DELETE_LAB_REFERENCE_RANGE", "lab_test_reference_range", req.params.id).catch(
+      auditLog(req, "LAB_REFERENCE_RANGE_DELETE", "lab_test_reference_range", req.params.id).catch(
         console.error
       );
       res.json({ success: true, data: { id: req.params.id }, error: null });
@@ -639,7 +639,7 @@ router.patch(
           notes: notes ? `REJECTED: ${notes}` : undefined,
         },
       });
-      auditLog(req, "REJECT_LAB_SAMPLE", "lab_order", order.id, { reason }).catch(
+      auditLog(req, "LAB_SAMPLE_REJECT", "lab_order", order.id, { reason }).catch(
         console.error
       );
       res.json({ success: true, data: order, error: null });
@@ -760,7 +760,7 @@ router.post(
         }
       }
 
-      auditLog(req, "BATCH_LAB_RESULTS", "lab_order", orderId, {
+      auditLog(req, "LAB_RESULT_BATCH", "lab_order", orderId, {
         count: created.length,
         critical: criticals.length,
       }).catch(console.error);
@@ -1067,7 +1067,7 @@ router.patch(
             : undefined,
         },
       });
-      auditLog(req, "VERIFY_LAB_RESULT", "lab_result", result.id, {}).catch(
+      auditLog(req, "LAB_RESULT_VERIFY", "lab_result", result.id, {}).catch(
         console.error
       );
       res.json({ success: true, data: result, error: null });
@@ -1254,7 +1254,7 @@ router.post(
           createdBy: req.user!.userId,
         },
       });
-      auditLog(req, "CREATE_SHARE_LINK", "shared_link", link.id, {
+      auditLog(req, "SHARE_LINK_CREATE", "shared_link", link.id, {
         resource: "lab_order",
         resourceId: order.id,
         days,

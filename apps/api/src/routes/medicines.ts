@@ -117,7 +117,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const medicine = await prisma.medicine.create({ data: req.body });
-      auditLog(req, "CREATE_MEDICINE", "medicine", medicine.id, {
+      auditLog(req, "MEDICINE_CREATE", "medicine", medicine.id, {
         name: medicine.name,
       }).catch(console.error);
       res.status(201).json({ success: true, data: medicine, error: null });
@@ -138,7 +138,7 @@ router.patch(
         where: { id: req.params.id },
         data: req.body,
       });
-      auditLog(req, "UPDATE_MEDICINE", "medicine", medicine.id, req.body).catch(
+      auditLog(req, "MEDICINE_UPDATE", "medicine", medicine.id, req.body).catch(
         console.error
       );
       res.json({ success: true, data: medicine, error: null });

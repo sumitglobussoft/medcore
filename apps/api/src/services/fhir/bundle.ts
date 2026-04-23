@@ -97,3 +97,77 @@ export function processTransactionBundle(bundle: FhirBundle): FhirBundle {
     entry: responseEntries,
   };
 }
+
+export interface BundleConsistencyIssue {
+  severity: "error" | "warning";
+  code:
+    | "invalid-type"
+    | "missing-resource-type"
+    | "duplicate-fullurl"
+    | "unresolved-reference";
+  path: string;
+  message: string;
+  entryIndex?: number;
+}
+
+export interface BundleConsistencyResult {
+  valid: boolean;
+  issues: BundleConsistencyIssue[];
+}
+
+/**
+ * Validate that a FHIR Bundle is internally self-consistent: unique fullUrls,
+ * every resourceType set, and every intra-bundle `reference` resolves to a
+ * sibling entry (matched by `ResourceType/id` or by `fullUrl`). Absolute
+ * https://… references are tolerated as external.
+ */
+export function validateBundleSelfConsistency(bundle: FhirBundle): BundleConsistencyResult {
+  const issues: BundleConsistencyIssue[] = [];
+  const validTypes = new Set([
+    "searchset", "transaction", "transaction-response",
+    "batch", "document", "collection",
+  ]);
+  if (!validTypes.has(bundle.type)) {
+    issues.push({ severity: "error", code: "invalid-type", path: "Bundle.type", message: `Unknown type ${bundle.type}` });
+  }
+
+  const fullUrls = new Set<string>();
+  const byTypeId = new Set<string>();
+  for (const [i, entry] of (bundle.entry ?? []).entries()) {
+    if (!entry.resource?.resourceType) {
+      issues.push({ severity: "error", code: "missing-resource-type", path: `entry[${i}].resource.resourceType`, message: "missing resourceType", entryIndex: i });
+      continue;
+    }
+    if (entry.fullUrl) {
+      if (fullUrls.has(entry.fullUrl)) {
+        issues.push({ severity: "error", code: "duplicate-fullurl", path: `entry[${i}].fullUrl`, message: `duplicate fullUrl ${entry.fullUrl}`, entryIndex: i });
+      }
+      fullUrls.add(entry.fullUrl);
+    }
+    const id = (entry.resource as any).id;
+    if (id) byTypeId.add(`${entry.resource.resourceType}/${id}`);
+  }
+
+  const refs: { path: string; value: string; entryIndex: number }[] = [];
+  const walk = (node: unknown, path: string, entryIndex: number) => {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => walk(v, `${path}[${i}]`, entryIndex));
+      return;
+    }
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (k === "reference" && typeof v === "string") refs.push({ path: `${path}.${k}`, value: v, entryIndex });
+      else walk(v, `${path}.${k}`, entryIndex);
+    }
+  };
+  for (const [i, entry] of (bundle.entry ?? []).entries()) walk(entry.resource, `entry[${i}].resource`, i);
+
+  for (const { path, value, entryIndex } of refs) {
+    if (/^https?:\/\//i.test(value)) continue;
+    if (fullUrls.has(value)) continue;
+    if (byTypeId.has(value)) continue;
+    issues.push({ severity: "error", code: "unresolved-reference", path, message: `unresolvable reference ${value}`, entryIndex });
+  }
+
+  return { valid: issues.every((i) => i.severity !== "error"), issues };
+}

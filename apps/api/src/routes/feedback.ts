@@ -299,7 +299,7 @@ complaintsRouter.post(
         },
       });
 
-      auditLog(req, "CREATE_COMPLAINT", "complaint", complaint.id, {
+      auditLog(req, "COMPLAINT_CREATE", "complaint", complaint.id, {
         ticketNumber,
         priority,
       }).catch(console.error);
@@ -485,7 +485,7 @@ complaintsRouter.patch(
         },
       });
 
-      auditLog(req, "UPDATE_COMPLAINT", "complaint", updated.id, req.body).catch(
+      auditLog(req, "COMPLAINT_UPDATE", "complaint", updated.id, req.body).catch(
         console.error
       );
 

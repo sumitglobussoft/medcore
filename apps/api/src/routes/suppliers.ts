@@ -76,7 +76,7 @@ router.post(
       if (data.contractStart) data.contractStart = new Date(data.contractStart);
       if (data.contractEnd) data.contractEnd = new Date(data.contractEnd);
       const supplier = await prisma.supplier.create({ data });
-      auditLog(req, "CREATE_SUPPLIER", "supplier", supplier.id, data).catch(
+      auditLog(req, "SUPPLIER_CREATE", "supplier", supplier.id, data).catch(
         console.error
       );
       res.status(201).json({ success: true, data: supplier, error: null });
@@ -101,7 +101,7 @@ router.patch(
         where: { id: req.params.id },
         data,
       });
-      auditLog(req, "UPDATE_SUPPLIER", "supplier", supplier.id, data).catch(
+      auditLog(req, "SUPPLIER_UPDATE", "supplier", supplier.id, data).catch(
         console.error
       );
       res.json({ success: true, data: supplier, error: null });

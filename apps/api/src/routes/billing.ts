@@ -388,7 +388,7 @@ router.post(
 
       // Fire-and-forget notification
       onPaymentReceived(result, invoice).catch(console.error);
-      auditLog(req, "RECORD_PAYMENT", "payment", result.id, { invoiceId, amount, mode }).catch(console.error);
+      auditLog(req, "PAYMENT_CREATE", "payment", result.id, { invoiceId, amount, mode }).catch(console.error);
 
       // Real-time event for billing dashboard + reception home
       const io = req.app.get("io");
@@ -792,7 +792,7 @@ router.post(
         return refund;
       });
 
-      auditLog(req, "ISSUE_REFUND", "payment", result.id, {
+      auditLog(req, "REFUND_CREATE", "payment", result.id, {
         invoiceId,
         amount,
         reason,
@@ -926,7 +926,7 @@ router.post(
         });
       });
 
-      auditLog(req, "ADD_INVOICE_ITEM", "invoice", invoice.id, {
+      auditLog(req, "INVOICE_ITEM_CREATE", "invoice", invoice.id, {
         description,
         quantity,
         unitPrice,
@@ -997,7 +997,7 @@ router.delete(
         });
       });
 
-      auditLog(req, "REMOVE_INVOICE_ITEM", "invoice", id, { itemId }).catch(
+      auditLog(req, "INVOICE_ITEM_DELETE", "invoice", id, { itemId }).catch(
         console.error
       );
 
@@ -1075,7 +1075,7 @@ router.post(
             requestedBy: req.user!.userId,
           },
         });
-        auditLog(req, "REQUEST_DISCOUNT_APPROVAL", "discount_approval", approval.id, {
+        auditLog(req, "DISCOUNT_APPROVAL_REQUEST", "discount_approval", approval.id, {
           invoiceId: invoice.id,
           discountAmount,
           percentage,
@@ -1114,7 +1114,7 @@ router.post(
         include: { items: true, payments: true },
       });
 
-      auditLog(req, "APPLY_DISCOUNT", "invoice", invoice.id, {
+      auditLog(req, "DISCOUNT_APPLY", "invoice", invoice.id, {
         percentage,
         flatAmount,
         discountAmount,
@@ -1224,7 +1224,7 @@ router.post(
         });
       });
 
-      auditLog(req, "APPROVE_DISCOUNT", "discount_approval", approval.id, {
+      auditLog(req, "DISCOUNT_APPROVE", "discount_approval", approval.id, {
         invoiceId: inv.id,
         amount: approval.amount,
       }).catch(console.error);
@@ -1252,7 +1252,7 @@ router.post(
           approvedAt: new Date(),
         },
       });
-      auditLog(req, "REJECT_DISCOUNT", "discount_approval", updated.id, {
+      auditLog(req, "DISCOUNT_REJECT", "discount_approval", updated.id, {
         rejectionReason,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });
@@ -1321,7 +1321,7 @@ router.post(
         applied++;
       }
 
-      auditLog(req, "APPLY_LATE_FEES", "invoice", undefined, {
+      auditLog(req, "LATE_FEE_APPLY", "invoice", undefined, {
         applied,
         graceDays,
       }).catch(console.error);
@@ -1675,7 +1675,7 @@ router.post(
         },
       });
 
-      auditLog(req, "ISSUE_CREDIT_NOTE", "credit_note", note.id, {
+      auditLog(req, "CREDIT_NOTE_CREATE", "credit_note", note.id, {
         noteNumber,
         invoiceId,
         amount,
@@ -1874,7 +1874,7 @@ router.post(
         });
         return pay;
       });
-      auditLog(req, "ADVANCE_APPLIED", "advance_payment", advanceId, {
+      auditLog(req, "ADVANCE_APPLY", "advance_payment", advanceId, {
         invoiceId,
         amount,
       }).catch(console.error);

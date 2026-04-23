@@ -154,7 +154,7 @@ router.post(
 
       // Fire-and-forget notification
       onAppointmentBooked(appointment as any).catch(console.error);
-      auditLog(req, "BOOK_APPOINTMENT", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
+      auditLog(req, "APPOINTMENT_CREATE", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
     } catch (err) {
@@ -492,7 +492,7 @@ router.patch(
       }
 
       onAppointmentRescheduled(appointment as any).catch(console.error);
-      auditLog(req, "RESCHEDULE_APPOINTMENT", "appointment", appointment.id, {
+      auditLog(req, "APPOINTMENT_RESCHEDULE", "appointment", appointment.id, {
         oldDate: existing.date.toISOString().split("T")[0],
         oldSlotStart: existing.slotStart,
         newDate: date,
@@ -602,7 +602,7 @@ router.post(
         onAppointmentBooked(apt as any).catch(console.error);
       }
 
-      auditLog(req, "CREATE_RECURRING_APPOINTMENTS", "appointment", undefined, {
+      auditLog(req, "RECURRING_APPOINTMENT_CREATE", "appointment", undefined, {
         patientId,
         doctorId,
         startDate,
@@ -947,7 +947,7 @@ router.post(
         nextToken += 1;
       }
 
-      auditLog(req, "CREATE_GROUP_APPOINTMENT", "appointment", groupId, {
+      auditLog(req, "GROUP_APPOINTMENT_CREATE", "appointment", groupId, {
         doctorId,
         date,
         patientCount: patientIds.length,
@@ -1263,7 +1263,7 @@ router.patch(
         });
       }
 
-      auditLog(req, "TRANSFER_APPOINTMENT", "appointment", appointment.id, {
+      auditLog(req, "APPOINTMENT_TRANSFER", "appointment", appointment.id, {
         oldDoctorId,
         newDoctorId,
         reason,
@@ -1570,7 +1570,7 @@ router.post(
         },
       });
 
-      auditLog(req, "TRANSFER_APPOINTMENT", "appointment", updated.id, {
+      auditLog(req, "APPOINTMENT_TRANSFER", "appointment", updated.id, {
         fromDoctorId: existing.doctorId,
         toDoctorId: newDoctorId,
         reason,

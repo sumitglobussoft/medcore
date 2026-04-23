@@ -72,7 +72,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_REFERRAL", "referral", referral.id, {
+      auditLog(req, "REFERRAL_CREATE", "referral", referral.id, {
         referralNumber,
         patientId,
         fromDoctorId,
@@ -284,7 +284,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_REFERRAL_STATUS", "referral", referral.id, {
+      auditLog(req, "REFERRAL_STATUS_UPDATE", "referral", referral.id, {
         status,
       }).catch(console.error);
 

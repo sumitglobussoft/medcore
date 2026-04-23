@@ -143,7 +143,7 @@ router.post(
         include: { user: { select: { id: true, name: true, role: true } } },
       });
 
-      auditLog(req, "CREATE_EXPENSE", "expense", expense.id, {
+      auditLog(req, "EXPENSE_CREATE", "expense", expense.id, {
         category: expense.category,
         amount: expense.amount,
         approvalStatus,
@@ -172,7 +172,7 @@ router.patch(
         include: { user: { select: { id: true, name: true, role: true } } },
       });
 
-      auditLog(req, "UPDATE_EXPENSE", "expense", expense.id, req.body).catch(
+      auditLog(req, "EXPENSE_UPDATE", "expense", expense.id, req.body).catch(
         console.error
       );
 
@@ -192,7 +192,7 @@ router.delete(
       const expense = await prisma.expense.delete({
         where: { id: req.params.id },
       });
-      auditLog(req, "DELETE_EXPENSE", "expense", expense.id).catch(console.error);
+      auditLog(req, "EXPENSE_DELETE", "expense", expense.id).catch(console.error);
       res.json({ success: true, data: expense, error: null });
     } catch (err) {
       next(err);

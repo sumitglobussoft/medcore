@@ -50,15 +50,15 @@ const entityTypes = [
 ];
 
 const actionColors: Record<string, string> = {
-  LOGIN: "bg-blue-100 text-blue-700",
-  REGISTER: "bg-blue-100 text-blue-700",
-  LOGOUT: "bg-blue-100 text-blue-700",
-  BOOK_APPOINTMENT: "bg-green-100 text-green-700",
-  WALK_IN: "bg-green-100 text-green-700",
-  UPDATE_APPOINTMENT_STATUS: "bg-yellow-100 text-yellow-700",
-  CREATE_INVOICE: "bg-purple-100 text-purple-700",
-  RECORD_PAYMENT: "bg-purple-100 text-purple-700",
-  CREATE_PRESCRIPTION: "bg-teal-100 text-teal-700",
+  AUTH_LOGIN: "bg-blue-100 text-blue-700",
+  USER_REGISTER: "bg-blue-100 text-blue-700",
+  AUTH_LOGOUT: "bg-blue-100 text-blue-700",
+  APPOINTMENT_CREATE: "bg-green-100 text-green-700",
+  WALK_IN_REGISTER: "bg-green-100 text-green-700",
+  APPOINTMENT_STATUS_UPDATE: "bg-yellow-100 text-yellow-700",
+  INVOICE_CREATE: "bg-purple-100 text-purple-700",
+  PAYMENT_CREATE: "bg-purple-100 text-purple-700",
+  PRESCRIPTION_CREATE: "bg-teal-100 text-teal-700",
 };
 
 function getActionColor(action: string) {

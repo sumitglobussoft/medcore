@@ -196,7 +196,7 @@ router.post(
       const stored = await uploadFile(buffer, storedName, sniffed || "application/octet-stream");
       const signedUrl = await getSignedDownloadUrl(stored.key);
 
-      auditLog(req, "UPLOAD_FILE", "file", storedName, {
+      auditLog(req, "FILE_UPLOAD", "file", storedName, {
         patientId,
         type,
         size: buffer.length,
@@ -261,7 +261,7 @@ router.get(
         return;
       }
 
-      auditLog(req, "DOWNLOAD_FILE", "patient_document", doc.id, {
+      auditLog(req, "FILE_DOWNLOAD", "patient_document", doc.id, {
         patientId: doc.patientId,
       }).catch(console.error);
 

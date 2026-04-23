@@ -175,7 +175,7 @@ router.post(
         return created;
       });
 
-      auditLog(req, "CREATE_PO", "purchase_order", po.id, {
+      auditLog(req, "PO_CREATE", "purchase_order", po.id, {
         poNumber,
         supplierId,
         totalAmount,
@@ -265,7 +265,7 @@ router.patch(
         });
       });
 
-      auditLog(req, "UPDATE_PO", "purchase_order", po.id, req.body).catch(console.error);
+      auditLog(req, "PO_UPDATE", "purchase_order", po.id, req.body).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
@@ -300,7 +300,7 @@ router.post(
         include: { supplier: true, items: true },
       });
 
-      auditLog(req, "SUBMIT_PO", "purchase_order", po.id).catch(console.error);
+      auditLog(req, "PO_SUBMIT", "purchase_order", po.id).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
@@ -336,7 +336,7 @@ router.post(
         include: { supplier: true, items: true },
       });
 
-      auditLog(req, "APPROVE_PO", "purchase_order", po.id).catch(console.error);
+      auditLog(req, "PO_APPROVE", "purchase_order", po.id).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
@@ -516,7 +516,7 @@ router.post(
         return updated;
       });
 
-      auditLog(req, "RECEIVE_PO", "purchase_order", po.id, {
+      auditLog(req, "PO_RECEIVE", "purchase_order", po.id, {
         poNumber: po.poNumber,
       }).catch(console.error);
 
@@ -553,7 +553,7 @@ router.post(
         include: { supplier: true, items: true },
       });
 
-      auditLog(req, "CANCEL_PO", "purchase_order", po.id).catch(console.error);
+      auditLog(req, "PO_CANCEL", "purchase_order", po.id).catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
@@ -746,7 +746,7 @@ router.post(
         return grn;
       });
 
-      auditLog(req, "CREATE_GRN", "grn", result.id, {
+      auditLog(req, "GRN_CREATE", "grn", result.id, {
         grnNumber,
         poNumber: po.poNumber,
       }).catch(console.error);

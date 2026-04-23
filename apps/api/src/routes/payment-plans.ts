@@ -426,7 +426,7 @@ router.patch(
         return payment;
       });
 
-      auditLog(req, "PAY_INSTALLMENT", "payment_plan_installment", installmentId, {
+      auditLog(req, "INSTALLMENT_PAY", "payment_plan_installment", installmentId, {
         planId: plan.id,
         amount,
         mode,
@@ -449,7 +449,7 @@ router.patch(
         where: { id: req.params.id },
         data: { status: "CANCELLED" },
       });
-      auditLog(req, "CANCEL_PAYMENT_PLAN", "payment_plan", plan.id).catch(
+      auditLog(req, "PAYMENT_PLAN_CANCEL", "payment_plan", plan.id).catch(
         console.error
       );
       res.json({ success: true, data: plan, error: null });

@@ -157,7 +157,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_GROWTH_RECORD", "growthRecord", record.id, {
+      auditLog(req, "GROWTH_RECORD_CREATE", "growthRecord", record.id, {
         patientId,
         ageMonths,
       }).catch(console.error);
@@ -267,7 +267,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_GROWTH_RECORD", "growthRecord", updated.id, req.body)
+      auditLog(req, "GROWTH_RECORD_UPDATE", "growthRecord", updated.id, req.body)
         .catch(console.error);
 
       res.json({ success: true, data: updated, error: null });
@@ -293,7 +293,7 @@ router.delete(
         return;
       }
       await prisma.growthRecord.delete({ where: { id: req.params.id } });
-      auditLog(req, "DELETE_GROWTH_RECORD", "growthRecord", req.params.id, {})
+      auditLog(req, "GROWTH_RECORD_DELETE", "growthRecord", req.params.id, {})
         .catch(console.error);
       res.json({ success: true, data: { id: req.params.id }, error: null });
     } catch (err) {
@@ -747,7 +747,7 @@ router.post(
           },
         });
       }
-      auditLog(req, "RECORD_MILESTONE", "milestoneRecord", record.id, {
+      auditLog(req, "MILESTONE_CREATE", "milestoneRecord", record.id, {
         patientId,
         milestone,
         achieved,
@@ -841,7 +841,7 @@ router.post(
           loggedBy: req.user!.userId,
         },
       });
-      auditLog(req, "LOG_FEEDING", "feedingLog", log.id, {
+      auditLog(req, "FEEDING_LOG_CREATE", "feedingLog", log.id, {
         patientId: req.params.id,
         feedType: req.body.feedType,
       }).catch(console.error);
@@ -916,7 +916,7 @@ router.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await prisma.feedingLog.delete({ where: { id: req.params.id } });
-      auditLog(req, "DELETE_FEEDING_LOG", "feedingLog", req.params.id, {}).catch(
+      auditLog(req, "FEEDING_LOG_DELETE", "feedingLog", req.params.id, {}).catch(
         console.error
       );
       res.json({ success: true, data: { id: req.params.id }, error: null });

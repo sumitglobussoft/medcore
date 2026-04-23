@@ -26,8 +26,8 @@ vi.mock("next/navigation", () => ({
 import MyActivityPage from "../my-activity/page";
 
 const sampleActivity = [
-  { id: "a1", action: "LOGIN", resource: "auth", createdAt: new Date().toISOString(), metadata: {} },
-  { id: "a2", action: "UPDATE_PROFILE", resource: "user", createdAt: new Date().toISOString(), metadata: {} },
+  { id: "a1", action: "AUTH_LOGIN", resource: "auth", createdAt: new Date().toISOString(), metadata: {} },
+  { id: "a2", action: "USER_PROFILE_UPDATE", resource: "user", createdAt: new Date().toISOString(), metadata: {} },
 ];
 
 describe("MyActivityPage", () => {
@@ -51,7 +51,7 @@ describe("MyActivityPage", () => {
     apiMock.get.mockResolvedValue({ data: sampleActivity });
     render(<MyActivityPage />);
     await waitFor(() => {
-      expect(screen.getAllByText(/LOGIN|UPDATE_PROFILE/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/LOGIN|PROFILE_UPDATE/).length).toBeGreaterThan(0);
     });
   });
 

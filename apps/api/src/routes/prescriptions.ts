@@ -376,7 +376,7 @@ router.post(
         where: { id: req.params.id },
         data: { printed: true, printedAt: new Date() },
       });
-      auditLog(req, "PRINT_PRESCRIPTION", "prescription", updated.id).catch(
+      auditLog(req, "PRESCRIPTION_PRINT", "prescription", updated.id).catch(
         console.error
       );
       res.json({ success: true, data: updated, error: null });
@@ -422,7 +422,7 @@ router.post(
       });
       // fire-and-forget: log to console (stub)
       console.log(`[share-rx] Prescription ${updated.id} shared via ${channel}`);
-      auditLog(req, "SHARE_PRESCRIPTION", "prescription", updated.id, {
+      auditLog(req, "PRESCRIPTION_SHARE", "prescription", updated.id, {
         channel,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });
@@ -501,7 +501,7 @@ router.post(
       // Index copied prescription into RAG
       fireAndForgetIngest("ingestPrescription(copy)", () => ingestPrescription(created.id));
 
-      auditLog(req, "COPY_PRESCRIPTION", "prescription", created.id, {
+      auditLog(req, "PRESCRIPTION_COPY", "prescription", created.id, {
         copiedFrom: previousPrescriptionId,
       }).catch(console.error);
 
@@ -541,7 +541,7 @@ router.post(
         where: { id: req.params.itemId },
         data: { refillsUsed: { increment: 1 } },
       });
-      auditLog(req, "REFILL_PRESCRIPTION_ITEM", "prescription_item", updated.id, {
+      auditLog(req, "PRESCRIPTION_ITEM_REFILL", "prescription_item", updated.id, {
         refillsUsed: updated.refillsUsed,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });
@@ -597,7 +597,7 @@ router.post(
           createdBy: req.user!.userId,
         },
       });
-      auditLog(req, "CREATE_RX_TEMPLATE", "prescription_template", created.id, {
+      auditLog(req, "RX_TEMPLATE_CREATE", "prescription_template", created.id, {
         name: body.name,
       }).catch(console.error);
       res.status(201).json({ success: true, data: created, error: null });
@@ -617,7 +617,7 @@ router.delete(
         where: { id: req.params.id },
         data: { isActive: false },
       });
-      auditLog(req, "DELETE_RX_TEMPLATE", "prescription_template", req.params.id).catch(
+      auditLog(req, "RX_TEMPLATE_DELETE", "prescription_template", req.params.id).catch(
         console.error
       );
       res.json({ success: true, data: { id: req.params.id }, error: null });

@@ -144,7 +144,7 @@ router.post(
         return t;
       });
 
-      auditLog(req, "CREATE_AMBULANCE_TRIP", "ambulance_trip", trip.id, {
+      auditLog(req, "AMBULANCE_TRIP_CREATE", "ambulance_trip", trip.id, {
         tripNumber,
       }).catch(console.error);
 
@@ -188,7 +188,7 @@ router.patch(
         where: { id: req.params.id },
         data: { dispatchedAt: new Date(), status: "DISPATCHED" },
       });
-      auditLog(req, "DISPATCH_TRIP", "ambulance_trip", trip.id).catch(
+      auditLog(req, "TRIP_DISPATCH", "ambulance_trip", trip.id).catch(
         console.error
       );
       res.json({ success: true, data: trip, error: null });
@@ -226,7 +226,7 @@ router.patch(
         where: { id: req.params.id },
         data: { status: "EN_ROUTE_HOSPITAL" },
       });
-      auditLog(req, "TRIP_EN_ROUTE", "ambulance_trip", trip.id).catch(
+      auditLog(req, "TRIP_EN_ROUTE_MARK", "ambulance_trip", trip.id).catch(
         console.error
       );
       res.json({ success: true, data: trip, error: null });
@@ -272,7 +272,7 @@ router.patch(
         return t;
       });
 
-      auditLog(req, "COMPLETE_TRIP", "ambulance_trip", trip.id, {
+      auditLog(req, "TRIP_COMPLETE", "ambulance_trip", trip.id, {
         distanceKm: req.body.distanceKm,
         cost: req.body.cost,
       }).catch(console.error);
@@ -311,7 +311,7 @@ router.patch(
         return t;
       });
 
-      auditLog(req, "CANCEL_TRIP", "ambulance_trip", trip.id).catch(
+      auditLog(req, "TRIP_CANCEL", "ambulance_trip", trip.id).catch(
         console.error
       );
 
@@ -365,7 +365,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_AMBULANCE", "ambulance", ambulance.id, {
+      auditLog(req, "AMBULANCE_CREATE", "ambulance", ambulance.id, {
         vehicleNumber: ambulance.vehicleNumber,
       }).catch(console.error);
 
@@ -396,7 +396,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_AMBULANCE", "ambulance", ambulance.id, req.body).catch(
+      auditLog(req, "AMBULANCE_UPDATE", "ambulance", ambulance.id, req.body).catch(
         console.error
       );
 
@@ -526,7 +526,7 @@ router.post(
         data: { cost: total },
       });
 
-      auditLog(req, "BILL_AMBULANCE_TRIP", "ambulance_trip", trip.id, {
+      auditLog(req, "AMBULANCE_TRIP_BILL", "ambulance_trip", trip.id, {
         baseFare,
         perKmRate,
         km,

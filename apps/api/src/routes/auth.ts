@@ -220,7 +220,7 @@ router.post(
         },
       });
 
-      auditLog(req, "REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
+      auditLog(req, "USER_REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
 
       res.status(201).json({
         success: true,
@@ -298,7 +298,7 @@ router.post(
         },
       });
 
-      auditLog(req, "LOGIN", "user", user.id, { email: user.email }).catch(console.error);
+      auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email }).catch(console.error);
 
       res.json({
         success: true,
@@ -415,7 +415,7 @@ router.post(
         where: { userId: req.user!.userId },
       });
 
-      auditLog(req, "LOGOUT", "user", req.user!.userId).catch(console.error);
+      auditLog(req, "AUTH_LOGOUT", "user", req.user!.userId).catch(console.error);
 
       res.json({ success: true, data: null, error: null });
     } catch (err) {
@@ -669,7 +669,7 @@ router.post(
       const result = await prisma.refreshToken.deleteMany({
         where: { userId: req.user!.userId },
       });
-      auditLog(req, "LOGOUT_ALL_SESSIONS", "user", req.user!.userId, {
+      auditLog(req, "AUTH_LOGOUT_ALL", "user", req.user!.userId, {
         cleared: result.count,
       }).catch(console.error);
       res.json({ success: true, data: { cleared: result.count }, error: null });
@@ -929,7 +929,7 @@ router.post(
         },
       });
 
-      auditLog(req, "LOGIN", "user", user.id, { email: user.email, twoFactor: true }).catch(
+      auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email, twoFactor: true }).catch(
         console.error
       );
 

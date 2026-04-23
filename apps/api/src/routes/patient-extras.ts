@@ -318,7 +318,7 @@ router.get(
         })),
       };
 
-      auditLog(req, "EXPORT_CCDA", "patient", patient.id).catch(console.error);
+      auditLog(req, "CCDA_EXPORT", "patient", patient.id).catch(console.error);
 
       res.setHeader(
         "Content-Disposition",

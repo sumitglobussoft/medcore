@@ -57,7 +57,7 @@ describe("AuditPage", () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/audit/filters"))
         return Promise.resolve({
-          data: { actions: ["LOGIN"], entityTypes: ["USER"], users: [] },
+          data: { actions: ["AUTH_LOGIN"], entityTypes: ["USER"], users: [] },
         });
       if (url.startsWith("/audit/retention"))
         return Promise.reject(new Error("no stats"));
@@ -66,7 +66,7 @@ describe("AuditPage", () => {
           data: [
             {
               id: "a1",
-              action: "LOGIN",
+              action: "AUTH_LOGIN",
               entityType: "USER",
               entityId: "u1",
               createdAt: new Date().toISOString(),

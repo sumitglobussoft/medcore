@@ -110,7 +110,7 @@ router.post(
         return m;
       });
 
-      auditLog(req, "LOG_ASSET_MAINTENANCE", "asset_maintenance", log.id, {
+      auditLog(req, "ASSET_MAINTENANCE_LOG", "asset_maintenance", log.id, {
         assetId,
         type: rest.type,
       }).catch(console.error);
@@ -195,7 +195,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_ASSET", "asset", asset.id, {
+      auditLog(req, "ASSET_CREATE", "asset", asset.id, {
         assetTag: asset.assetTag,
       }).catch(console.error);
 
@@ -260,7 +260,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "UPDATE_ASSET", "asset", asset.id, req.body).catch(
+      auditLog(req, "ASSET_UPDATE", "asset", asset.id, req.body).catch(
         console.error
       );
 
@@ -309,7 +309,7 @@ router.post(
         return assignment;
       });
 
-      auditLog(req, "ASSIGN_ASSET", "asset", assetId, {
+      auditLog(req, "ASSET_ASSIGN", "asset", assetId, {
         assignedTo: parsed.assignedTo,
       }).catch(console.error);
 
@@ -355,7 +355,7 @@ router.post(
         return a;
       });
 
-      auditLog(req, "RETURN_ASSET", "asset", assetId).catch(console.error);
+      auditLog(req, "ASSET_RETURN", "asset", assetId).catch(console.error);
 
       res.json({ success: true, data: result, error: null });
     } catch (err) {
@@ -480,7 +480,7 @@ router.patch(
           nextCalibrationAt: next,
         },
       });
-      auditLog(req, "SET_CALIBRATION_SCHEDULE", "asset", asset.id, {
+      auditLog(req, "ASSET_CALIBRATION_SCHEDULE_SET", "asset", asset.id, {
         calibrationInterval,
       }).catch(console.error);
       res.json({ success: true, data: asset, error: null });
@@ -530,7 +530,7 @@ router.post(
         return transfer;
       });
 
-      auditLog(req, "TRANSFER_ASSET", "asset", asset.id, {
+      auditLog(req, "ASSET_TRANSFER", "asset", asset.id, {
         from: asset.department,
         to: toDepartment,
       }).catch(console.error);
@@ -578,7 +578,7 @@ router.post(
           disposalNotes: notes,
         },
       });
-      auditLog(req, "DISPOSE_ASSET", "asset", asset.id, { method, disposalValue }).catch(
+      auditLog(req, "ASSET_DISPOSE", "asset", asset.id, { method, disposalValue }).catch(
         console.error
       );
       res.json({ success: true, data: asset, error: null });

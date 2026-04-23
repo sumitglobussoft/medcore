@@ -107,7 +107,7 @@ router.post(
         },
       });
 
-      auditLog(req, "REGISTER_EMERGENCY_CASE", "emergencyCase", emergencyCase.id, {
+      auditLog(req, "EMERGENCY_CASE_CREATE", "emergencyCase", emergencyCase.id, {
         caseNumber,
         patientId: patientId || null,
       }).catch(console.error);
@@ -362,7 +362,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "TRIAGE_EMERGENCY_CASE", "emergencyCase", updated.id, {
+      auditLog(req, "EMERGENCY_CASE_TRIAGE", "emergencyCase", updated.id, {
         triageLevel: parsed.data.triageLevel,
       }).catch(console.error);
 
@@ -419,7 +419,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "ASSIGN_EMERGENCY_DOCTOR", "emergencyCase", updated.id, {
+      auditLog(req, "EMERGENCY_DOCTOR_ASSIGN", "emergencyCase", updated.id, {
         doctorId: req.body.attendingDoctorId,
       }).catch(console.error);
 
@@ -477,7 +477,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "CLOSE_EMERGENCY_CASE", "emergencyCase", updated.id, {
+      auditLog(req, "EMERGENCY_CASE_CLOSE", "emergencyCase", updated.id, {
         status: req.body.status,
         disposition: req.body.disposition,
       }).catch(console.error);
@@ -522,7 +522,7 @@ router.patch(
           mlcOfficerName: req.body.mlcOfficerName,
         },
       });
-      auditLog(req, "UPDATE_MLC", "emergencyCase", updated.id, {
+      auditLog(req, "MLC_UPDATE", "emergencyCase", updated.id, {
         isMLC: req.body.isMLC,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });
@@ -543,7 +543,7 @@ router.patch(
         where: { id: req.params.id },
         data: { treatmentOrders: JSON.stringify(req.body.orders) },
       });
-      auditLog(req, "UPDATE_ER_ORDERS", "emergencyCase", updated.id, {
+      auditLog(req, "ER_ORDER_UPDATE", "emergencyCase", updated.id, {
         orderCount: req.body.orders.length,
       }).catch(console.error);
       res.json({ success: true, data: updated, error: null });
@@ -626,7 +626,7 @@ router.post(
         return { admission: created, updatedCase: updatedC };
       });
 
-      auditLog(req, "ER_TO_ADMISSION", "emergencyCase", updatedCase.id, {
+      auditLog(req, "ER_ADMISSION_CONVERT", "emergencyCase", updatedCase.id, {
         admissionId: admission.id,
         admissionNumber,
       }).catch(console.error);

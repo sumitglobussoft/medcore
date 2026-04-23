@@ -113,7 +113,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CREATE_CONTROLLED_ENTRY", "controlled_substance_entry", entry.id, {
+      auditLog(req, "CONTROLLED_ENTRY_CREATE", "controlled_substance_entry", entry.id, {
         entryNumber,
         medicineId,
         quantity,

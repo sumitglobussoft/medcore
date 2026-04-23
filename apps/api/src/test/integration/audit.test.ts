@@ -14,11 +14,11 @@ async function seedAuditLogs() {
   });
   const now = new Date();
   const entries = [
-    { action: "LOGIN", entity: "user", entityId: admin?.id, ipAddress: "127.0.0.1" },
-    { action: "CREATE_PATIENT", entity: "patient", entityId: "p1", ipAddress: "10.0.0.1" },
-    { action: "CREATE_PATIENT", entity: "patient", entityId: "p2", ipAddress: "10.0.0.2" },
-    { action: "DELETE_PATIENT", entity: "patient", entityId: "p1", ipAddress: "10.0.0.1" },
-    { action: "UPDATE_BED_STATUS", entity: "bed", entityId: "b1", ipAddress: "10.0.0.3" },
+    { action: "AUTH_LOGIN", entity: "user", entityId: admin?.id, ipAddress: "127.0.0.1" },
+    { action: "PATIENT_CREATE", entity: "patient", entityId: "p1", ipAddress: "10.0.0.1" },
+    { action: "PATIENT_CREATE", entity: "patient", entityId: "p2", ipAddress: "10.0.0.2" },
+    { action: "PATIENT_DELETE", entity: "patient", entityId: "p1", ipAddress: "10.0.0.1" },
+    { action: "BED_STATUS_UPDATE", entity: "bed", entityId: "b1", ipAddress: "10.0.0.3" },
   ];
   for (const e of entries) {
     await prisma.auditLog.create({
@@ -68,13 +68,13 @@ describeIfDB("Audit API (integration)", () => {
     expect(res.body.meta?.total).toBeGreaterThan(0);
   });
 
-  it("filters by action=CREATE_PATIENT", async () => {
+  it("filters by action=PATIENT_CREATE", async () => {
     const res = await request(app)
-      .get("/api/v1/audit?action=CREATE_PATIENT")
+      .get("/api/v1/audit?action=PATIENT_CREATE")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     for (const row of res.body.data) {
-      expect(row.action).toBe("CREATE_PATIENT");
+      expect(row.action).toBe("PATIENT_CREATE");
     }
   });
 
@@ -135,7 +135,7 @@ describeIfDB("Audit API (integration)", () => {
 
   it("free-text search via /search", async () => {
     const res = await request(app)
-      .get("/api/v1/audit/search?q=DELETE_PATIENT")
+      .get("/api/v1/audit/search?q=PATIENT_DELETE")
       .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
   });

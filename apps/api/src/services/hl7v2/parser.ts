@@ -149,3 +149,72 @@ export function getComponent(
 export function getSegments(message: HL7Message, segmentId: string): HL7Segment[] {
   return message.segments.filter((s) => s.id === segmentId);
 }
+
+/**
+ * Extract the MSH-9 message type triplet — `{msgType, trigger, structure}`.
+ * MSH-9 is rendered as `CODE^TRIGGER^STRUCTURE` (e.g. `ADT^A04^ADT_A01`).
+ * Required by the inbound dispatcher to route messages to the right ingester.
+ */
+export function extractMessageType(
+  message: HL7Message
+): { msgType: string; trigger: string; structure?: string } {
+  const raw = getField(message, "MSH", 9);
+  if (!raw) {
+    throw new Error("extractMessageType: MSH-9 is missing");
+  }
+  const parts = parseComponents(raw, message.delimiters.component);
+  const msgType = parts[0] ?? "";
+  const trigger = parts[1] ?? "";
+  const structure = parts[2];
+  if (!msgType || !trigger) {
+    throw new Error(
+      `extractMessageType: malformed MSH-9 value "${raw}" (need CODE^TRIGGER)`
+    );
+  }
+  return { msgType, trigger, structure };
+}
+
+/**
+ * Return the MSH-10 message control id. Used by ACKs (MSA-2) and for
+ * per-message audit correlation.
+ */
+export function getControlId(message: HL7Message): string | undefined {
+  return getField(message, "MSH", 10);
+}
+
+/**
+ * Return the primary MR number carried in PID-3. PID-3 may repeat with `~`
+ * and each repetition is `id^^^authority^typeCode`. We take the first
+ * repetition's first component — that's the patient identifier per v2.5.1.
+ */
+export function getPid3MrNumber(message: HL7Message): string | undefined {
+  const raw = getField(message, "PID", 3);
+  if (!raw) return undefined;
+  // Split by repetition separator first — the primary MR is the first rep.
+  const firstRep = raw.split(message.delimiters.repetition)[0];
+  const components = parseComponents(firstRep, message.delimiters.component);
+  const id = components[0]?.trim();
+  return id ? id : undefined;
+}
+
+/**
+ * Return the family and given name from PID-5 as a best-effort pair.
+ * PID-5 layout: `family^given^middle^suffix^prefix`.
+ */
+export function getPid5Name(
+  message: HL7Message
+): { familyName: string; givenName: string } {
+  const familyName = getComponent(message, "PID", 5, 1) ?? "";
+  const givenName = getComponent(message, "PID", 5, 2) ?? "";
+  return { familyName, givenName };
+}
+
+/**
+ * Return the placer order number from ORC-2 (preferred) or OBR-2 (fallback).
+ * Legacy labs sometimes omit ORC entirely — we accept either.
+ */
+export function getPlacerOrderNumber(message: HL7Message): string | undefined {
+  return (
+    getField(message, "ORC", 2) ?? getField(message, "OBR", 2) ?? undefined
+  );
+}

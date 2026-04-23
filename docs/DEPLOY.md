@@ -243,6 +243,8 @@ Legend: **SM** = secret-management (vault / sealed), **CM** = config-management
 
 ### API (`/home/empcloud-development/medcore/.env`)
 
+> **HL7 v2 inbound:** `POST /api/v1/hl7v2/inbound` accepts pipe-delimited HL7 v2 messages from legacy lab / HIS systems. Role-gated to **ADMIN** and rate-limited to 60 msg/min/IP; nginx or the host firewall should further restrict the source-IP range to the specific lab partners that need access — the endpoint handles PHI and must not be open to the public internet.
+
 | Var | Class | Level | Notes |
 |---|---|---|---|
 | `DATABASE_URL` | SM | R | Postgres DSN — server refuses to start without. |

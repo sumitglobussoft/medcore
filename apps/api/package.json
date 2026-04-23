@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "hl7v2:roundtrip": "tsx src/services/hl7v2/roundtrip.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1034.0",

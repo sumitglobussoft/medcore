@@ -330,7 +330,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "RECORD_MEDICATION_ADMIN", "medicationAdministration", updated.id, {
+      auditLog(req, "MEDICATION_ADMIN_CREATE", "medicationAdministration", updated.id, {
         status: req.body.status,
       }).catch(console.error);
 
