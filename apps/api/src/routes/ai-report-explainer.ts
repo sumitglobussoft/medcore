@@ -1,10 +1,27 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 import { explainLabReport } from "../services/ai/report-explainer";
 import { sendNotification } from "../services/notification";
 import { NotificationType } from "@medcore/shared";
+
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 
@@ -189,6 +206,11 @@ router.get(
         orderBy: { createdAt: "desc" },
       });
 
+      safeAudit(req, "AI_LAB_EXPLANATION_READ", "LabReportExplanation", undefined, {
+        filter: "PENDING_REVIEW",
+        resultCount: pending.length,
+      });
+
       res.json({
         success: true,
         data: pending,
@@ -228,6 +250,11 @@ router.get(
           return;
         }
       }
+
+      safeAudit(req, "AI_LAB_EXPLANATION_READ", "LabReportExplanation", explanation.id, {
+        labOrderId,
+        status: explanation.status,
+      });
 
       res.json({
         success: true,

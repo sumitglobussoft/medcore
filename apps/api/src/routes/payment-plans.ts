@@ -1,5 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   paymentPlanSchema,

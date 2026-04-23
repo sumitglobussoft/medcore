@@ -1,6 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+// The public POST /feedback endpoint at the top of this file runs before
+// `feedbackRouter.use(authenticate)`; for those unauthenticated requests no
+// tenant is in AsyncLocalStorage, so the extension behaves as a pass-through.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   createFeedbackSchema,

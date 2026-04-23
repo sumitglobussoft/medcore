@@ -1,8 +1,30 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 import { predictNoShow, batchPredictNoShow } from "../services/ai/no-show-predictor";
+
+/**
+ * Best-effort audit wrapper: PHI audit writes must never take a GET response
+ * down with them. If prisma is unavailable (e.g. transient DB blip), log a
+ * warning and allow the request to complete.
+ */
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 
@@ -51,6 +73,10 @@ router.get(
       });
 
       if (appointments.length === 0) {
+        safeAudit(req, "AI_NO_SHOW_BATCH", "Appointment", undefined, {
+          date,
+          resultCount: 0,
+        });
         res.json({ success: true, data: [], error: null });
         return;
       }
@@ -82,6 +108,11 @@ router.get(
           };
         });
 
+      safeAudit(req, "AI_NO_SHOW_BATCH", "Appointment", undefined, {
+        date,
+        resultCount: enriched.length,
+      });
+
       res.json({ success: true, data: enriched, error: null });
     } catch (err) {
       next(err);
@@ -99,6 +130,10 @@ router.get(
       const { appointmentId } = req.params;
 
       const prediction = await predictNoShow(appointmentId);
+
+      safeAudit(req, "AI_NO_SHOW_READ", "Appointment", appointmentId, {
+        riskScore: prediction.riskScore,
+      });
 
       res.json({ success: true, data: prediction, error: null });
     } catch (err) {

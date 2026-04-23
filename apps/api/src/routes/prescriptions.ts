@@ -1,5 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site in the authenticated router keeps
+// working without edits. The `publicPrescriptionRouter` at the bottom of the
+// file is unauthenticated (signed-URL verification for printed Rx QR codes),
+// so it uses the raw, un-scoped `prisma` via `rawPrisma`.
+import { prisma as rawPrisma } from "@medcore/db";
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   createPrescriptionSchema,
@@ -716,7 +724,7 @@ publicPrescriptionRouter.get(
         (accept.includes("application/json") && !accept.includes("text/html"));
 
       if (wantsJson) {
-        const rx = await prisma.prescription.findUnique({
+        const rx = await rawPrisma.prescription.findUnique({
           where: { id: req.params.id },
           include: {
             patient: { include: { user: { select: { name: true } } } },
@@ -727,7 +735,7 @@ publicPrescriptionRouter.get(
           res.status(404).json({ ok: false, error: "Prescription not found" });
           return;
         }
-        const cfg = await prisma.systemConfig.findMany({
+        const cfg = await rawPrisma.systemConfig.findMany({
           where: {
             key: {
               in: [

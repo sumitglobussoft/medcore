@@ -1,8 +1,29 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+
+/**
+ * Best-effort audit wrapper: PHI audit writes must never take a GET response
+ * down with them. If prisma is unavailable (e.g. transient DB blip), log a
+ * warning and allow the request to complete.
+ */
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 router.use(authenticate);
@@ -189,6 +210,11 @@ router.get(
       const schedules = await prisma.adherenceSchedule.findMany({
         where: { patientId, active: true },
         orderBy: { createdAt: "desc" },
+      });
+
+      safeAudit(req, "AI_ADHERENCE_READ", "AdherenceSchedule", undefined, {
+        patientId,
+        resultCount: schedules.length,
       });
 
       res.json({ success: true, data: schedules, error: null });
@@ -387,6 +413,13 @@ router.get(
           scheduledAt: { gte: fromDate, lte: toDate },
         },
         orderBy: { scheduledAt: "desc" },
+      });
+
+      safeAudit(req, "AI_ADHERENCE_DOSE_LOG_READ", "AdherenceDoseLog", undefined, {
+        scheduleId,
+        fromDate: fromDate.toISOString(),
+        toDate: toDate.toISOString(),
+        resultCount: logs.length,
       });
 
       res.json({ success: true, data: logs, error: null });

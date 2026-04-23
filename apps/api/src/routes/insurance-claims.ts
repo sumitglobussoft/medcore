@@ -9,7 +9,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import express from "express";
 import { z } from "zod";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -25,7 +29,8 @@ import {
 import {
   createClaim,
   getClaim,
-  updateClaim,
+  updateStatus,
+  syncFromProvider,
   listClaims,
   addDocument,
   getDocuments,
@@ -249,18 +254,14 @@ router.post(
         return;
       }
 
-      const updated = (await updateClaim(row.id, {
+      const updated = (await updateStatus(row.id, {
+        status: result.data.status,
         providerClaimRef: result.data.providerRef,
-        status: result.data.status,
         lastSyncedAt: new Date().toISOString(),
-      }))!;
-      await addEvent({
-        claimId: row.id,
-        status: result.data.status,
         note: `Submitted to ${body.tpaProvider}`,
         source: "API",
         createdBy: req.user!.userId,
-      });
+      }))!;
 
       auditLog(req, "SUBMIT_CLAIM", "insurance_claim", row.id, {
         tpaProvider: body.tpaProvider,
@@ -295,6 +296,23 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (req: 
     if (from) q.from = new Date(from);
     if (to) q.to = new Date(to);
     const rows = await listClaims(q);
+
+    // PHI read — claims list reveals patient IDs, diagnoses, ICD codes. Audit
+    // non-blocking so a transient DB blip on audit_logs can't take GETs down.
+    auditLog(req, "INSURANCE_CLAIMS_LIST", "insurance_claim", undefined, {
+      status: status ?? null,
+      tpa: tpa ?? null,
+      patientId: patientId ?? null,
+      from: from ?? null,
+      to: to ?? null,
+      resultCount: rows.length,
+    }).catch((err) => {
+      console.warn(
+        `[audit] INSURANCE_CLAIMS_LIST failed (non-fatal):`,
+        (err as Error)?.message ?? err
+      );
+    });
+
     res.json({ success: true, data: rows, error: null });
   } catch (err) {
     next(err);
@@ -328,24 +346,16 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (re
           patch.approvedAt = new Date().toISOString();
         if (result.data.status === "SETTLED" && !row.settledAt)
           patch.settledAt = new Date().toISOString();
-        await updateClaim(row.id, patch);
-        // Append any provider events we haven't seen yet.
-        const seen = new Set(
-          (await getEvents(row.id)).map((e) => e.status + "|" + e.timestamp)
-        );
-        for (const ev of result.data.timeline) {
-          const k = ev.status + "|" + ev.timestamp;
-          if (!seen.has(k)) {
-            await addEvent({
-              claimId: row.id,
-              status: ev.status,
-              note: ev.note ?? null,
-              source: "API",
-              createdBy: null,
-              timestamp: ev.timestamp,
-            });
-          }
-        }
+        // Atomic: claim patch + timeline append in a single tx so we can't
+        // end up with a new status and no matching event rows (or vice versa).
+        await syncFromProvider(row.id, {
+          patch,
+          timeline: result.data.timeline.map((ev) => ({
+            status: ev.status,
+            timestamp: ev.timestamp,
+            note: ev.note ?? null,
+          })),
+        });
       }
     }
 
@@ -354,6 +364,18 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR), async (re
       getDocuments(fresh.id),
       getEvents(fresh.id),
     ]);
+
+    auditLog(req, "INSURANCE_CLAIM_READ", "insurance_claim", fresh.id, {
+      status: fresh.status,
+      tpa: fresh.tpaProvider,
+      synced: req.query.sync === "1",
+    }).catch((err) => {
+      console.warn(
+        `[audit] INSURANCE_CLAIM_READ failed (non-fatal):`,
+        (err as Error)?.message ?? err
+      );
+    });
+
     res.json({
       success: true,
       data: {
@@ -480,17 +502,13 @@ router.post(
       const { reason } = req.body as z.infer<typeof cancelSchema>;
       if (!row.providerClaimRef) {
         // Never actually left our side — cancel locally only.
-        const updated = (await updateClaim(row.id, {
+        const updated = (await updateStatus(row.id, {
           status: "CANCELLED",
           cancelledAt: new Date().toISOString(),
-        }))!;
-        await addEvent({
-          claimId: row.id,
-          status: "CANCELLED",
           note: `Cancelled before TPA submission: ${reason}`,
           source: "MANUAL",
           createdBy: req.user!.userId,
-        });
+        }))!;
         res.json({ success: true, data: updated, error: null });
         return;
       }
@@ -507,17 +525,13 @@ router.post(
         return;
       }
 
-      const updated = (await updateClaim(row.id, {
+      const updated = (await updateStatus(row.id, {
         status: "CANCELLED",
         cancelledAt: result.data.cancelledAt,
-      }))!;
-      await addEvent({
-        claimId: row.id,
-        status: "CANCELLED",
         note: `Cancelled via TPA: ${reason}`,
         source: "API",
         createdBy: req.user!.userId,
-      });
+      }))!;
 
       auditLog(req, "CANCEL_CLAIM", "insurance_claim", row.id, { reason }).catch(
         console.error

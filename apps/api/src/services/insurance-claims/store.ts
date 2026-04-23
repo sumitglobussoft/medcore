@@ -308,6 +308,7 @@ export const list = listClaims;
  */
 export interface UpdateStatusInput {
   status: NormalisedClaimStatus;
+  providerClaimRef?: string | null;
   amountApproved?: number | null;
   deniedReason?: string | null;
   lastSyncedAt?: string | null;
@@ -329,6 +330,8 @@ export async function updateStatus(
     if (!existing) return undefined;
 
     const data: Record<string, unknown> = { status: input.status };
+    if (input.providerClaimRef !== undefined)
+      data.providerClaimRef = input.providerClaimRef;
     if (input.amountApproved !== undefined)
       data.amountApproved = input.amountApproved;
     if (input.deniedReason !== undefined) data.deniedReason = input.deniedReason;
@@ -356,6 +359,83 @@ export async function updateStatus(
           : new Date(),
       },
     });
+    return mapClaim(updated);
+  });
+}
+
+/**
+ * Transactional provider sync — apply a metadata patch (status, amount,
+ * approvedAt, ...) to the claim and append any not-yet-seen timeline events
+ * from the TPA in a single transaction. Used by `GET /claims/:id?sync=1`
+ * which needs to mirror many events at once (not a single status transition
+ * like `updateStatus`).
+ *
+ * Timeline events are de-duplicated by `(status, timestamp)` against the
+ * rows already in `claim_status_events`. Returns the patched claim row.
+ */
+export interface SyncFromProviderInput {
+  patch: Partial<InsuranceClaimRow>;
+  timeline: Array<{
+    status: NormalisedClaimStatus;
+    timestamp: string;
+    note?: string | null;
+  }>;
+}
+
+export async function syncFromProvider(
+  id: string,
+  input: SyncFromProviderInput
+): Promise<InsuranceClaimRow | undefined> {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.insuranceClaim2.findUnique({ where: { id } });
+    if (!existing) return undefined;
+
+    const patch = input.patch;
+    const data: Record<string, unknown> = {};
+    if (patch.status !== undefined) data.status = patch.status;
+    if (patch.amountApproved !== undefined)
+      data.amountApproved = patch.amountApproved;
+    if (patch.deniedReason !== undefined) data.deniedReason = patch.deniedReason;
+    if (patch.providerClaimRef !== undefined)
+      data.providerClaimRef = patch.providerClaimRef;
+    if (patch.lastSyncedAt !== undefined)
+      data.lastSyncedAt = patch.lastSyncedAt ? new Date(patch.lastSyncedAt) : null;
+    if (patch.approvedAt !== undefined)
+      data.approvedAt = patch.approvedAt ? new Date(patch.approvedAt) : null;
+    if (patch.settledAt !== undefined)
+      data.settledAt = patch.settledAt ? new Date(patch.settledAt) : null;
+    if (patch.cancelledAt !== undefined)
+      data.cancelledAt = patch.cancelledAt ? new Date(patch.cancelledAt) : null;
+
+    const updated = await tx.insuranceClaim2.update({ where: { id }, data });
+
+    // Dedup against existing events before inserting.
+    const existingEvents = await tx.claimStatusEvent.findMany({
+      where: { claimId: id },
+      select: { status: true, timestamp: true },
+    });
+    const seen = new Set(
+      existingEvents.map(
+        (e: { status: string; timestamp: Date }) =>
+          e.status + "|" + e.timestamp.toISOString()
+      )
+    );
+
+    for (const ev of input.timeline) {
+      const k = ev.status + "|" + ev.timestamp;
+      if (seen.has(k)) continue;
+      await tx.claimStatusEvent.create({
+        data: {
+          claimId: id,
+          status: ev.status,
+          note: ev.note ?? null,
+          source: "API",
+          createdBy: null,
+          timestamp: new Date(ev.timestamp),
+        },
+      });
+    }
+
     return mapClaim(updated);
   });
 }

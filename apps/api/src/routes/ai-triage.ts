@@ -1,5 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   startTriageSessionSchema,
@@ -11,6 +15,23 @@ import { validate } from "../middleware/validate";
 import { checkRedFlags, buildEmergencyResponse } from "../services/ai/red-flag";
 import { runTriageTurn, extractSymptomSummary } from "../services/ai/sarvam";
 import { auditLog } from "../middleware/audit";
+
+/**
+ * Best-effort audit wrapper: PHI audit writes must never take a GET response
+ * down with them. If prisma is unavailable (e.g. transient DB blip), log a
+ * warning and allow the request to complete.
+ */
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 
@@ -294,6 +315,11 @@ router.get(
           };
         });
       }
+
+      safeAudit(req, "AI_TRIAGE_SESSION_READ", "AITriageSession", session.id, {
+        status: session.status,
+        suggestionCount: doctorSuggestions.length,
+      });
 
       res.json({
         success: true,

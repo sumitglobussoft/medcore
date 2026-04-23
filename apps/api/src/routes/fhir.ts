@@ -10,7 +10,11 @@
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
@@ -399,6 +403,22 @@ async function handleSearchError(
   next(err as any);
 }
 
+/**
+ * Build an audit-safe summary of FHIR search params. Logs ONLY the param
+ * names + a boolean indicating whether a value was supplied. Never emits
+ * the raw identifier, name, family-name, or other value — those can
+ * themselves be PHI (ABHA IDs, MRNs, etc.) and must not land in audit_logs.
+ */
+function redactedSearchParams(
+  q: object
+): Record<string, { hasValue: boolean }> {
+  const out: Record<string, { hasValue: boolean }> = {};
+  for (const [k, v] of Object.entries(q)) {
+    out[k] = { hasValue: typeof v === "string" && v.length > 0 };
+  }
+  return out;
+}
+
 // GET /api/v1/fhir/Patient?name=...&family=...&identifier=...&_count=...
 router.get(
   "/Patient",
@@ -407,7 +427,10 @@ router.get(
     const q = flatQuery(req.query) as PatientSearchParams;
     try {
       const bundle = await searchPatient(q, searchContext(req));
-      await auditLog(req, "FHIR_PATIENT_SEARCH", "Patient", undefined, { params: q, total: bundle.total });
+      await auditLog(req, "FHIR_SEARCH_PATIENT", "Patient", undefined, {
+        params: redactedSearchParams(q),
+        resultCount: bundle.total,
+      });
       sendFhir(res, 200, bundle);
     } catch (err) {
       await handleSearchError(res, err, next);
@@ -423,7 +446,10 @@ router.get(
     const q = flatQuery(req.query) as EncounterSearchParams;
     try {
       const bundle = await searchEncounter(q, searchContext(req));
-      await auditLog(req, "FHIR_ENCOUNTER_SEARCH", "Encounter", undefined, { params: q, total: bundle.total });
+      await auditLog(req, "FHIR_SEARCH_ENCOUNTER", "Encounter", undefined, {
+        params: redactedSearchParams(q),
+        resultCount: bundle.total,
+      });
       sendFhir(res, 200, bundle);
     } catch (err) {
       await handleSearchError(res, err, next);
@@ -439,7 +465,10 @@ router.get(
     const q = flatQuery(req.query) as MedicationRequestSearchParams;
     try {
       const bundle = await searchMedicationRequest(q, searchContext(req));
-      await auditLog(req, "FHIR_MEDICATION_REQUEST_SEARCH", "MedicationRequest", undefined, { params: q, total: bundle.total });
+      await auditLog(req, "FHIR_SEARCH_MEDICATIONREQUEST", "MedicationRequest", undefined, {
+        params: redactedSearchParams(q),
+        resultCount: bundle.total,
+      });
       sendFhir(res, 200, bundle);
     } catch (err) {
       await handleSearchError(res, err, next);
@@ -455,7 +484,10 @@ router.get(
     const q = flatQuery(req.query) as AllergyIntoleranceSearchParams;
     try {
       const bundle = await searchAllergyIntolerance(q, searchContext(req));
-      await auditLog(req, "FHIR_ALLERGY_SEARCH", "AllergyIntolerance", undefined, { params: q, total: bundle.total });
+      await auditLog(req, "FHIR_SEARCH_ALLERGYINTOLERANCE", "AllergyIntolerance", undefined, {
+        params: redactedSearchParams(q),
+        resultCount: bundle.total,
+      });
       sendFhir(res, 200, bundle);
     } catch (err) {
       await handleSearchError(res, err, next);

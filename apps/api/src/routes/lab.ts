@@ -1,5 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site in the authenticated router keeps
+// working without edits. The `publicLabRouter` at the bottom of the file
+// is unauthenticated (signed-URL verification for shared lab reports), so
+// it uses the raw, un-scoped `prisma` via `rawPrisma`.
+import { prisma as rawPrisma } from "@medcore/db";
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import crypto from "crypto";
 import {
   Role,
@@ -1350,7 +1358,7 @@ publicLabRouter.get(
   "/lab/:token",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const link = await prisma.sharedLink.findUnique({
+      const link = await rawPrisma.sharedLink.findUnique({
         where: { token: req.params.token },
       });
       if (!link || link.resource !== "lab_order") {
@@ -1366,7 +1374,7 @@ publicLabRouter.get(
         return;
       }
 
-      const order = await prisma.labOrder.findUnique({
+      const order = await rawPrisma.labOrder.findUnique({
         where: { id: link.resourceId },
         include: {
           items: {
@@ -1394,7 +1402,7 @@ publicLabRouter.get(
       }
 
       // Increment view counter (fire-and-forget)
-      prisma.sharedLink
+      rawPrisma.sharedLink
         .update({
           where: { id: link.id },
           data: {

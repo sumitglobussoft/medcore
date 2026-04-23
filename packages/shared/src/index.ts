@@ -1,4 +1,5 @@
 export * from "./types/roles";
+export * from "./types/auth";
 export * from "./types/appointment";
 export * from "./types/patient";
 export * from "./types/billing";

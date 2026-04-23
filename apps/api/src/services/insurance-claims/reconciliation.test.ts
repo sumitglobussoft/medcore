@@ -48,7 +48,13 @@ vi.mock("./registry", () => ({
 }));
 
 // Now that all module mocks are registered we can import the SUT.
-import { reconcilePendingClaims, PENDING_STATUSES } from "./reconciliation";
+import {
+  reconcilePendingClaims,
+  reconcileTerminalClaims,
+  PENDING_STATUSES,
+  TERMINAL_STATUSES,
+  DEFAULT_TERMINAL_STALENESS_MS,
+} from "./reconciliation";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -306,5 +312,90 @@ describe("reconcilePendingClaims", () => {
     expect(prismaMock.insuranceClaim2.update).toHaveBeenCalledTimes(1);
     const args = prismaMock.insuranceClaim2.update.mock.calls[0][0];
     expect(args.data).toEqual({ lastSyncedAt: now });
+  });
+});
+
+describe("reconcileTerminalClaims", () => {
+  it("queries APPROVED/SETTLED/DENIED claims whose lastSyncedAt is older than 7 days", async () => {
+    // A claim last synced 8 days ago — should qualify for the terminal sweep.
+    const staleSyncedAt = new Date("2026-04-15T00:00:00Z");
+    const staleClaim = fakeClaim({
+      id: "stale-approved",
+      status: "APPROVED",
+      providerClaimRef: "REF-STALE",
+      lastSyncedAt: staleSyncedAt,
+    });
+    prismaMock.insuranceClaim2.findMany.mockResolvedValue([staleClaim]);
+    prismaMock.insuranceClaim2.update.mockResolvedValue(staleClaim);
+    prismaMock.claimStatusEvent.create.mockResolvedValue({});
+
+    // TPA reports the claim was DENIED on audit — a late revision we'd miss
+    // without the terminal sweep.
+    getAdapterMock.mockReturnValue(adapterReturning(statusOk("DENIED")));
+
+    const now = new Date("2026-04-23T12:00:00Z");
+    const result = await reconcileTerminalClaims({ now });
+
+    expect(result.checked).toBe(1);
+    expect(result.updated).toBe(1);
+    expect(result.errors).toEqual([]);
+
+    // where-clause asserts: only terminal statuses, providerRef not null,
+    // lastSyncedAt-cutoff = now - 7 days.
+    const call = prismaMock.insuranceClaim2.findMany.mock.calls[0][0];
+    const requestedStatuses = call.where.status.in as string[];
+    expect(requestedStatuses).toEqual(expect.arrayContaining([...TERMINAL_STATUSES]));
+    expect(requestedStatuses).not.toContain("CANCELLED");
+    expect(call.where.providerClaimRef).toEqual({ not: null });
+    const expectedCutoff = new Date(now.getTime() - DEFAULT_TERMINAL_STALENESS_MS);
+    expect(call.where.OR).toEqual([
+      { lastSyncedAt: null },
+      { lastSyncedAt: { lt: expectedCutoff } },
+    ]);
+
+    // Event + patch both written for the status change.
+    expect(prismaMock.claimStatusEvent.create).toHaveBeenCalledTimes(1);
+    const evArgs = prismaMock.claimStatusEvent.create.mock.calls[0][0];
+    expect(evArgs.data.status).toBe("DENIED");
+    expect(evArgs.data.claimId).toBe("stale-approved");
+    expect(evArgs.data.note).toMatch(/Terminal sweep/);
+  });
+
+  it("skips terminal claims whose lastSyncedAt is within the 7-day window", async () => {
+    // findMany returns empty because the where-clause filters them out —
+    // we still inspect the filter to prove fresh claims aren't queried.
+    prismaMock.insuranceClaim2.findMany.mockResolvedValue([]);
+
+    const now = new Date("2026-04-23T12:00:00Z");
+    const result = await reconcileTerminalClaims({ now });
+
+    expect(result).toEqual({ checked: 0, updated: 0, errors: [] });
+
+    const call = prismaMock.insuranceClaim2.findMany.mock.calls[0][0];
+    const expectedCutoff = new Date(now.getTime() - DEFAULT_TERMINAL_STALENESS_MS);
+    expect(call.where.OR).toEqual([
+      { lastSyncedAt: null },
+      { lastSyncedAt: { lt: expectedCutoff } },
+    ]);
+    // Adapter should not be consulted when there are no stale candidates.
+    expect(getAdapterMock).not.toHaveBeenCalled();
+    expect(prismaMock.insuranceClaim2.update).not.toHaveBeenCalled();
+  });
+
+  it("respects the batch size cap via limitPerRun", async () => {
+    prismaMock.insuranceClaim2.findMany.mockResolvedValue([]);
+
+    // Custom cap.
+    await reconcileTerminalClaims({ limitPerRun: 25 });
+    let call = prismaMock.insuranceClaim2.findMany.mock.calls[0][0];
+    expect(call.take).toBe(25);
+
+    prismaMock.insuranceClaim2.findMany.mockClear();
+    prismaMock.insuranceClaim2.findMany.mockResolvedValue([]);
+
+    // Default cap: 100.
+    await reconcileTerminalClaims();
+    call = prismaMock.insuranceClaim2.findMany.mock.calls[0][0];
+    expect(call.take).toBe(100);
   });
 });

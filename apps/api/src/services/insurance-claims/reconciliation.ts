@@ -35,8 +35,31 @@ export const PENDING_STATUSES: readonly NormalisedClaimStatus[] = [
   "QUERY_RAISED",
 ] as const;
 
+/**
+ * Statuses considered "terminal" for the pending-claims poller, but which the
+ * TPA can still revise after the fact (an APPROVED claim can later be
+ * DENIED on appeal, a SETTLED one can have the settlement reversed, etc.).
+ * We sweep these on a much slower cadence (weekly) to catch late revisions
+ * that would otherwise slip through.
+ *
+ * CANCELLED is excluded — once we (or the TPA) cancel a claim, it isn't
+ * coming back, and polling cancelled claims would waste API quota.
+ */
+export const TERMINAL_STATUSES: readonly NormalisedClaimStatus[] = [
+  "APPROVED",
+  "DENIED",
+  "SETTLED",
+  "PARTIALLY_APPROVED",
+] as const;
+
 /** Default: only re-sync a claim if its last sync was more than 1 hour ago. */
 export const DEFAULT_STALENESS_MS = 60 * 60 * 1000;
+
+/** Default for the terminal sweep: re-check claims not touched for 7 days. */
+export const DEFAULT_TERMINAL_STALENESS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Default cap on how many terminal claims a single run will poll. */
+export const DEFAULT_TERMINAL_LIMIT = 100;
 
 export interface ReconcileError {
   claimId: string;
@@ -158,6 +181,138 @@ export async function reconcilePendingClaims(
               claimId: claim.id,
               status: tpaStatus,
               note: `Reconciled from ${claim.tpaProvider}`,
+              source: "API",
+              createdBy: null,
+              timestamp: now,
+            },
+          });
+        }
+      });
+
+      if (statusChanged) result.updated += 1;
+    } catch (err) {
+      result.errors.push({
+        claimId: claim.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return result;
+}
+
+export interface ReconcileTerminalOptions {
+  /**
+   * Override the staleness cutoff. Claims with `lastSyncedAt` older than
+   * `now - stalenessMs` (or never-synced) qualify. Defaults to 7 days.
+   */
+  stalenessMs?: number;
+  /**
+   * Cap the number of claims checked in a single run. The terminal sweep
+   * walks a potentially large historical set, so we default to 100 to avoid
+   * hammering a TPA if a run lands on a newly-onboarded environment.
+   */
+  limitPerRun?: number;
+  /** Override the clock so tests can be deterministic. */
+  now?: Date;
+}
+
+/**
+ * Weekly sweep: re-poll the TPA for claims that are already in a terminal
+ * status (APPROVED / DENIED / SETTLED / PARTIALLY_APPROVED). Catches late
+ * revisions — e.g. an approved claim getting reversed on audit, or an
+ * approved amount being adjusted.
+ *
+ * Intentionally uses the same adapter/persistence flow as the pending
+ * reconciler so any status/amount/reason change produces a
+ * `ClaimStatusEvent` row + atomic claim patch.
+ */
+export async function reconcileTerminalClaims(
+  opts: ReconcileTerminalOptions = {}
+): Promise<ReconcileResult> {
+  const now = opts.now ?? new Date();
+  const stalenessMs = opts.stalenessMs ?? DEFAULT_TERMINAL_STALENESS_MS;
+  const limit = opts.limitPerRun ?? DEFAULT_TERMINAL_LIMIT;
+  const cutoff = new Date(now.getTime() - stalenessMs);
+
+  const candidates = await prisma.insuranceClaim2.findMany({
+    where: {
+      status: { in: [...TERMINAL_STATUSES] },
+      providerClaimRef: { not: null },
+      OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: cutoff } }],
+    },
+    orderBy: { lastSyncedAt: "asc" },
+    take: limit,
+  });
+
+  const result: ReconcileResult = {
+    checked: candidates.length,
+    updated: 0,
+    errors: [],
+  };
+
+  for (const claim of candidates) {
+    try {
+      const adapter = getAdapter(claim.tpaProvider as TpaProvider);
+      const ref = claim.providerClaimRef;
+      if (!ref) continue;
+
+      const statusRes = await adapter.getClaimStatus(ref);
+      if (!statusRes.ok) {
+        result.errors.push({
+          claimId: claim.id,
+          error: `${statusRes.error.code}: ${statusRes.error.message}`,
+        });
+        continue;
+      }
+
+      const tpaStatus = statusRes.data.status;
+      const statusChanged = tpaStatus !== claim.status;
+      const amountChanged =
+        statusRes.data.amountApproved !== undefined &&
+        statusRes.data.amountApproved !== null &&
+        Number(statusRes.data.amountApproved) !==
+          (claim.amountApproved === null ? null : Number(claim.amountApproved));
+      const deniedReasonChanged =
+        statusRes.data.deniedReason !== undefined &&
+        statusRes.data.deniedReason !== null &&
+        statusRes.data.deniedReason !== claim.deniedReason;
+
+      if (!statusChanged && !amountChanged && !deniedReasonChanged) {
+        await prisma.insuranceClaim2.update({
+          where: { id: claim.id },
+          data: { lastSyncedAt: now },
+        });
+        continue;
+      }
+
+      await prisma.$transaction(async (tx) => {
+        const patch: {
+          status?: NormalisedClaimStatus;
+          amountApproved?: number | null;
+          deniedReason?: string | null;
+          lastSyncedAt: Date;
+          approvedAt?: Date;
+          settledAt?: Date;
+        } = { lastSyncedAt: now };
+        if (statusChanged) patch.status = tpaStatus;
+        if (amountChanged)
+          patch.amountApproved = statusRes.data.amountApproved ?? null;
+        if (deniedReasonChanged)
+          patch.deniedReason = statusRes.data.deniedReason ?? null;
+        if (statusChanged && tpaStatus === "APPROVED" && !claim.approvedAt)
+          patch.approvedAt = now;
+        if (statusChanged && tpaStatus === "SETTLED" && !claim.settledAt)
+          patch.settledAt = now;
+
+        await tx.insuranceClaim2.update({ where: { id: claim.id }, data: patch });
+
+        if (statusChanged) {
+          await tx.claimStatusEvent.create({
+            data: {
+              claimId: claim.id,
+              status: tpaStatus,
+              note: `Terminal sweep from ${claim.tpaProvider}`,
               source: "API",
               createdBy: null,
               timestamp: now,

@@ -1,12 +1,25 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { auditLog } from "../middleware/audit";
 import {
   forecastInventory,
   forecastSingleItem,
   getAIInsights,
   type ItemForecast,
 } from "../services/ai/pharmacy-forecast";
+
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 export const aiPharmacyRouter = Router();
 
@@ -50,6 +63,13 @@ aiPharmacyRouter.get(
       if (withInsights) {
         insights = await getAIInsights(forecasts);
       }
+
+      safeAudit(req, "AI_PHARMACY_FORECAST_READ", "InventoryItem", undefined, {
+        days,
+        urgencyFilter: urgencyFilter ?? null,
+        withInsights,
+        resultCount: forecasts.length,
+      });
 
       res.json({
         success: true,
@@ -103,6 +123,10 @@ aiPharmacyRouter.get(
           reason: true,
           createdAt: true,
         },
+      });
+
+      safeAudit(req, "AI_PHARMACY_FORECAST_READ", "InventoryItem", inventoryItemId, {
+        movementCount: movements.length,
       });
 
       res.json({

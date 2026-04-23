@@ -1,5 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-injects tenantId on create and auto-filters on read for the 20
+// tenant-scoped models (see services/tenant-prisma.ts). We alias it to
+// `prisma` so every existing call site keeps working without edits.
+import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
 import {
   Role,
   startScribeSessionSchema,
@@ -14,6 +18,23 @@ import { checkDrugSafety } from "../services/ai/drug-interactions";
 import { auditLog } from "../middleware/audit";
 import { sendNotification } from "../services/notification";
 import { ingestConsultation, fireAndForgetIngest } from "../services/ai/rag-ingest";
+
+/**
+ * Best-effort audit wrapper: PHI audit writes must never take a GET response
+ * down with them. If prisma is unavailable (e.g. transient DB blip), log a
+ * warning and allow the request to complete.
+ */
+function safeAudit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string | undefined,
+  details?: Record<string, unknown>
+): void {
+  auditLog(req, action, entity, entityId, details).catch((err) => {
+    console.warn(`[audit] ${action} failed (non-fatal):`, (err as Error)?.message ?? err);
+  });
+}
 
 const router = Router();
 router.use(authenticate);
@@ -225,6 +246,11 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Session not found" });
         return;
       }
+
+      safeAudit(req, "AI_SCRIBE_READ", "AIScribeSession", session.id, {
+        status: session.status,
+        hasSoapFinal: !!session.soapFinal,
+      });
 
       res.json({ success: true, data: session, error: null });
     } catch (err) {
@@ -457,6 +483,11 @@ router.get(
           },
         }),
       ]);
+
+      safeAudit(req, "AI_SCRIBE_DRAFTS_READ", "AIScribeSession", session.id, {
+        labOrderCount: labOrders.length,
+        referralCount: referrals.length,
+      });
 
       res.json({ success: true, data: { labOrders, referrals }, error: null });
     } catch (err) {

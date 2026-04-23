@@ -53,19 +53,90 @@ async function consumeTempToken(token: string): Promise<string | null> {
   return entry.userId;
 }
 
-function generateTokens(userId: string, email: string, role: string) {
+/**
+ * Sign an access + refresh JWT pair. The `tenantId` claim is written into
+ * both tokens so the refresh-token exchange can repopulate it without needing
+ * another DB round-trip, and the tenant middleware can resolve the caller's
+ * tenant on every authenticated request.
+ *
+ * Pass `null` to represent a global/admin user that does not belong to any
+ * tenant. Pass `undefined` only when the call site has not yet loaded the
+ * user record (this is an internal fallback — all public auth flows must
+ * fetch the user and pass the real value).
+ */
+function generateTokens(
+  userId: string,
+  email: string,
+  role: string,
+  tenantId: string | null | undefined
+) {
   const jti = crypto.randomUUID();
+  // Normalise undefined → null so downstream consumers see an explicit signal.
+  // `jwt.sign` drops undefined keys silently which would make this ambiguous
+  // with legacy-token detection in middleware/auth.ts.
+  const tid: string | null = tenantId ?? null;
   const accessToken = jwt.sign(
-    { userId, email, role, jti },
+    { userId, email, role, tenantId: tid, jti },
     process.env.JWT_SECRET || "dev-secret",
     { expiresIn: "24h" }
   );
   const refreshToken = jwt.sign(
-    { userId, email, role, jti: crypto.randomUUID() },
+    { userId, email, role, tenantId: tid, jti: crypto.randomUUID() },
     process.env.JWT_REFRESH_SECRET || "dev-refresh-secret",
     { expiresIn: "7d" }
   );
   return { accessToken, refreshToken };
+}
+
+/**
+ * Resolve the tenant a new registration should be scoped to.
+ *
+ * Priority:
+ *   1. `X-Tenant-Id` header — direct override for admin tooling / API
+ *      clients that know the tenant id already.
+ *   2. Subdomain resolution — `<subdomain>.medcore.globusdemos.com` maps to
+ *      `Tenant.subdomain`.
+ *   3. The seeded `default` tenant — for direct IP access, localhost dev,
+ *      or hosts that do not match our subdomain scheme.
+ *
+ * Returns `null` when no tenant is found (e.g. the `default` tenant has not
+ * been seeded yet). Callers should tolerate `null` since `User.tenantId` is
+ * optional and the tenant middleware handles absent tenant as pass-through.
+ */
+async function resolveRegistrationTenant(req: Request): Promise<string | null> {
+  // 1. Explicit header override.
+  const headerTenant = req.header("X-Tenant-Id");
+  if (headerTenant && headerTenant.trim().length > 0) {
+    const t = await prisma.tenant.findUnique({
+      where: { id: headerTenant.trim() },
+      select: { id: true, active: true },
+    });
+    if (t?.active) return t.id;
+  }
+
+  // 2. Subdomain resolution off the Host header.
+  //    `patient-portal.medcore.globusdemos.com` → subdomain = "patient-portal".
+  //    We only treat the leading label as a subdomain when it is NOT the
+  //    apex ("medcore"), to avoid accidentally pinning the apex to a tenant
+  //    of the same name.
+  const host = (req.headers.host || "").toLowerCase().split(":")[0];
+  if (host.endsWith(".medcore.globusdemos.com")) {
+    const subdomain = host.slice(0, host.length - ".medcore.globusdemos.com".length);
+    if (subdomain && subdomain !== "www") {
+      const t = await prisma.tenant.findUnique({
+        where: { subdomain },
+        select: { id: true, active: true },
+      });
+      if (t?.active) return t.id;
+    }
+  }
+
+  // 3. Fall back to the seeded `default` tenant.
+  const fallback = await prisma.tenant.findUnique({
+    where: { subdomain: "default" },
+    select: { id: true, active: true },
+  });
+  return fallback?.active ? fallback.id : null;
 }
 
 // POST /api/v1/auth/register
@@ -87,8 +158,14 @@ router.post(
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
+
+      // Resolve the tenant the new user belongs to (header → subdomain → default).
+      // Written onto the User row AT CREATE time so subsequent token mints
+      // pick it up automatically via `user.tenantId`.
+      const tenantId = await resolveRegistrationTenant(req);
+
       const user = await prisma.user.create({
-        data: { name, email, phone, passwordHash, role },
+        data: { name, email, phone, passwordHash, role, tenantId },
       });
 
       // If patient, create patient record with auto MR number
@@ -114,7 +191,7 @@ router.post(
         });
       }
 
-      const tokens = generateTokens(user.id, user.email, user.role);
+      const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
 
       // Store refresh token
       await prisma.refreshToken.create({
@@ -193,7 +270,7 @@ router.post(
         return;
       }
 
-      const tokens = generateTokens(user.id, user.email, user.role);
+      const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
 
       await prisma.refreshToken.create({
         data: {
@@ -259,7 +336,8 @@ router.post(
       const tokens = generateTokens(
         stored.user.id,
         stored.user.email,
-        stored.user.role
+        stored.user.role,
+        stored.user.tenantId
       );
 
       await prisma.refreshToken.create({
@@ -824,7 +902,7 @@ router.post(
         return;
       }
 
-      const tokens = generateTokens(user.id, user.email, user.role);
+      const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
       await prisma.refreshToken.create({
         data: {
           token: tokens.refreshToken,

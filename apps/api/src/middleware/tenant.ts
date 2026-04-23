@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import type { AuthPayload } from "@medcore/shared";
 
 /**
  * Tenant identifier attached to every request by {@link tenantContextMiddleware}.
@@ -18,32 +19,39 @@ import jwt from "jsonwebtoken";
  *
  *   1. `X-Tenant-Id` header (explicit override — used for service-to-service
  *      traffic and admin tooling).
- *   2. `tenantId` claim inside the JWT in `Authorization: Bearer <token>`.
+ *   2. `req.user.tenantId` — populated by {@link authenticate} from the JWT.
+ *      When this middleware runs BEFORE `authenticate` (the default, because
+ *      it is mounted globally in `app.ts`), we fall back to decoding the JWT
+ *      ourselves so tenant resolution does not depend on middleware ordering.
+ *   3. `undefined` — pass-through / cross-tenant admin endpoints.
  *
- * When neither source yields a tenant, `req.tenantId` is left `undefined`.
  * This middleware DOES NOT reject requests; enforcement (i.e. 400/403 when a
  * tenant-scoped route is hit without a tenant) is the caller's responsibility.
  * That keeps the middleware safe to mount globally alongside routes that
  * legitimately operate without a tenant (e.g. `/api/health`, cross-tenant
  * admin endpoints).
- *
- * The middleware must run AFTER any JWT parsing middleware if JWT-based
- * resolution is desired, or can decode the token itself as a fallback. Here
- * we decode independently so the middleware does not couple to auth ordering.
  */
 export function tenantContextMiddleware(
   req: Request,
   _res: Response,
   next: NextFunction,
 ) {
-  // 1. Explicit header override.
+  // 1. Explicit header override — server-to-server calls, admin tooling.
   const headerTenant = req.header("X-Tenant-Id");
   if (headerTenant && typeof headerTenant === "string" && headerTenant.trim().length > 0) {
     req.tenantId = headerTenant.trim();
     return next();
   }
 
-  // 2. JWT claim fallback.
+  // 2a. If authenticate() already ran, use the typed payload directly.
+  if (req.user?.tenantId) {
+    req.tenantId = req.user.tenantId;
+    return next();
+  }
+
+  // 2b. Fall back to decoding the bearer token ourselves — this middleware
+  //     is mounted globally BEFORE the per-router `authenticate` call, so
+  //     `req.user` is typically still undefined here.
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice("Bearer ".length);
@@ -51,7 +59,7 @@ export function tenantContextMiddleware(
       const decoded = jwt.verify(
         token,
         process.env.JWT_SECRET || "dev-secret",
-      ) as { tenantId?: unknown };
+      ) as Partial<AuthPayload>;
       if (decoded && typeof decoded.tenantId === "string" && decoded.tenantId.length > 0) {
         req.tenantId = decoded.tenantId;
       }
