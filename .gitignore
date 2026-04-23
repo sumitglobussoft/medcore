@@ -13,6 +13,7 @@ debug_*.py
 *.log
 coverage/
 uploads/
+*.bak
 .DS_Store
 Thumbs.db
 backups/*.sql.gz
