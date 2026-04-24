@@ -91,4 +91,51 @@ describe("WardsPage", () => {
       expect(urls.some((u) => u.includes("/wards"))).toBe(true);
     });
   });
+
+  // ── Issue #36: Add Bed dialog surfaces API 400 via toast.error ─────
+  it("Add Bed submit with bad data shows toast.error with field-level details", async () => {
+    const expandedWard = {
+      ...sampleWards[0],
+      beds: [],
+    };
+    apiMock.get.mockResolvedValue({ data: [expandedWard] });
+
+    // Simulate the real API client error envelope: status=400, payload
+    // carries `details` array. The addBed handler MUST stringify those
+    // into the toast.
+    const apiError = Object.assign(new Error("Validation failed"), {
+      status: 400,
+      payload: {
+        error: "Validation failed",
+        details: [{ field: "bedNumber", message: "String must contain at least 1 character(s)" }],
+      },
+    });
+    apiMock.post.mockRejectedValue(apiError);
+
+    render(<WardsPage />);
+    await waitFor(() => {
+      expect(screen.getAllByText(/General Ward/).length).toBeGreaterThan(0);
+    });
+
+    const user = userEvent.setup();
+
+    // Expand the ward so the "Add Bed" button shows up.
+    await user.click(screen.getByText(/General Ward/));
+
+    const addBedBtn = await screen.findByRole("button", { name: /add bed/i });
+    await user.click(addBedBtn);
+
+    // Inline form appears — type something then submit to trigger the
+    // API call (the server-side 400 is what we're simulating).
+    const bedNumInput = await screen.findByPlaceholderText(/bed number/i);
+    await user.type(bedNumInput, "X-1");
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(toastMock.error).toHaveBeenCalled();
+    });
+    const msg = String(toastMock.error.mock.calls.at(-1)?.[0] ?? "");
+    expect(msg).toMatch(/validation failed/i);
+    expect(msg).toMatch(/bedNumber/);
+  });
 });

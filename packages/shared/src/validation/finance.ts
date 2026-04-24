@@ -150,6 +150,157 @@ export const ADVANCE_RECEIPT_PREFIX = "ADV";
 // ─── GST Defaults ──────────────────────────────────────
 export const DEFAULT_GST_PERCENT = 18;
 
+// Invoice line-item categories (kept as string literals to match the
+// `InvoiceItem.category` Prisma column, which is a free-form `String`).
+export const INVOICE_ITEM_CATEGORIES = [
+  "CONSULTATION",
+  "PROCEDURE",
+  "LAB",
+  "RADIOLOGY",
+  "PHARMACY",
+  "MEDICINE",
+  "ROOM_CHARGE",
+  "SURGERY",
+  "OTHER",
+] as const;
+
+export type InvoiceItemCategory = (typeof INVOICE_ITEM_CATEGORIES)[number];
+
+// Per-category GST rates (intra-state total; CGST+SGST = this).
+// For inter-state invoices the same rate applies as IGST (single column).
+// Notes per PRD guidance:
+//   - Consultations are GST-exempt (health-care services under notification 12/2017).
+//   - Essential medicines may be 5%; we default MEDICINE to 12% for OTC/non-essentials.
+//   - Hospital room charges are exempt for IPD <=Rs.5000/day; we default to 12%.
+export const GST_RATE_BY_CATEGORY: Record<string, number> = {
+  CONSULTATION: 0,
+  MEDICINE: 12,
+  PHARMACY: 12,
+  LAB: 12,
+  RADIOLOGY: 12,
+  PROCEDURE: 18,
+  SURGERY: 18,
+  ROOM_CHARGE: 12,
+  ROOM: 12, // legacy alias used by some older seeds / UI
+  OTHER: 18,
+};
+
+// Canonical HSN / SAC codes per category (SAC 9993 = human health services).
+// Stored as strings to preserve any leading zeros and because GSTR forms
+// expect string values.
+export const HSN_SAC_BY_CATEGORY: Record<string, string> = {
+  CONSULTATION: "9993",
+  PROCEDURE: "9993",
+  SURGERY: "9993",
+  LAB: "9993",
+  RADIOLOGY: "9993",
+  ROOM_CHARGE: "9993",
+  ROOM: "9993",
+  // Medicines move goods, so HSN (not SAC). 3004 covers formulated drugs.
+  MEDICINE: "3004",
+  PHARMACY: "3004",
+  OTHER: "9993",
+};
+
+// Resolve the GST rate for a line-item category. Unknown categories fall
+// back to DEFAULT_GST_PERCENT so nothing "looks free" by accident.
+export function gstRateForCategory(category?: string | null): number {
+  if (!category) return DEFAULT_GST_PERCENT;
+  const key = category.toUpperCase();
+  const rate = GST_RATE_BY_CATEGORY[key];
+  return rate === undefined ? DEFAULT_GST_PERCENT : rate;
+}
+
+export function hsnSacForCategory(category?: string | null): string {
+  if (!category) return "9993";
+  const key = category.toUpperCase();
+  return HSN_SAC_BY_CATEGORY[key] ?? "9993";
+}
+
+// Map a free-text service / line-item description to a canonical invoice
+// category. Used by the web Add-Line-Item form to pre-fill the Category
+// dropdown when a clerk picks a service. The user can still manually
+// override. Matching is case-insensitive and substring-based so
+// "X-Ray Chest", "X-ray (chest)", and "Chest X Ray" all land on RADIOLOGY.
+export function categorizeService(description?: string | null): InvoiceItemCategory {
+  if (!description) return "CONSULTATION";
+  const d = description.toLowerCase();
+
+  // Order matters: more specific / unambiguous keywords first.
+  // Imaging / radiology — always wins because it's orthogonal to the
+  // consult/surgery/lab axes ("X-Ray Consultation" still bills as imaging).
+  if (
+    /\b(x[- ]?ray|mri|ct\b|ct[- ]scan|ultrasound|sonograph|mammograph|doppler|pet[- ]?scan|dexa)\b/.test(
+      d
+    )
+  ) {
+    return "RADIOLOGY";
+  }
+
+  // Consultations come next: a line like "Consultation — General Medicine"
+  // must resolve to CONSULTATION, not MEDICINE. The keyword is highly
+  // specific so false positives from other buckets are unlikely.
+  if (/\b(consult|consultation|follow[- ]?up|review|opd visit|visit fee)/.test(d)) {
+    return "CONSULTATION";
+  }
+
+  // Surgery / operative procedures
+  if (/\b(surgery|surgical|operation|appendectomy|cholecystectomy|laparotom)/.test(d)) {
+    return "SURGERY";
+  }
+  if (/\b(procedure|biopsy|endoscopy|colonoscopy|ecg|ekg|eeg|dialysis|suture|dressing)\b/.test(d)) {
+    return "PROCEDURE";
+  }
+
+  // Lab work
+  if (/\b(lab|test|panel|cbc|culture|pathology|blood test|urine|stool|swab|haemogram|hemogram|lipid|thyroid|glucose|hba1c)\b/.test(d)) {
+    return "LAB";
+  }
+
+  // Pharmacy / medicine — checked AFTER consultation so "General Medicine"
+  // in a consult description doesn't hijack the category.
+  if (/\b(medicine|tablet|tab\.|capsule|cap\.|syrup|injection|inj\.|ointment|drops|cream|antibiotic|vaccine)\b/.test(d)) {
+    return "MEDICINE";
+  }
+
+  // Room / bed charges
+  if (/\b(bed|room charge|room rent|icu|ward|cabin|suite|nicu|hdu)\b/.test(d)) {
+    return "ROOM_CHARGE";
+  }
+
+  return "CONSULTATION";
+}
+
+// Compute the CGST + SGST + total breakdown for a single line item. Used by
+// the invoice renderer (web + PDF) when the DB doesn't persist per-item tax.
+export interface LineItemTaxBreakdown {
+  taxable: number;
+  gstRate: number;
+  cgst: number;
+  sgst: number;
+  total: number;
+  hsnSac: string;
+}
+
+export function computeLineItemTax(
+  amount: number,
+  category?: string | null
+): LineItemTaxBreakdown {
+  const rate = gstRateForCategory(category);
+  const taxable = +amount.toFixed(2);
+  const taxAmount = +((taxable * rate) / 100).toFixed(2);
+  const cgst = +(taxAmount / 2).toFixed(2);
+  const sgst = +(taxAmount - cgst).toFixed(2); // avoid rounding drift
+  return {
+    taxable,
+    gstRate: rate,
+    cgst,
+    sgst,
+    total: +(taxable + cgst + sgst).toFixed(2),
+    hsnSac: hsnSacForCategory(category),
+  };
+}
+
 // ─── Credit Note ───────────────────────────────────────
 export const createCreditNoteSchema = z.object({
   invoiceId: z.string().uuid(),

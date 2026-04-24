@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { PasswordInput } from "@/components/PasswordInput";
 
 type Step = "email" | "reset" | "done";
 
@@ -127,13 +128,13 @@ export default function ForgotPasswordPage() {
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 New Password
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
                 minLength={6}
-                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                autoComplete="new-password"
+                className="rounded-lg border border-gray-300 px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                 placeholder="Enter new password"
               />
             </div>

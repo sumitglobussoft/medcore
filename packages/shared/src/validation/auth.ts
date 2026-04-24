@@ -3,6 +3,10 @@ import { z } from "zod";
 export const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  // Issue #1: when true, the server mints a refresh token that lasts 30 days
+  // instead of the default 7. Optional so existing callers (older web builds,
+  // integration tests) keep working unchanged.
+  rememberMe: z.boolean().optional(),
 });
 
 export const registerSchema = z.object({

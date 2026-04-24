@@ -3,56 +3,75 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 // ─── MEDICINES ─────────────────────────────────────────
+// Issue #40: every prescription-only drug has prescriptionRequired explicitly
+//   set. Prior to the fix, cardiovascular / antibiotic / psych drugs relied on
+//   the schema default (`true`), which was OK for the DB but the web UI reads
+//   `rxRequired` (now aliased in the API). We now spell out the flag on every
+//   row so seed intent is auditable in code review.
+// Issue #41: every row has a realistic Indian manufacturer in `brand` (the
+//   medicines.manufacturer UI column reads from `brand` via the API alias
+//   layer — see apps/api/src/services/medicines/serialize.ts).
 const MEDICINES: Array<{
   name: string;
   genericName: string;
   form: string;
   strength: string;
   category: string;
-  prescriptionRequired?: boolean;
+  prescriptionRequired: boolean;
+  manufacturer: string;
   sideEffects?: string;
   contraindications?: string;
 }> = [
-  { name: "Paracetamol 500mg", genericName: "Paracetamol", form: "Tablet", strength: "500mg", category: "Analgesic", prescriptionRequired: false, sideEffects: "Rare: rash, nausea", contraindications: "Severe liver disease" },
-  { name: "Ibuprofen 400mg", genericName: "Ibuprofen", form: "Tablet", strength: "400mg", category: "Analgesic", prescriptionRequired: false, sideEffects: "GI upset, dizziness", contraindications: "Peptic ulcer, renal failure" },
-  { name: "Aspirin 75mg", genericName: "Acetylsalicylic acid", form: "Tablet", strength: "75mg", category: "Antiplatelet", sideEffects: "Bleeding, GI upset", contraindications: "Active bleeding, children <16" },
-  { name: "Amoxicillin 500mg", genericName: "Amoxicillin", form: "Capsule", strength: "500mg", category: "Antibiotic", sideEffects: "Rash, diarrhea", contraindications: "Penicillin allergy" },
-  { name: "Azithromycin 500mg", genericName: "Azithromycin", form: "Tablet", strength: "500mg", category: "Antibiotic", sideEffects: "Nausea, QT prolongation", contraindications: "Macrolide allergy" },
-  { name: "Ciprofloxacin 500mg", genericName: "Ciprofloxacin", form: "Tablet", strength: "500mg", category: "Antibiotic", sideEffects: "Tendonitis, GI upset", contraindications: "Pregnancy, children" },
-  { name: "Doxycycline 100mg", genericName: "Doxycycline", form: "Capsule", strength: "100mg", category: "Antibiotic", sideEffects: "Photosensitivity", contraindications: "Pregnancy, children <8" },
-  { name: "Metronidazole 400mg", genericName: "Metronidazole", form: "Tablet", strength: "400mg", category: "Antibiotic", sideEffects: "Metallic taste, nausea", contraindications: "Alcohol use" },
-  { name: "Cefixime 200mg", genericName: "Cefixime", form: "Tablet", strength: "200mg", category: "Antibiotic", sideEffects: "Diarrhea, rash" },
-  { name: "Cetirizine 10mg", genericName: "Cetirizine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false, sideEffects: "Drowsiness, dry mouth" },
-  { name: "Loratadine 10mg", genericName: "Loratadine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false },
-  { name: "Metformin 500mg", genericName: "Metformin", form: "Tablet", strength: "500mg", category: "Antidiabetic", sideEffects: "GI upset, lactic acidosis (rare)", contraindications: "Severe renal impairment" },
-  { name: "Glimepiride 2mg", genericName: "Glimepiride", form: "Tablet", strength: "2mg", category: "Antidiabetic", sideEffects: "Hypoglycemia" },
-  { name: "Insulin Regular 100IU/ml", genericName: "Insulin Regular", form: "Injection", strength: "100IU/ml", category: "Antidiabetic", sideEffects: "Hypoglycemia" },
-  { name: "Amlodipine 5mg", genericName: "Amlodipine", form: "Tablet", strength: "5mg", category: "Cardiovascular", sideEffects: "Ankle edema, flushing" },
-  { name: "Losartan 50mg", genericName: "Losartan", form: "Tablet", strength: "50mg", category: "Cardiovascular", sideEffects: "Hyperkalemia, dizziness", contraindications: "Pregnancy" },
-  { name: "Enalapril 5mg", genericName: "Enalapril", form: "Tablet", strength: "5mg", category: "Cardiovascular", sideEffects: "Cough, angioedema", contraindications: "Pregnancy" },
-  { name: "Atenolol 50mg", genericName: "Atenolol", form: "Tablet", strength: "50mg", category: "Cardiovascular", sideEffects: "Bradycardia, fatigue" },
-  { name: "Metoprolol 25mg", genericName: "Metoprolol", form: "Tablet", strength: "25mg", category: "Cardiovascular" },
-  { name: "Atorvastatin 10mg", genericName: "Atorvastatin", form: "Tablet", strength: "10mg", category: "Cardiovascular", sideEffects: "Myalgia, elevated LFTs" },
-  { name: "Rosuvastatin 10mg", genericName: "Rosuvastatin", form: "Tablet", strength: "10mg", category: "Cardiovascular" },
-  { name: "Clopidogrel 75mg", genericName: "Clopidogrel", form: "Tablet", strength: "75mg", category: "Antiplatelet", sideEffects: "Bleeding" },
-  { name: "Warfarin 5mg", genericName: "Warfarin", form: "Tablet", strength: "5mg", category: "Anticoagulant", sideEffects: "Bleeding", contraindications: "Pregnancy, active bleeding" },
-  { name: "Heparin 5000IU/ml", genericName: "Heparin", form: "Injection", strength: "5000IU/ml", category: "Anticoagulant" },
-  { name: "Pantoprazole 40mg", genericName: "Pantoprazole", form: "Tablet", strength: "40mg", category: "Gastric", sideEffects: "Headache, diarrhea" },
-  { name: "Omeprazole 20mg", genericName: "Omeprazole", form: "Capsule", strength: "20mg", category: "Gastric" },
-  { name: "Ranitidine 150mg", genericName: "Ranitidine", form: "Tablet", strength: "150mg", category: "Gastric" },
-  { name: "Ondansetron 4mg", genericName: "Ondansetron", form: "Tablet", strength: "4mg", category: "Antiemetic", sideEffects: "Headache, constipation" },
-  { name: "Domperidone 10mg", genericName: "Domperidone", form: "Tablet", strength: "10mg", category: "Antiemetic" },
-  { name: "Salbutamol Inhaler", genericName: "Salbutamol", form: "Inhaler", strength: "100mcg/dose", category: "Respiratory", sideEffects: "Tremor, tachycardia" },
-  { name: "Montelukast 10mg", genericName: "Montelukast", form: "Tablet", strength: "10mg", category: "Respiratory" },
-  { name: "Prednisolone 5mg", genericName: "Prednisolone", form: "Tablet", strength: "5mg", category: "Corticosteroid", sideEffects: "Weight gain, hyperglycemia" },
-  { name: "Hydrocortisone 100mg", genericName: "Hydrocortisone", form: "Injection", strength: "100mg", category: "Corticosteroid" },
-  { name: "Levothyroxine 50mcg", genericName: "Levothyroxine", form: "Tablet", strength: "50mcg", category: "Endocrine", sideEffects: "Palpitations if overdosed" },
-  { name: "Folic Acid 5mg", genericName: "Folic acid", form: "Tablet", strength: "5mg", category: "Vitamin", prescriptionRequired: false },
-  { name: "Vitamin B12 1500mcg", genericName: "Cyanocobalamin", form: "Tablet", strength: "1500mcg", category: "Vitamin", prescriptionRequired: false },
-  { name: "Vitamin D3 60000IU", genericName: "Cholecalciferol", form: "Capsule", strength: "60000IU", category: "Vitamin", prescriptionRequired: false },
-  { name: "Iron + Folic Acid", genericName: "Ferrous sulfate + Folic acid", form: "Tablet", strength: "100mg+0.5mg", category: "Hematinic", prescriptionRequired: false },
-  { name: "Calcium Carbonate 500mg", genericName: "Calcium carbonate", form: "Tablet", strength: "500mg", category: "Supplement", prescriptionRequired: false },
-  { name: "ORS Sachet", genericName: "Oral Rehydration Salts", form: "Sachet", strength: "21g", category: "Electrolyte", prescriptionRequired: false },
+  // ── OTC analgesics / vitamins / electrolytes ─────────
+  { name: "Paracetamol 500mg", genericName: "Paracetamol", form: "Tablet", strength: "500mg", category: "Analgesic", prescriptionRequired: false, manufacturer: "GSK", sideEffects: "Rare: rash, nausea", contraindications: "Severe liver disease" },
+  { name: "Ibuprofen 400mg", genericName: "Ibuprofen", form: "Tablet", strength: "400mg", category: "Analgesic", prescriptionRequired: false, manufacturer: "Cipla", sideEffects: "GI upset, dizziness", contraindications: "Peptic ulcer, renal failure" },
+  { name: "Aspirin 75mg", genericName: "Acetylsalicylic acid", form: "Tablet", strength: "75mg", category: "Antiplatelet", prescriptionRequired: true, manufacturer: "USV", sideEffects: "Bleeding, GI upset", contraindications: "Active bleeding, children <16" },
+  // ── Antibiotics (ALL prescription-only) ──────────────
+  { name: "Amoxicillin 500mg", genericName: "Amoxicillin", form: "Capsule", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Rash, diarrhea", contraindications: "Penicillin allergy" },
+  { name: "Azithromycin 500mg", genericName: "Azithromycin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alembic", sideEffects: "Nausea, QT prolongation", contraindications: "Macrolide allergy" },
+  { name: "Ciprofloxacin 500mg", genericName: "Ciprofloxacin", form: "Tablet", strength: "500mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Dr. Reddy's", sideEffects: "Tendonitis, GI upset", contraindications: "Pregnancy, children" },
+  { name: "Doxycycline 100mg", genericName: "Doxycycline", form: "Capsule", strength: "100mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Zydus", sideEffects: "Photosensitivity", contraindications: "Pregnancy, children <8" },
+  { name: "Metronidazole 400mg", genericName: "Metronidazole", form: "Tablet", strength: "400mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Alkem", sideEffects: "Metallic taste, nausea", contraindications: "Alcohol use" },
+  { name: "Cefixime 200mg", genericName: "Cefixime", form: "Tablet", strength: "200mg", category: "Antibiotic", prescriptionRequired: true, manufacturer: "Lupin", sideEffects: "Diarrhea, rash" },
+  // ── Antihistamines (OTC) ─────────────────────────────
+  { name: "Cetirizine 10mg", genericName: "Cetirizine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false, manufacturer: "GSK", sideEffects: "Drowsiness, dry mouth" },
+  { name: "Loratadine 10mg", genericName: "Loratadine", form: "Tablet", strength: "10mg", category: "Antihistamine", prescriptionRequired: false, manufacturer: "Glenmark" },
+  // ── Antidiabetic (RX in India — incl. metformin) ─────
+  { name: "Metformin 500mg", genericName: "Metformin", form: "Tablet", strength: "500mg", category: "Antidiabetic", prescriptionRequired: true, manufacturer: "USV", sideEffects: "GI upset, lactic acidosis (rare)", contraindications: "Severe renal impairment" },
+  { name: "Glimepiride 2mg", genericName: "Glimepiride", form: "Tablet", strength: "2mg", category: "Antidiabetic", prescriptionRequired: true, manufacturer: "Sanofi India", sideEffects: "Hypoglycemia" },
+  { name: "Insulin Regular 100IU/ml", genericName: "Insulin Regular", form: "Injection", strength: "100IU/ml", category: "Antidiabetic", prescriptionRequired: true, manufacturer: "Biocon", sideEffects: "Hypoglycemia" },
+  // ── Cardiovascular (Issue #40 primary regression set) ─
+  { name: "Amlodipine 5mg", genericName: "Amlodipine", form: "Tablet", strength: "5mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Ankle edema, flushing" },
+  { name: "Losartan 50mg", genericName: "Losartan", form: "Tablet", strength: "50mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Torrent", sideEffects: "Hyperkalemia, dizziness", contraindications: "Pregnancy" },
+  { name: "Enalapril 5mg", genericName: "Enalapril", form: "Tablet", strength: "5mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Cough, angioedema", contraindications: "Pregnancy" },
+  { name: "Atenolol 50mg", genericName: "Atenolol", form: "Tablet", strength: "50mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Alembic", sideEffects: "Bradycardia, fatigue" },
+  { name: "Metoprolol 25mg", genericName: "Metoprolol", form: "Tablet", strength: "25mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Zydus" },
+  { name: "Atorvastatin 10mg", genericName: "Atorvastatin", form: "Tablet", strength: "10mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Sun Pharma", sideEffects: "Myalgia, elevated LFTs" },
+  { name: "Rosuvastatin 10mg", genericName: "Rosuvastatin", form: "Tablet", strength: "10mg", category: "Cardiovascular", prescriptionRequired: true, manufacturer: "Dr. Reddy's" },
+  { name: "Clopidogrel 75mg", genericName: "Clopidogrel", form: "Tablet", strength: "75mg", category: "Antiplatelet", prescriptionRequired: true, manufacturer: "Lupin", sideEffects: "Bleeding" },
+  { name: "Warfarin 5mg", genericName: "Warfarin", form: "Tablet", strength: "5mg", category: "Anticoagulant", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Bleeding", contraindications: "Pregnancy, active bleeding" },
+  { name: "Heparin 5000IU/ml", genericName: "Heparin", form: "Injection", strength: "5000IU/ml", category: "Anticoagulant", prescriptionRequired: true, manufacturer: "Intas" },
+  // ── GI / PPIs (RX in India) ──────────────────────────
+  { name: "Pantoprazole 40mg", genericName: "Pantoprazole", form: "Tablet", strength: "40mg", category: "Gastric", prescriptionRequired: true, manufacturer: "Sun Pharma", sideEffects: "Headache, diarrhea" },
+  { name: "Omeprazole 20mg", genericName: "Omeprazole", form: "Capsule", strength: "20mg", category: "Gastric", prescriptionRequired: true, manufacturer: "Dr. Reddy's" },
+  { name: "Ranitidine 150mg", genericName: "Ranitidine", form: "Tablet", strength: "150mg", category: "Gastric", prescriptionRequired: true, manufacturer: "GSK" },
+  { name: "Ondansetron 4mg", genericName: "Ondansetron", form: "Tablet", strength: "4mg", category: "Antiemetic", prescriptionRequired: true, manufacturer: "Emcure", sideEffects: "Headache, constipation" },
+  { name: "Domperidone 10mg", genericName: "Domperidone", form: "Tablet", strength: "10mg", category: "Antiemetic", prescriptionRequired: true, manufacturer: "Torrent" },
+  // ── Respiratory ──────────────────────────────────────
+  { name: "Salbutamol Inhaler", genericName: "Salbutamol", form: "Inhaler", strength: "100mcg/dose", category: "Respiratory", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Tremor, tachycardia" },
+  { name: "Montelukast 10mg", genericName: "Montelukast", form: "Tablet", strength: "10mg", category: "Respiratory", prescriptionRequired: true, manufacturer: "Mankind" },
+  // ── Corticosteroids ──────────────────────────────────
+  { name: "Prednisolone 5mg", genericName: "Prednisolone", form: "Tablet", strength: "5mg", category: "Corticosteroid", prescriptionRequired: true, manufacturer: "Cipla", sideEffects: "Weight gain, hyperglycemia" },
+  { name: "Hydrocortisone 100mg", genericName: "Hydrocortisone", form: "Injection", strength: "100mg", category: "Corticosteroid", prescriptionRequired: true, manufacturer: "Pfizer India" },
+  // ── Endocrine ────────────────────────────────────────
+  { name: "Levothyroxine 50mcg", genericName: "Levothyroxine", form: "Tablet", strength: "50mcg", category: "Endocrine", prescriptionRequired: true, manufacturer: "Abbott India", sideEffects: "Palpitations if overdosed" },
+  // ── OTC vitamins / supplements / ORS ─────────────────
+  { name: "Folic Acid 5mg", genericName: "Folic acid", form: "Tablet", strength: "5mg", category: "Vitamin", prescriptionRequired: false, manufacturer: "Zydus" },
+  { name: "Vitamin B12 1500mcg", genericName: "Cyanocobalamin", form: "Tablet", strength: "1500mcg", category: "Vitamin", prescriptionRequired: false, manufacturer: "Mankind" },
+  { name: "Vitamin D3 60000IU", genericName: "Cholecalciferol", form: "Capsule", strength: "60000IU", category: "Vitamin", prescriptionRequired: false, manufacturer: "Alkem" },
+  { name: "Iron + Folic Acid", genericName: "Ferrous sulfate + Folic acid", form: "Tablet", strength: "100mg+0.5mg", category: "Hematinic", prescriptionRequired: false, manufacturer: "Emcure" },
+  { name: "Calcium Carbonate 500mg", genericName: "Calcium carbonate", form: "Tablet", strength: "500mg", category: "Supplement", prescriptionRequired: false, manufacturer: "Abbott India" },
+  { name: "ORS Sachet", genericName: "Oral Rehydration Salts", form: "Sachet", strength: "21g", category: "Electrolyte", prescriptionRequired: false, manufacturer: "FDC" },
 ];
 
 // ─── DRUG INTERACTIONS ─────────────────────────────────
@@ -135,28 +154,33 @@ async function main() {
   console.log("Seeding pharmacy & lab data...");
 
   // ── Seed Medicines ─────────────────────────────────
+  // `brand` is the DB column that backs the UI "Manufacturer" column via the
+  // API alias layer (apps/api/src/services/medicines/serialize.ts). See Issue
+  // #41 for why we don't use a dedicated `manufacturer` column.
   const medicineRecords: Record<string, string> = {};
   for (const m of MEDICINES) {
     const med = await prisma.medicine.upsert({
       where: { name: m.name },
       update: {
         genericName: m.genericName,
+        brand: m.manufacturer,
         form: m.form,
         strength: m.strength,
         category: m.category,
         sideEffects: m.sideEffects,
         contraindications: m.contraindications,
-        prescriptionRequired: m.prescriptionRequired ?? true,
+        prescriptionRequired: m.prescriptionRequired,
       },
       create: {
         name: m.name,
         genericName: m.genericName,
+        brand: m.manufacturer,
         form: m.form,
         strength: m.strength,
         category: m.category,
         sideEffects: m.sideEffects,
         contraindications: m.contraindications,
-        prescriptionRequired: m.prescriptionRequired ?? true,
+        prescriptionRequired: m.prescriptionRequired,
       },
     });
     medicineRecords[m.name] = med.id;

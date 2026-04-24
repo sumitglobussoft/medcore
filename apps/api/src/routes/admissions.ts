@@ -163,6 +163,30 @@ router.post(
         referredByDoctor,
       } = req.body;
 
+      // Issue #37 — data-integrity guard: one ACTIVE admission per patient.
+      // Before touching the bed, reject with 409 if this patient already has
+      // an ADMITTED admission anywhere in the hospital. This is the
+      // service-layer half of the fix; a partial unique DB index is the
+      // schema-layer half (see services/.prisma-models-admission-unique.md).
+      const existingActive = await prisma.admission.findFirst({
+        where: { patientId, status: "ADMITTED" },
+        select: { id: true, admissionNumber: true, bedId: true },
+      });
+      if (existingActive) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "Patient already has an active admission. Discharge or transfer the existing admission before creating a new one.",
+          existingAdmission: {
+            id: existingActive.id,
+            admissionNumber: existingActive.admissionNumber,
+            bedId: existingActive.bedId,
+          },
+        });
+        return;
+      }
+
       const bed = await prisma.bed.findUnique({ where: { id: bedId } });
       if (!bed) {
         res.status(404).json({ success: false, data: null, error: "Bed not found" });

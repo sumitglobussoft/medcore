@@ -41,8 +41,9 @@ function defaultGet(url: string) {
     return { meta: { total: 2 } };
   if (url.includes("/pharmacy/inventory?expiring"))
     return { meta: { total: 1 } };
-  if (url.includes("/bloodbank/inventory/summary")) return { data: [] };
-  if (url.includes("/audit")) return { meta: { total: 0 } };
+  if (url.includes("/bloodbank/inventory/summary"))
+    return { data: { byBloodGroup: {}, byComponent: {}, totalAvailable: 0, expiringSoon: 0 } };
+  if (url.includes("/audit")) return { meta: { total: 0 }, data: [] };
   if (url.includes("/leaves")) return { data: [] };
   if (url.includes("/expenses")) return { data: [] };
   if (url.includes("/purchase-orders")) return { data: [] };
@@ -143,5 +144,70 @@ describe("AdminConsolePage", () => {
         screen.getByRole("heading", { name: /admin console/i })
       ).toBeInTheDocument()
     );
+  });
+
+  // Regression guard for Issue #47 (2026-04-24): when Errors (1h) > 0, the
+  // admin-console must render a breakdown table so ops can distinguish bot
+  // traffic from a real auth outage. The table is hidden when count is 0.
+  it("Issue #47: renders error breakdown table when errors > 0", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      // Pretend there are 125 LOGIN_FAILED hits; the scalar /audit?limit=1
+      // returns meta.total and the /audit?limit=100 returns sample rows the
+      // page uses to derive (uniqueIps, topIp, topIpCount).
+      if (url.includes("action=LOGIN_FAILED&limit=100")) {
+        const data = Array.from({ length: 100 }, (_, i) => ({
+          id: `a${i}`,
+          action: "LOGIN_FAILED",
+          ipAddress: i < 60 ? "10.0.0.1" : i < 95 ? "10.0.0.2" : "10.0.0.3",
+          details: {},
+        }));
+        return Promise.resolve({ data });
+      }
+      if (url.includes("action=LOGIN_FAILED&limit=1")) {
+        return Promise.resolve({ meta: { total: 125 } });
+      }
+      if (url.includes("/audit?")) {
+        return Promise.resolve({ meta: { total: 300 }, data: [] });
+      }
+      return Promise.resolve(defaultGet(url));
+    });
+
+    render(<AdminConsolePage />);
+    const table = await screen.findByTestId("error-breakdown");
+    expect(table).toBeInTheDocument();
+    // The breakdown should label the dominant action and surface IP context.
+    expect(screen.getByText(/LOGIN_FAILED/)).toBeInTheDocument();
+    expect(screen.getByText(/likely bot traffic/i)).toBeInTheDocument();
+    expect(screen.getByText(/10\.0\.0\.1/)).toBeInTheDocument();
+  });
+
+  it("Issue #47: hides error breakdown when errorCount is 0", async () => {
+    // Default mocks return zero errors; the breakdown element must be absent.
+    render(<AdminConsolePage />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: /admin console/i })
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByTestId("error-breakdown")).not.toBeInTheDocument();
+  });
+
+  // Regression guard for Issue #48 (2026-04-24): "Registered" stayed at 0
+  // because the widget read a key the server did not return. Now the
+  // analytics API aliases `newPatients = newPatientsInPeriod` — verify
+  // the widget renders the value the API provides.
+  it("Issue #48: Today Snapshot renders newPatients count from API", async () => {
+    render(<AdminConsolePage />);
+    // The Snap widget formats numeric values via toLocaleString("en-IN").
+    // For 12 that renders as "12". Walk up from the label to the outer
+    // card (two levels: span/text → header div → card div) and assert
+    // the card body contains the API value.
+    await waitFor(() => {
+      const registeredLabel = screen.getByText(/registered/i);
+      // closest() on the text node's parent element walks to .rounded-lg.
+      const card = registeredLabel.closest("div.rounded-lg");
+      expect(card).toBeTruthy();
+      expect(card?.textContent).toMatch(/12/);
+    });
   });
 });

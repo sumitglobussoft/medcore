@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { PasswordInput } from "@/components/PasswordInput";
 import {
   User as UserIcon,
   Shield,
@@ -395,33 +396,33 @@ function SecurityTab() {
         <h2 className="mb-4 text-lg font-semibold">Change Password</h2>
         <form onSubmit={changePassword} className="grid gap-4 md:grid-cols-2">
           <Field label="Current Password">
-            <input
-              type="password"
+            <PasswordInput
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               required
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+              autoComplete="current-password"
+              className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />
           </Field>
           <div />
           <Field label="New Password">
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+              autoComplete="new-password"
+              className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />
           </Field>
           <Field label="Confirm Password">
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+              autoComplete="new-password"
+              className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />
           </Field>
           <div className="md:col-span-2">
@@ -448,11 +449,12 @@ function SecurityTab() {
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <Field label="Current Password">
-                <input
-                  type="password"
+                <PasswordInput
                   value={disablePassword}
                   onChange={(e) => setDisablePassword(e.target.value)}
-                  className="w-64 rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+                  autoComplete="current-password"
+                  wrapperClassName="relative w-64"
+                  className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
                 />
               </Field>
               <button

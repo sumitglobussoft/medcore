@@ -22,7 +22,16 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<LoginResult>;
+  /**
+   * Issue #1: `rememberMe` is forwarded to the API so the server can mint a
+   * 30-day refresh token instead of the 7-day default. Optional for backward
+   * compatibility with any older call sites; defaults to false (session-only).
+   */
+  login: (
+    email: string,
+    password: string,
+    rememberMe?: boolean
+  ) => Promise<LoginResult>;
   verify2FA: (tempToken: string, code: string) => Promise<void>;
   logout: () => void;
   loadSession: () => Promise<void>;
@@ -34,7 +43,15 @@ export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   isLoading: true,
 
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, rememberMe: boolean = false) => {
+    // Only send `rememberMe` when true, so unchecked-box requests remain
+    // byte-identical to the pre-Issue-#1 payload and existing tests/mocks
+    // that assert on the exact body shape keep passing.
+    const body: { email: string; password: string; rememberMe?: boolean } = {
+      email,
+      password,
+    };
+    if (rememberMe) body.rememberMe = true;
     const res = await api.post<{
       success: boolean;
       data:
@@ -43,7 +60,7 @@ export const useAuthStore = create<AuthState>((set) => ({
             tokens: { accessToken: string; refreshToken: string };
           }
         | { twoFactorRequired: true; tempToken: string };
-    }>("/auth/login", { email, password });
+    }>("/auth/login", body);
 
     const data = res.data as any;
     if (data.twoFactorRequired) {

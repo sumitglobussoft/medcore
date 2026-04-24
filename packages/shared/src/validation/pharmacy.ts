@@ -16,10 +16,39 @@ export const StockMovementType = z.enum([
   "DAMAGED",
 ]);
 
-export const createMedicineSchema = z.object({
-  name: z.string().min(1, "Name is required"),
+// Manufacturer is REQUIRED on create (Issue #41 — every row must show a
+// manufacturer in the list view). The UI sends it as `manufacturer`; the API
+// persists it into the `brand` column via mapMedicineInputToPrisma.
+// Either `brand` OR `manufacturer` is accepted (they alias), but at least one
+// non-empty string is required.
+export const createMedicineSchema = z
+  .object({
+    name: z.string().min(1, "Name is required"),
+    genericName: z.string().optional(),
+    brand: z.string().optional(),
+    manufacturer: z.string().optional(),
+    form: z.string().optional(),
+    strength: z.string().optional(),
+    category: z.string().optional(),
+    description: z.string().optional(),
+    sideEffects: z.string().optional(),
+    contraindications: z.string().optional(),
+    prescriptionRequired: z.boolean().optional(),
+    rxRequired: z.boolean().optional(),
+  })
+  .refine(
+    (v) =>
+      (typeof v.manufacturer === "string" && v.manufacturer.trim().length > 0) ||
+      (typeof v.brand === "string" && v.brand.trim().length > 0),
+    { message: "Manufacturer is required", path: ["manufacturer"] }
+  );
+
+// Update schema: every field optional, no manufacturer-required refinement.
+export const updateMedicineSchema = z.object({
+  name: z.string().min(1).optional(),
   genericName: z.string().optional(),
   brand: z.string().optional(),
+  manufacturer: z.string().optional(),
   form: z.string().optional(),
   strength: z.string().optional(),
   category: z.string().optional(),
@@ -27,9 +56,8 @@ export const createMedicineSchema = z.object({
   sideEffects: z.string().optional(),
   contraindications: z.string().optional(),
   prescriptionRequired: z.boolean().optional(),
+  rxRequired: z.boolean().optional(),
 });
-
-export const updateMedicineSchema = createMedicineSchema.partial();
 
 export const createDrugInteractionSchema = z.object({
   drugAId: z.string().uuid(),

@@ -397,29 +397,45 @@ router.get(
   }
 );
 
-// Cross-patient schedule endpoint used by the Immunization Schedule page
+// Helper to build the nextDueDate clause for a given filter.
+function buildScheduleDateClause(
+  filter: string | undefined
+): Record<string, unknown> | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (filter === "week") {
+    const end = new Date(today);
+    end.setDate(end.getDate() + 7);
+    return { gte: today, lte: end };
+  }
+  if (filter === "month") {
+    const end = new Date(today);
+    end.setDate(end.getDate() + 30);
+    return { gte: today, lte: end };
+  }
+  if (filter === "overdue") {
+    return { lt: today };
+  }
+  return { not: null };
+}
+
+// Cross-patient schedule endpoint used by the Immunization Schedule page.
+// Also supports an optional ?patientId= query for per-patient filtering so
+// widgets on the patient detail page don't accidentally show hospital-wide
+// counts (fix for Issue #38).
 router.get(
   "/immunizations/schedule",
   authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { filter = "month" } = req.query as Record<string, string>;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const { filter = "month", patientId } = req.query as Record<string, string>;
 
-      const where: Record<string, unknown> = {};
-      if (filter === "week") {
-        const end = new Date(today);
-        end.setDate(end.getDate() + 7);
-        where.nextDueDate = { gte: today, lte: end };
-      } else if (filter === "month") {
-        const end = new Date(today);
-        end.setDate(end.getDate() + 30);
-        where.nextDueDate = { gte: today, lte: end };
-      } else if (filter === "overdue") {
-        where.nextDueDate = { lt: today };
-      } else {
-        where.nextDueDate = { not: null };
+      const where: Record<string, unknown> = {
+        nextDueDate: buildScheduleDateClause(filter),
+      };
+      if (patientId) {
+        where.patientId = patientId;
       }
 
       const rows = await prisma.immunization.findMany({
@@ -428,6 +444,31 @@ router.get(
           patient: {
             include: { user: { select: { name: true, phone: true } } },
           },
+        },
+        orderBy: { nextDueDate: "asc" },
+        take: 200,
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Per-patient schedule endpoint. Same filter semantics as the global route
+// but scoped to a single patientId (fix for Issue #38: the patient 360 view
+// was showing the tenant-wide overdue count).
+router.get(
+  "/patients/:patientId/immunizations/schedule",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!(await assertPatientAccess(req, res, req.params.patientId))) return;
+      const { filter = "month" } = req.query as Record<string, string>;
+
+      const rows = await prisma.immunization.findMany({
+        where: {
+          patientId: req.params.patientId,
+          nextDueDate: buildScheduleDateClause(filter),
         },
         orderBy: { nextDueDate: "asc" },
         take: 200,

@@ -1,25 +1,47 @@
 import { Router, Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { prisma } from "@medcore/db";
 import {
   Role,
   createWardSchema,
-  createBedSchema,
   updateBedStatusSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 
+// Issue #36 — the shared `createBedSchema` requires `wardId` in the body,
+// but the nested route `POST /wards/:wardId/beds` sources `wardId` from the
+// URL. Validating that schema against a body that only carries `bedNumber`
+// (what the UI sends) produces a 400 Zod error and the bed is never created.
+// We validate against this body-only variant here; the route handler plucks
+// `wardId` from `req.params`. Keep the original shared schema untouched so
+// any direct callers (tests, Postman scripts) keep working.
+const createBedBodySchema = z.object({
+  bedNumber: z.string().min(1),
+  dailyRate: z.number().min(0).default(0),
+});
+
 const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/wards — list all wards with bed counts
+//
+// Issue #36 — the web Wards page reads `ward.beds`, `ward.totalBeds`,
+// `ward.availableBeds`, `ward.occupiedBeds`, `ward.cleaningBeds`, and
+// `ward.maintenanceBeds` directly off each ward. The old response only
+// emitted `bedStats: { total, available, occupied }`, so the UI fell back
+// to `beds?.length` which was also missing — every ward rendered as 0/0.
+// Return both the flat count fields the UI expects AND the nested `beds`
+// array so BedCell has something to render. Keep `bedStats` for backward
+// compatibility with any internal/CLI callers.
 router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const wards = await prisma.ward.findMany({
       include: {
         beds: {
-          select: { id: true, status: true },
+          select: { id: true, bedNumber: true, status: true, wardId: true },
+          orderBy: { bedNumber: "asc" },
         },
       },
       orderBy: { name: "asc" },
@@ -29,6 +51,10 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
       const total = w.beds.length;
       const available = w.beds.filter((b) => b.status === "AVAILABLE").length;
       const occupied = w.beds.filter((b) => b.status === "OCCUPIED").length;
+      const cleaning = w.beds.filter((b) => b.status === "CLEANING").length;
+      const maintenance = w.beds.filter(
+        (b) => b.status === "MAINTENANCE"
+      ).length;
       return {
         id: w.id,
         name: w.name,
@@ -36,7 +62,13 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
         floor: w.floor,
         description: w.description,
         createdAt: w.createdAt,
-        bedStats: { total, available, occupied },
+        beds: w.beds,
+        totalBeds: total,
+        availableBeds: available,
+        occupiedBeds: occupied,
+        cleaningBeds: cleaning,
+        maintenanceBeds: maintenance,
+        bedStats: { total, available, occupied, cleaning, maintenance },
       };
     });
 
@@ -102,7 +134,7 @@ router.post(
 router.post(
   "/:wardId/beds",
   authorize(Role.ADMIN),
-  validate(createBedSchema),
+  validate(createBedBodySchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { wardId } = req.params;

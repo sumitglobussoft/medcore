@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { useTranslation } from "@/lib/i18n";
+import { toast } from "@/lib/toast";
 import { DialogProvider } from "@/lib/use-dialog";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Tooltip } from "@/components/Tooltip";
@@ -338,11 +339,35 @@ export default function DashboardLayout({
     loadSession();
   }, [loadSession]);
 
+  // Issue #33: on direct URL navigation the auth store hydrates asynchronously.
+  // Once `isLoading` clears and there is still no user, bounce to /login but
+  // (a) preserve the originally-requested path as ?redirect=<path> so the
+  //     login page can send the user back there after they authenticate, and
+  // (b) surface a toast explaining *why* they were bounced. A direct hit on a
+  //     dashboard URL with an empty store used to silently drop the user at
+  //     the login page with no context at all.
+  const sessionToastShownRef = useRef(false);
   useEffect(() => {
-    if (!isLoading && !user) {
-      router.push("/login");
+    if (isLoading || user) return;
+    // Build the redirect query param from the current URL so nested routes
+    // like /dashboard/appointments?foo=bar survive the round-trip.
+    let redirectTarget = pathname || "/dashboard";
+    if (typeof window !== "undefined") {
+      const search = window.location.search || "";
+      const hash = window.location.hash || "";
+      redirectTarget = `${pathname}${search}${hash}`;
     }
-  }, [user, isLoading, router]);
+    // Never redirect back to /login itself (would cause a loop after sign-in).
+    if (!redirectTarget || redirectTarget.startsWith("/login")) {
+      redirectTarget = "/dashboard";
+    }
+    if (!sessionToastShownRef.current) {
+      sessionToastShownRef.current = true;
+      toast.info(t("auth.sessionExpired", "Your session has expired. Please sign in again."));
+    }
+    const qs = new URLSearchParams({ redirect: redirectTarget });
+    router.push(`/login?${qs.toString()}`);
+  }, [user, isLoading, router, pathname, t]);
 
   // Auto-launch first-time tour after session loads
   useEffect(() => {
@@ -457,9 +482,26 @@ export default function DashboardLayout({
   }, [pathname, router, shortcutsOpen, searchOpen]);
 
   if (isLoading || !user) {
+    // Issue #33: show a spinner while the auth store rehydrates from
+    // localStorage. Previously this was just a "Loading..." text which was
+    // easy to miss — and on slower machines the flash of logged-out state
+    // could trigger the /login redirect before the session was ever checked.
     return (
-      <div className="flex h-screen items-center justify-center bg-bg dark:bg-gray-900">
-        <p className="text-gray-600 dark:text-gray-300">{t("common.loading")}</p>
+      <div
+        className="flex h-screen items-center justify-center bg-bg dark:bg-gray-900"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-primary dark:border-gray-700 dark:border-t-primary"
+            aria-hidden="true"
+          />
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {t("common.loading")}
+          </p>
+        </div>
       </div>
     );
   }

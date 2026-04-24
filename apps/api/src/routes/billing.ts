@@ -314,6 +314,52 @@ router.get(
   }
 );
 
+// GET /api/v1/billing/hospital-profile
+// Surfaces the hospital identity rows (name, address, phone, email, GSTIN,
+// registration, tagline) from SystemConfig so invoice views (web + PDF)
+// render the same source of truth. Seeded by
+// `packages/db/src/seed-hospital-config.ts`; production deploys override
+// via env-driven reseed. Falls back to sensible demo defaults so QA envs
+// never show "+91-XXXXXXXXXX" or similar placeholders.
+router.get(
+  "/hospital-profile",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const keys = [
+        "hospital_name",
+        "hospital_address",
+        "hospital_phone",
+        "hospital_email",
+        "hospital_gstin",
+        "hospital_registration",
+        "hospital_tagline",
+        "hospital_logo_url",
+      ];
+      const rows = await prisma.systemConfig.findMany({ where: { key: { in: keys } } });
+      const map: Record<string, string> = {};
+      rows.forEach((r) => (map[r.key] = r.value));
+      res.json({
+        success: true,
+        data: {
+          name: map.hospital_name || "MedCore Hospital & Diagnostics",
+          address:
+            map.hospital_address ||
+            "42 Linking Road, Bandra West, Mumbai, Maharashtra 400050",
+          phone: map.hospital_phone || "+91-80-2345-6789",
+          email: map.hospital_email || "info@medcorehospital.in",
+          gstin: map.hospital_gstin || "27AAACM1234Z1Z5",
+          registration: map.hospital_registration || "",
+          tagline: map.hospital_tagline || "Hospital Operations Automation",
+          logoUrl: map.hospital_logo_url || "",
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // GET /api/v1/billing/invoices/:id
 router.get(
   "/invoices/:id",

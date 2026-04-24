@@ -1,5 +1,6 @@
 import { prisma } from "@medcore/db";
 import { generatePrescriptionQrDataUrl } from "./pdf-generator";
+import { computeLineItemTax } from "@medcore/shared";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -588,17 +589,28 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   const h = await getHospitalInfo();
   const p = inv.patient;
 
-  const itemRows = inv.items
+  // Per-item GST breakdown — computed at render time via the shared helper.
+  // If Invoice.taxAmount is authoritative (pre-stored), the totals block still
+  // uses inv.cgstAmount / inv.sgstAmount; the per-line values here are for the
+  // tabular HSN/SAC presentation required for a GST-compliant tax invoice.
+  const itemsWithTax = inv.items.map((it) => ({
+    it,
+    tax: computeLineItemTax(it.amount, it.category),
+  }));
+
+  const itemRows = itemsWithTax
     .map(
-      (it, idx) => `
+      ({ it, tax }, idx) => `
     <tr>
       <td style="text-align:center;">${idx + 1}</td>
-      <td>${escapeHtml(it.description)}</td>
-      <td>${escapeHtml(it.category)}</td>
-      <td style="text-align:center;">—</td>
+      <td>${escapeHtml(it.description)}<br/><span style="font-size:10px;color:#94a3b8;">${escapeHtml(it.category)} · GST ${tax.gstRate}%</span></td>
+      <td style="text-align:center;font-family:monospace;">${escapeHtml(tax.hsnSac)}</td>
       <td style="text-align:center;">${it.quantity}</td>
       <td style="text-align:right;">${it.unitPrice.toFixed(2)}</td>
-      <td style="text-align:right;">${it.amount.toFixed(2)}</td>
+      <td style="text-align:right;">${tax.taxable.toFixed(2)}</td>
+      <td style="text-align:right;">${tax.cgst.toFixed(2)}</td>
+      <td style="text-align:right;">${tax.sgst.toFixed(2)}</td>
+      <td style="text-align:right;font-weight:600;">${tax.total.toFixed(2)}</td>
     </tr>`
     )
     .join("");
@@ -606,6 +618,13 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   const taxable = inv.subtotal - inv.discountAmount - inv.packageDiscount;
   const paid = inv.payments.reduce((s, x) => s + x.amount, 0);
   const balance = inv.totalAmount - paid - inv.advanceApplied;
+
+  // If the invoice has no stored taxAmount (older invoices, schema with
+  // cgstAmount = 0), fall back to the per-line sum so "CGST" isn't empty.
+  const sumLineCgst = itemsWithTax.reduce((s, x) => s + x.tax.cgst, 0);
+  const sumLineSgst = itemsWithTax.reduce((s, x) => s + x.tax.sgst, 0);
+  const displayCgst = inv.cgstAmount > 0 ? inv.cgstAmount : +sumLineCgst.toFixed(2);
+  const displaySgst = inv.sgstAmount > 0 ? inv.sgstAmount : +sumLineSgst.toFixed(2);
 
   const paymentRows = inv.payments
     .map(
@@ -639,15 +658,17 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     </div>
   </div>
 
-  <table style="margin-bottom:14px;">
+  <table style="margin-bottom:14px;font-size:11px;">
     <thead><tr>
       <th style="text-align:center;">#</th>
       <th>Description</th>
-      <th>Category</th>
       <th style="text-align:center;">HSN/SAC</th>
       <th style="text-align:center;">Qty</th>
-      <th style="text-align:right;">Unit Price</th>
-      <th style="text-align:right;">Amount</th>
+      <th style="text-align:right;">Rate</th>
+      <th style="text-align:right;">Taxable</th>
+      <th style="text-align:right;">CGST</th>
+      <th style="text-align:right;">SGST</th>
+      <th style="text-align:right;">Total</th>
     </tr></thead>
     <tbody>${itemRows}</tbody>
   </table>
@@ -658,8 +679,8 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
       ${inv.packageDiscount > 0 ? `<tr><td>Package Discount</td><td style="text-align:right;">-₹${inv.packageDiscount.toFixed(2)}</td></tr>` : ""}
       ${inv.discountAmount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-₹${inv.discountAmount.toFixed(2)}</td></tr>` : ""}
       <tr><td>Taxable Amount</td><td style="text-align:right;">₹${taxable.toFixed(2)}</td></tr>
-      <tr><td>CGST</td><td style="text-align:right;">₹${inv.cgstAmount.toFixed(2)}</td></tr>
-      <tr><td>SGST</td><td style="text-align:right;">₹${inv.sgstAmount.toFixed(2)}</td></tr>
+      <tr><td>CGST</td><td style="text-align:right;">₹${displayCgst.toFixed(2)}</td></tr>
+      <tr><td>SGST</td><td style="text-align:right;">₹${displaySgst.toFixed(2)}</td></tr>
       ${inv.lateFeeAmount > 0 ? `<tr><td>Late Fee</td><td style="text-align:right;">₹${inv.lateFeeAmount.toFixed(2)}</td></tr>` : ""}
       <tr style="background:#f1f5f9;font-weight:700;font-size:14px;">
         <td>Total</td><td style="text-align:right;">₹${inv.totalAmount.toFixed(2)}</td>

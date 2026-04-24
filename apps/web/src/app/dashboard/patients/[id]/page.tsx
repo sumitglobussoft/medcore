@@ -8,6 +8,8 @@ import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useTranslation } from "@/lib/i18n";
+import { PatientEditModal } from "@/components/PatientEditModal";
 import {
   ArrowLeft,
   ChevronDown,
@@ -40,6 +42,7 @@ import {
   ClipboardList,
   Printer,
   AlertCircle,
+  Edit as EditIcon,
 } from "lucide-react";
 
 // ───────────────────────────────────────────────────────
@@ -51,6 +54,7 @@ interface PatientDetail {
   mrNumber: string;
   age: number | null;
   gender: string;
+  dateOfBirth?: string | null;
   bloodGroup: string | null;
   address: string | null;
   insuranceProvider: string | null;
@@ -318,6 +322,8 @@ export default function PatientDetailPage() {
     "vitals" | "book" | null
   >(null);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const { t } = useTranslation();
 
   const loadStats = useCallback(async () => {
     try {
@@ -517,10 +523,22 @@ export default function PatientDetailPage() {
                   No-shows: {patient.noShowCount}
                 </span>
               )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(true)}
+                  aria-label={t("patient.edit.button")}
+                  data-testid="patient-edit-button"
+                  className="no-print ml-auto inline-flex items-center gap-1.5 rounded-lg border border-primary bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                >
+                  <EditIcon size={13} aria-hidden="true" />{" "}
+                  {t("patient.edit.button")}
+                </button>
+              )}
               <button
                 onClick={() => window.print()}
                 aria-label="Print medical record"
-                className="no-print ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+                className={`no-print ${canEdit ? "" : "ml-auto "}inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
               >
                 <Printer size={13} aria-hidden="true" /> Print Medical Record
               </button>
@@ -954,6 +972,24 @@ export default function PatientDetailPage() {
           onClose={() => setMergeOpen(false)}
         />
       )}
+      <PatientEditModal
+        open={editOpen}
+        patient={patient}
+        onClose={() => setEditOpen(false)}
+        onSaved={(updated) => {
+          const u = updated as Partial<PatientDetail> | null | undefined;
+          if (u && u.id) {
+            setPatient((prev) => (prev ? { ...prev, ...u } : prev));
+          } else {
+            // Fall back to a re-fetch if the server didn't echo the row.
+            api
+              .get<{ data: PatientDetail }>(`/patients/${id}`)
+              .then((r) => setPatient(r.data))
+              .catch(() => {});
+          }
+          loadStats();
+        }}
+      />
     </div>
   );
 }

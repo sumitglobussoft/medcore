@@ -105,4 +105,65 @@ describeIfDB("Wards API (integration)", () => {
       .send({ status: "EXPLODED" });
     expect(res.status).toBe(400);
   });
+
+  // ── Issue #36 coverage ────────────────────────────────────────────────
+
+  it("GET /wards returns flat bed counts that match bed rows (Issue #36)", async () => {
+    const ward = await createWardFixture({ name: `WC-${Date.now()}` });
+    const b1 = await createBedFixture({ wardId: ward.id });
+    const b2 = await createBedFixture({ wardId: ward.id });
+    await createBedFixture({ wardId: ward.id });
+
+    const prisma = await getPrisma();
+    await prisma.bed.update({
+      where: { id: b1.id },
+      data: { status: "OCCUPIED" },
+    });
+    await prisma.bed.update({
+      where: { id: b2.id },
+      data: { status: "CLEANING" },
+    });
+
+    const res = await request(app)
+      .get("/api/v1/wards")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const row = (res.body.data as any[]).find((w) => w.id === ward.id);
+    expect(row).toBeTruthy();
+    expect(row.totalBeds).toBe(3);
+    expect(row.availableBeds).toBe(1);
+    expect(row.occupiedBeds).toBe(1);
+    expect(row.cleaningBeds).toBe(1);
+    expect(Array.isArray(row.beds)).toBe(true);
+    expect(row.beds.length).toBe(3);
+    // Back-compat: bedStats still present.
+    expect(row.bedStats.total).toBe(3);
+  });
+
+  it("POST /wards/:wardId/beds accepts UI body shape (bedNumber only, Issue #36)", async () => {
+    const ward = await createWardFixture({ name: `WA-${Date.now()}` });
+    const res = await request(app)
+      .post(`/api/v1/wards/${ward.id}/beds`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bedNumber: "UI-01" });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.bedNumber).toBe("UI-01");
+    expect(res.body.data?.wardId).toBe(ward.id);
+  });
+
+  it("POST /wards/:wardId/beds 400 surfaces field-level details", async () => {
+    const ward = await createWardFixture({ name: `WB-${Date.now()}` });
+    const res = await request(app)
+      .post(`/api/v1/wards/${ward.id}/beds`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/validation/i);
+    expect(Array.isArray(res.body.details)).toBe(true);
+    const fields = (res.body.details as Array<{ field: string }>).map(
+      (d) => d.field
+    );
+    expect(fields).toContain("bedNumber");
+  });
 });

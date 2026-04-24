@@ -1,13 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
+import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
 import { Activity, QrCode, Receipt, Smartphone, CheckCircle2 } from "lucide-react";
+
+/**
+ * Issue #33: return the post-login destination. Honours `?redirect=...` if
+ * the dashboard auth gate forwarded the user here after session expiry, but
+ * guards against:
+ *  - external URLs (open-redirect risk)
+ *  - redirecting to /login itself (would loop)
+ *  - empty/missing params
+ */
+function safeRedirectTarget(param: string | null | undefined): string {
+  if (!param) return "/dashboard";
+  // Only allow same-origin, leading-slash paths to block open redirects.
+  if (!param.startsWith("/") || param.startsWith("//")) return "/dashboard";
+  if (param.startsWith("/login")) return "/dashboard";
+  return param;
+}
 
 /**
  * Map an auth-endpoint error to a user-facing message, branching on the
@@ -45,10 +62,17 @@ function messageForAuthError(
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = safeRedirectTarget(searchParams.get("redirect"));
   const { login, verify2FA } = useAuthStore();
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Issue #1: Remember-me preference. Unchecked = session-only (refresh
+  // token cookie/DB row lives ~7 days, the default). Checked = 30-day
+  // refresh window. Default is FALSE so existing security posture is
+  // preserved for anyone who does not opt in.
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
@@ -70,14 +94,17 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const result = await login(email, password);
+      // Issue #1: forward rememberMe so the API can decide the refresh-token TTL.
+      const result = await login(email, password, rememberMe);
       if (result.twoFactorRequired && result.tempToken) {
         setTempToken(result.tempToken);
         setTwoFAStep(true);
         return;
       }
       toast.success(t("login.welcome"));
-      router.push("/dashboard");
+      // Issue #33: honour the `?redirect=` param set by the dashboard auth
+      // gate so users land back on the page they originally tried to open.
+      router.push(redirectTo);
     } catch (err) {
       // Issue #15: distinguish 429 (rate-limit) from 401/403 (bad creds) so
       // users never see "Invalid email or password" when they're simply
@@ -97,7 +124,8 @@ export default function LoginPage() {
     try {
       await verify2FA(tempToken, twoFACode.trim());
       toast.success(t("login.welcome"));
-      router.push("/dashboard");
+      // Issue #33: honour ?redirect= after successful 2FA as well.
+      router.push(redirectTo);
     } catch (err) {
       // Issue #15: same status-aware handling for the 2FA step. A throttled
       // verify must not read as "Invalid 2FA code".
@@ -279,15 +307,14 @@ export default function LoginPage() {
                   >
                     {t("login.password")}
                   </label>
-                  <input
+                  <PasswordInput
                     id="login-password"
-                    type="password"
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     className={
-                      "w-full rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
+                      "rounded-lg border px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:bg-gray-900 dark:text-gray-100 " +
                       (fieldErrors.password ? "border-red-500" : "border-gray-300 dark:border-gray-700")
                     }
                     placeholder={t("login.password.placeholder")}
@@ -301,7 +328,23 @@ export default function LoginPage() {
                   )}
                 </div>
 
-                <div className="flex justify-end">
+                {/* Issue #1: Remember-me checkbox. Unchecked = session-only
+                    (7d refresh token), checked = 30-day refresh token. */}
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="remember-me"
+                    className="flex cursor-pointer items-center gap-2 text-sm text-gray-700 dark:text-gray-200"
+                  >
+                    <input
+                      id="remember-me"
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      data-testid="login-remember-me"
+                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-2 focus:ring-primary/40 dark:border-gray-600 dark:bg-gray-900"
+                    />
+                    <span>{t("login.rememberMe")}</span>
+                  </label>
                   <Link
                     href="/forgot-password"
                     className="text-sm font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"

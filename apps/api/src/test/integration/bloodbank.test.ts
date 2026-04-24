@@ -168,4 +168,72 @@ describeIfDB("BloodBank API (integration)", () => {
     const res = await request(app).get("/api/v1/bloodbank/donors");
     expect(res.status).toBe(401);
   });
+
+  // Regression guard for Issue #49 (2026-04-24): summary strip and
+  // per-group cards disagreed on "Expiring in 7 days" because each widget
+  // did its own date math over different unit sets. The fix is a single
+  // server-side helper exposed as `expiringByBloodGroup` — this test pins
+  // the invariant that summary.expiringSoon === Σ expiringByBloodGroup.
+  it("Issue #49: inventory summary's expiringSoon equals sum of per-group expiring", async () => {
+    // Seed units across groups with varied expiry dates to exercise the
+    // "< 7 days" boundary.
+    const soon1 = new Date();
+    soon1.setDate(soon1.getDate() + 3);
+    const soon2 = new Date();
+    soon2.setDate(soon2.getDate() + 6);
+    const far = new Date();
+    far.setDate(far.getDate() + 40);
+    const alreadyExpired = new Date();
+    alreadyExpired.setDate(alreadyExpired.getDate() - 1);
+
+    await createBloodUnitFixture({
+      bloodGroup: "A_NEG",
+      expiresAt: soon1,
+    });
+    await createBloodUnitFixture({
+      bloodGroup: "A_NEG",
+      expiresAt: soon2,
+    });
+    await createBloodUnitFixture({
+      bloodGroup: "AB_NEG",
+      expiresAt: soon1,
+    });
+    // Not expiring soon — must not count.
+    await createBloodUnitFixture({
+      bloodGroup: "AB_NEG",
+      expiresAt: far,
+    });
+    // Already expired — must not count either (bug mode would double-count
+    // these into the per-group card but not the summary).
+    await createBloodUnitFixture({
+      bloodGroup: "A_NEG",
+      expiresAt: alreadyExpired,
+    });
+
+    const res = await request(app)
+      .get("/api/v1/bloodbank/inventory/summary")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const data = res.body.data as {
+      expiringSoon: number;
+      expiringByBloodGroup: Record<string, number>;
+    };
+
+    expect(typeof data.expiringSoon).toBe("number");
+    expect(data.expiringByBloodGroup).toBeTruthy();
+
+    const sum = Object.values(data.expiringByBloodGroup).reduce(
+      (a: number, b) => a + (Number(b) || 0),
+      0
+    );
+    // THE invariant: summary count === Σ of per-group counts, regardless
+    // of implementation details.
+    expect(data.expiringSoon).toBe(sum);
+
+    // Sanity: the three "soon" units we seeded must be reflected
+    // (there may be other units from earlier tests, so use >=).
+    expect(data.expiringSoon).toBeGreaterThanOrEqual(3);
+    expect(data.expiringByBloodGroup["A_NEG"] ?? 0).toBeGreaterThanOrEqual(2);
+    expect(data.expiringByBloodGroup["AB_NEG"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
 });

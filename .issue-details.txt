@@ -1,0 +1,227 @@
+===#1: Missing "Remember Me" feature: No checkbox exists to persist the session.
+<img width="958" height="992" alt="Image" src="https://github.com/user-attachments/assets/779e41ed-31f5-4ccb-ae2a-e125b05413da" />
+
+===#2: No Password Toggle: The password field lacks a "show/hide" eye icon for verification.
+<img width="958" height="992" alt="Image" src="https://github.com/user-attachments/assets/9e221963-ad71-438e-9ca4-087fa90e2d95" />
+
+===#33: Medium: Session silently expires when navigating via direct URL and drops the user to the login page without a toast.
+**Module**: Authentication / Session
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/ (logged in as admin@medcore.local)
+
+### Summary
+When navigating to a dashboard URL directly (e.g. pasting `/dashboard/wards` into the address bar or hitting a bookmarked deep link), the session is treated as expired and the user is silently redirected back to the login screen. There is no toast, banner, or explanation, and after logging in again the user is NOT returned to the originally requested page. Navigating via the left sidebar from within an active session works fine.
+
+### Steps 
+
+===#34: Medium: Appointments booking screen shows past time slots as selectable and only rejects them on submit.
+**Module**: Appointments
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/dashboard/appointments/new
+
+### Summary
+When booking an appointment for the current day, the time-slot grid renders slots that are already in the past (earlier than the current wall-clock time) as if they were bookable. The user can select one, and the error surfaces only after they click the final book/confirm button, wasting time and eroding trust.
+
+### Steps to Reproduce
+1. Navigate to Appointments → New Appointment.
+2. Select any doctor (e.g. Dr. Rajesh Sharma) and today's date.
+3. Observe the ti
+
+===#35: High: Appointment booking page freezes the renderer when selecting certain time slots (page becomes unresponsive).
+**Module**: Appointments
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/appointments/new
+
+### Summary
+On the New Appointment page, clicking certain time slots (reproduced with the 18:00 slot) causes the page to freeze completely — the sidebar, buttons, and inputs stop responding and the tab has to be reloaded. No error is shown in the UI.
+
+### Steps to Reproduce
+1. Go to Appointments → New Appointment.
+2. Pick Dr. Rajesh Sharma, today's date.
+3. Click the 18:00 time slot (other late slots may reproduce this too).
+4. Try to interact with any other control on the p
+
+===#36: High: Wards module shows 0 total beds across every ward, and Add Bed silently fails with a 400 (no UI error).
+**Module**: Wards
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/wards
+
+### Summary
+Every ward in the Wards module (General, ICU, Pediatric, Maternity, etc.) displays `0 / 0` beds and `0 occupied`. When I try to add a bed to a ward using the Add Bed dialog and submit with valid data, the dialog closes but no bed is added. The network tab shows the POST returns HTTP 400 with no UI-level error message or toast.
+
+This is incoherent with the Admissions module which lists six patients currently admitted to bed numbers like GA-101, GA-102, ICU-01, GA-103 — beds the War
+
+===#37: Critical: Admissions module shows the same patient admitted to two different beds simultaneously (data integrity failure).
+**Module**: Admissions
+**Severity**: Critical
+**Environment**: https://medcore.globusdemos.com/dashboard/admissions
+
+### Summary
+The Admissions list displays the same patient admitted to two different beds at the same time. Two separate cases are visible in the demo data:
+
+- **Rahul Sharma** — admitted to **GA-101** and **GA-102** simultaneously (both ACTIVE).
+- **Priya Mehta** — admitted to **ICU-01** and **GA-103** simultaneously (both ACTIVE).
+
+A patient cannot physically occupy two beds at the same time, so this is either a duplicate-insert bug in the admission workflow or a missing unique
+
+===#38: High: Patient Detail shows the same 86 Overdue Immunizations for every patient, including adults who should have none.
+**Module**: Patients / Immunizations
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/patients/{id}
+
+### Summary
+On every patient detail page, the Immunizations widget displays `86 Overdue Immunizations` regardless of the patient. This is shown for a 4-year-old, a 35-year-old, and a 72-year-old patient equally. The number is suspiciously close to the hospital-wide overdue immunization count — it appears the widget is rendering a global count instead of a patient-scoped count.
+
+### Steps to Reproduce
+1. Go to Patients.
+2. Open several patients in turn (different age
+
+===#39: Medium: Patient detail page has no Edit button — demographic data cannot be corrected after registration.
+**Module**: Patients
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/dashboard/patients/{id}
+
+### Summary
+After a patient is registered, there is no visible way to edit their demographic information (name, DOB, phone, address, blood group, etc.) from the patient detail page. No Edit button, no pencil icon, and the field labels are non-interactive.
+
+In real hospital workflows, staff correct typos, update phone numbers, or change the emergency contact regularly. Without an edit flow the only way to fix a mistake is to delete and re-create — which would break the patient's M
+
+===#40: High: Medicine master flags Amlodipine 5mg as Rx Required: No (prescription-only drug marked as OTC).
+**Module**: Medicines / Pharmacy Master
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/medicines
+
+### Summary
+In the Medicines master, Amlodipine 5mg shows `Rx Required: No`. Amlodipine is a prescription-only cardiovascular / antihypertensive drug in India and most jurisdictions — it should be flagged `Rx Required: Yes`. A quick scan suggests other cardiovascular and CNS drugs may also be mis-flagged; the full master should be audited.
+
+### Steps to Reproduce
+1. Go to Medicines.
+2. Search Amlodipine 5mg.
+3. Open the detail row / card.
+
+### Expected
+- `Rx Required
+
+===#41: Low: Medicines master has an empty Manufacturer field for every drug in the seed data.
+**Module**: Medicines / Pharmacy Master
+**Severity**: Low (demo quality) / Medium (if linked to purchase workflow)
+**Environment**: https://medcore.globusdemos.com/dashboard/medicines
+
+### Summary
+Every medicine row in the master (Paracetamol, Amoxicillin, Amlodipine, Metformin, Omeprazole, etc.) has a blank Manufacturer column. Looks like the seed data was loaded without manufacturer values, or the field is not bound to the list view.
+
+### Expected
+- Every medicine should have a manufacturer populated (e.g. Cipla, Sun Pharma, Dr. Reddy's, GSK).
+- The Add/Edit Medicine form should mark Manufac
+
+===#42: Low: Invoice header shows hospital phone as literal placeholder "+91-XXXXXXXXXX".
+**Module**: Billing / Settings
+**Severity**: Low (cosmetic, but visible on every printed bill)
+**Environment**: https://medcore.globusdemos.com/dashboard/billing
+
+### Summary
+The hospital letterhead block on invoices renders the phone number as the literal string `+91-XXXXXXXXXX`. This is the Settings placeholder that was never replaced with a real demo number, and it prints on every bill/receipt.
+
+### Steps to Reproduce
+1. Open any invoice in Billing (e.g. INV000378).
+2. View the header block with hospital name and contact info.
+
+### Expected
+- Either a real configured number from Settings → 
+
+===#43: High: Invoices show GSTIN in the header but do not break out CGST/SGST on line items — contradicts the "GST-aware invoicing" marketing claim.
+**Module**: Billing
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/billing
+
+### Summary
+Invoice headers include a GSTIN (e.g. `29AABCU9603R1ZM`) but the invoice body has no CGST / SGST / IGST columns or totals. The bill simply lists `Amount` and a flat total. The marketing site lists "GST-aware invoicing" as a Billing feature, so this is both a functional gap and a marketing-vs-reality mismatch.
+
+### Steps to Reproduce
+1. Open any invoice in Billing.
+2. Observe the line-item table and totals block.
+
+### Expected
+- Each line item shows HSN/SAC code and GST rate.
+-
+
+===#44: Medium: Billing → Add Line Item defaults category to CONSULTATION and does not auto-update when an X-Ray or procedure is picked.
+**Module**: Billing
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/dashboard/billing (Add Line Item dialog on any invoice)
+
+### Summary
+When adding a line item to an existing invoice, the Category dropdown is pre-set to `CONSULTATION`. If the user picks a service that is clearly in another category (e.g. `X-Ray Chest`, `Ultrasound Abdomen`, or a surgical procedure), the Category stays on CONSULTATION unless the user manually changes it. This leads to bad revenue categorization in reports.
+
+### Steps to Reproduce
+1. Open any invoice in Billing.
+2. Click Add Line Item.
+3. 
+
+===#45: Low: Marketing Contact form surfaces a generic "Invalid enquiry payload" toast instead of field-level validation.
+**Module**: Marketing site / Contact form
+**Severity**: Low
+**Environment**: https://medcore.globusdemos.com/contact
+
+### Summary
+Submitting the Contact form with an invalid email (e.g. `abc`) or other bad input results in a generic error toast `Invalid enquiry payload`. That's an internal-sounding message and it doesn't tell the user which field is wrong.
+
+### Steps to Reproduce
+1. Go to the Contact page on the marketing site.
+2. Fill name, put `abc` in email, add a message.
+3. Submit.
+
+### Expected
+- Field-level inline errors ("Please enter a valid email").
+- Form-level error messages should
+
+===#46: Low (demo data): Immunizations module shows vaccines 9+ years overdue in seed data, e.g. Saanvi Joshi DPT 3375 days overdue.
+**Module**: Immunizations (demo/seed data)
+**Severity**: Low (but very visible during sales demos)
+**Environment**: https://medcore.globusdemos.com/dashboard/immunizations
+
+### Summary
+The Immunizations module shows a number of pediatric vaccines that are 9+ years overdue (over 3000 days). Example: Saanvi Joshi, DPT, 3375 days overdue (due date 2017). This is clearly stale seed data that was never refreshed relative to the current app date (24 April 2026).
+
+### Expected
+For a demo environment, the overdue list should show realistic, recent overdue entries (e.g. 7–60 days overdue) so the module
+
+===#47: High: Admin Console reports 125 errors in the last hour under System Health (error rate has grown since the earlier 19 reported in #8).
+**Module**: Admin Console / System Health
+**Severity**: High
+**Environment**: https://medcore.globusdemos.com/dashboard/admin
+
+### Summary
+The Admin Console's System Health panel shows `Errors (1h): 125` and `Audit Events (1h): 125`. This is significantly higher than the 19 errors reported in #8, so the underlying error sources have either not been addressed or new ones have been added.
+
+### Ask
+- Investigate the underlying causes of the error count growth.
+- Add a breakdown table in System Health (top error types, endpoints, user/role most affected) so this number is actionable rather than a 
+
+===#48: Medium: Admin Console “Today Snapshot → Registered” stays at 0 even after multiple patients are registered today.
+**Module**: Admin Console / Today Snapshot
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/dashboard/admin
+
+### Summary
+The Today Snapshot widget on the Admin Console shows `Registered: 0` even after I registered 6 patients on the same day (Rohan Mehta, Sneha Krishnan, Vikram Iyengar, Aadhya Reddy, Lakshmi Venkatesh, and one test patient). The patients are visible in the Patients list with today's registration date, so the underlying data is correct but the snapshot is not.
+
+### Steps to Reproduce
+1. Register one or more patients via Patients → New Patient.
+2. Go to Admin
+
+===#49: Medium: Blood Bank summary card says “Expiring in 7 days: 0” but group cards (A-, AB-) each show 4 expiring in 7 days.
+**Module**: Blood Bank
+**Severity**: Medium
+**Environment**: https://medcore.globusdemos.com/dashboard/blood-bank
+
+### Summary
+On the Blood Bank page, the top summary strip shows `Expiring in 7 days: 0`, but the per-group cards below clearly show warnings of `4 expiring in 7 days` under A- and `4 expiring in 7 days` under AB-. The two widgets are binding to different sources or one of them is using a stale cached value.
+
+### Steps to Reproduce
+1. Go to Blood Bank.
+2. Compare the top summary "Expiring in 7 days" number to the per-group card warnings.
+
+### Expected
+- Both widgets should agree — 
+

@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
-import { z } from "zod";
+import {
+  marketingEnquirySchema,
+  zodIssuesToFieldErrors,
+} from "@medcore/shared";
 import { rateLimit } from "../middleware/rate-limit";
 
 export const marketingRouter = Router();
@@ -13,20 +16,10 @@ const enquiryRateLimit =
     ? (_req: Request, _res: Response, next: NextFunction) => next()
     : rateLimit(10, 60_000);
 
-const enquirySchema = z.object({
-  fullName: z.string().trim().min(2).max(100),
-  email: z.string().trim().email().max(200),
-  phone: z.string().trim().min(6).max(30),
-  hospitalName: z.string().trim().min(2).max(200),
-  hospitalSize: z.enum(["1-10", "10-50", "50-200", "200+"]),
-  role: z.enum(["Administrator", "Doctor", "IT", "Other"]),
-  message: z.string().trim().max(2000).optional().or(z.literal("")),
-  preferredContactTime: z
-    .enum(["Morning", "Afternoon", "Evening", "Anytime"])
-    .optional(),
-  // Honeypot — real users leave this empty; bots fill it in.
-  website: z.string().optional(),
-});
+// Schema is defined in @medcore/shared so the browser runs the same rules.
+// Issue #45: 400 responses now carry a structured `errors: [{field,message}]`
+// list so the form can surface inline errors instead of a generic toast.
+const enquirySchema = marketingEnquirySchema;
 
 // POST /api/v1/marketing/enquiry — public, anti-spam honeypot + rate limit,
 // optional CRM forward.
@@ -37,10 +30,14 @@ marketingRouter.post(
     try {
       const parsed = enquirySchema.safeParse(req.body);
       if (!parsed.success) {
+        // Structured 400 (Issue #45). `error` is preserved for older clients
+        // that only read the string, but new clients should consume `errors[]`.
+        const errors = zodIssuesToFieldErrors(parsed.error.issues);
         res.status(400).json({
           success: false,
           data: null,
-          error: "Invalid enquiry payload",
+          error: "Please correct the highlighted fields.",
+          errors,
         });
         return;
       }
@@ -56,7 +53,9 @@ marketingRouter.post(
         data: {
           fullName: data.fullName,
           email: data.email,
-          phone: data.phone,
+          // phone is optional on the public form; DB column is non-null,
+          // so we store an empty string when omitted.
+          phone: data.phone ?? "",
           hospitalName: data.hospitalName,
           hospitalSize: data.hospitalSize,
           role: data.role,

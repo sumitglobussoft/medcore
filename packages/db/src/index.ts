@@ -19,3 +19,6 @@ if (process.env.NODE_ENV !== "production") {
 
 export { PrismaClient };
 export * from "@prisma/client";
+
+// Shared helpers used by both seed scripts and data-correction scripts.
+export * from "./lib/immunization-schedule";

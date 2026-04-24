@@ -1,15 +1,24 @@
 // Integration test for the patients router. Skipped unless DATABASE_URL_TEST is set.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
-import { describeIfDB, resetDB, getAuthToken } from "../setup";
+import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
+import { createPatientFixture } from "../factories";
 
 let app: any;
 let token: string;
+let doctorToken: string;
+let nurseToken: string;
+let adminToken: string;
+let patientToken: string;
 
 describeIfDB("Patients API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
     token = await getAuthToken("RECEPTION");
+    doctorToken = await getAuthToken("DOCTOR");
+    nurseToken = await getAuthToken("NURSE");
+    adminToken = await getAuthToken("ADMIN");
+    patientToken = await getAuthToken("PATIENT");
     const mod = await import("../../app");
     app = mod.app;
   });
@@ -44,5 +53,104 @@ describeIfDB("Patients API (integration)", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "" });
     expect(res.status).toBe(400);
+  });
+
+  // ─────────────────────────────────────────────────────────
+  // PATCH /api/v1/patients/:id  (Issue #39)
+  // ─────────────────────────────────────────────────────────
+
+  it("PATCH: doctor can update patient demographics", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        name: "Updated Name",
+        phone: "9999999999",
+        address: "New Address",
+        bloodGroup: "B+",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.name).toBe("Updated Name");
+    expect(res.body.data.user.phone).toBe("9999999999");
+    expect(res.body.data.bloodGroup).toBe("B+");
+    // MR number must be unchanged.
+    expect(res.body.data.mrNumber).toBe(patient.mrNumber);
+  });
+
+  it("PATCH: nurse can update patient demographics", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ address: "Corrected Street 12" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.address).toBe("Corrected Street 12");
+  });
+
+  it("PATCH: reception can update patient demographics", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Reception Edit" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.name).toBe("Reception Edit");
+  });
+
+  it("PATCH: PATIENT role is forbidden (403)", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ name: "Hacked" });
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH: invalid payload returns 400", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        // name too short, phone too short, gender invalid
+        name: "x",
+        phone: "123",
+        gender: "INVALID",
+      });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH: MR number cannot be changed even if passed in body", async () => {
+    const patient = await createPatientFixture();
+    const originalMr = patient.mrNumber;
+    const res = await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Still Valid",
+        mrNumber: "MR-HACKED",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.data.mrNumber).toBe(originalMr);
+  });
+
+  it("PATCH: writes an audit log entry", async () => {
+    const patient = await createPatientFixture();
+    const prisma = await getPrisma();
+    const before = await prisma.auditLog.count({
+      where: { entity: "patient", entityId: patient.id, action: "UPDATE_PATIENT" },
+    });
+    await request(app)
+      .patch(`/api/v1/patients/${patient.id}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ phone: "9000011111" })
+      .expect(200);
+    // auditLog is fire-and-forget; allow a brief window for the insert.
+    await new Promise((r) => setTimeout(r, 50));
+    const after = await prisma.auditLog.count({
+      where: { entity: "patient", entityId: patient.id, action: "UPDATE_PATIENT" },
+    });
+    expect(after).toBeGreaterThan(before);
   });
 });

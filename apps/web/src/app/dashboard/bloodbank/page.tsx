@@ -74,6 +74,9 @@ interface InventorySummary {
   byBloodGroup: Record<string, Record<string, number>>;
   byComponent: Record<string, number>;
   expiringSoon: number;
+  // Issue #49 (2026-04-24): per-group breakdown sourced from the same
+  // helper as `expiringSoon` so summary === Σ per-group.
+  expiringByBloodGroup?: Record<string, number>;
 }
 
 interface BloodRequest {
@@ -226,9 +229,6 @@ export default function BloodBankPage() {
     return `${h}h ${m}m left`;
   }
 
-  const now = new Date();
-  const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
   return (
     <div>
       <div className="mb-6 flex items-center gap-3">
@@ -286,12 +286,11 @@ export default function BloodBankPage() {
               {BLOOD_GROUPS.map((g) => {
                 const counts = summary?.byBloodGroup[g] || {};
                 const total = Object.values(counts).reduce((a, b) => a + b, 0);
-                const groupUnits = units.filter(
-                  (u) => u.bloodGroup === g && u.status === "AVAILABLE"
-                );
-                const expiring = groupUnits.filter(
-                  (u) => new Date(u.expiresAt) <= soon
-                ).length;
+                // Issue #49: read expiring count from the summary (single
+                // source of truth) instead of re-filtering the paginated
+                // `units` list. This guarantees summary.expiringSoon ===
+                // Σ expiringByBloodGroup[g] rendered below.
+                const expiring = summary?.expiringByBloodGroup?.[g] ?? 0;
                 return (
                   <div
                     key={g}

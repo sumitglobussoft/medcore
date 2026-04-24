@@ -13,6 +13,7 @@
   },
   "include": [
     "./migrate-insurance-claims-to-v2.ts",
-    "./verify-insurance-claims-migration.ts"
+    "./verify-insurance-claims-migration.ts",
+    "./dedup-active-admissions.ts"
   ]
 }

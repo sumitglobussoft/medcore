@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
+import { PasswordInput } from "@/components/PasswordInput";
 import { toast } from "@/lib/toast";
 
 export default function RegisterPage() {
@@ -154,9 +155,8 @@ export default function RegisterPage() {
             >
               {t("register.password")}
             </label>
-            <input
+            <PasswordInput
               id="reg-password"
-              type="password"
               required
               autoComplete="new-password"
               minLength={6}

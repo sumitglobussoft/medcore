@@ -34,7 +34,8 @@ describeIfDB("Marketing enquiry API (integration)", () => {
     hospitalName: "Asha Hospital",
     hospitalSize: "10-50",
     role: "Administrator",
-    message: "Looking for a demo",
+    // Schema now requires message min 10 chars (Issue #45 tightening).
+    message: "Looking for a demo please",
     preferredContactTime: "Morning",
   };
 
@@ -101,24 +102,72 @@ describeIfDB("Marketing enquiry API (integration)", () => {
     expect(count).toBe(0);
   });
 
-  it("accepts optional fields (message + preferredContactTime)", async () => {
+  it("accepts optional fields (phone + preferredContactTime omitted)", async () => {
+    // Issue #45: message is now required, phone is now OPTIONAL.
     const res = await request(app)
       .post("/api/v1/marketing/enquiry")
       .send({
-        fullName: "No Message User",
-        email: "no-msg@x.com",
-        phone: "+911234567890",
+        fullName: "No Phone User",
+        email: "no-phone@x.com",
         hospitalName: "Clinic X",
         hospitalSize: "1-10",
         role: "Doctor",
+        message: "Interested in a small-clinic demo next week.",
       });
     expect([200, 201]).toContain(res.status);
     const prisma = await getPrisma();
     const row = await prisma.marketingEnquiry.findUnique({
       where: { id: res.body.data.id },
     });
-    expect(row.message).toBeNull();
+    expect(row.phone).toBe(""); // defaulted because schema DB column is non-null
     expect(row.preferredContactTime).toBeNull();
+  });
+
+  it("returns structured field errors on invalid email (Issue #45)", async () => {
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "abc" });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    // Must NOT be the old generic string.
+    expect(res.body.error).not.toBe("Invalid enquiry payload");
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    const emailErr = res.body.errors.find(
+      (e: { field: string }) => e.field === "email"
+    );
+    expect(emailErr).toBeTruthy();
+    expect(typeof emailErr.message).toBe("string");
+    expect(emailErr.message.length).toBeGreaterThan(0);
+  });
+
+  it("returns multiple field errors when several fields fail", async () => {
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({
+        fullName: "X", // too short
+        email: "nope", // bad email
+        hospitalName: "Q", // too short
+        hospitalSize: "1-10",
+        role: "Doctor",
+        message: "tiny", // too short
+      });
+    expect(res.status).toBe(400);
+    const fields = (res.body.errors as { field: string }[]).map(
+      (e) => e.field
+    );
+    expect(fields).toEqual(
+      expect.arrayContaining(["fullName", "email", "hospitalName", "message"])
+    );
+  });
+
+  it("rejects phone that is not a valid Indian mobile (Issue #45)", async () => {
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, phone: "12345" });
+    expect(res.status).toBe(400);
+    const phoneErr = (res.body.errors as { field: string; message: string }[])
+      .find((e) => e.field === "phone");
+    expect(phoneErr).toBeTruthy();
   });
 
   it("works without authentication (public endpoint)", async () => {

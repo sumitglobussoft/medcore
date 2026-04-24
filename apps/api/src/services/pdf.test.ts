@@ -209,6 +209,46 @@ describe("generateInvoicePDF", () => {
     expect(html).toMatch(/Amount in Words/);
     expect(html).toMatch(/Thousand/);
   });
+
+  it("emits a per-line GST breakdown with HSN/SAC for each category", async () => {
+    // Two line items across different GST categories: a LAB test (12%) and
+    // a SURGERY (18%). The rendered HTML should include HSN/SAC codes and
+    // per-line CGST/SGST columns in addition to the totals block.
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-2",
+      invoiceNumber: "INV-002",
+      subtotal: 1500,
+      discountAmount: 0,
+      packageDiscount: 0,
+      cgstAmount: 0, // force per-line fallback path
+      sgstAmount: 0,
+      lateFeeAmount: 0,
+      totalAmount: 1710,
+      advanceApplied: 0,
+      dueDate: null,
+      paymentStatus: "PENDING",
+      createdAt: new Date("2024-06-01"),
+      patient: aPatient(),
+      items: [
+        { description: "CBC Panel", category: "LAB", quantity: 1, unitPrice: 500, amount: 500 },
+        { description: "Minor Surgery", category: "SURGERY", quantity: 1, unitPrice: 1000, amount: 1000 },
+      ],
+      payments: [],
+    });
+    const html = await generateInvoicePDF("inv-2");
+    // Header column should have HSN/SAC as a column
+    expect(html).toMatch(/HSN\/SAC/);
+    // SAC 9993 applies to both lab + surgery
+    expect(html).toMatch(/9993/);
+    // Per-line GST rate labels (12 for LAB, 18 for SURGERY)
+    expect(html).toMatch(/GST 12%/);
+    expect(html).toMatch(/GST 18%/);
+    // Totals block shows both CGST + SGST even when inv fields are 0
+    expect(html).toContain("CGST");
+    expect(html).toContain("SGST");
+    // Computed: (500*.12/2)+(1000*.18/2) = 30+90 = 120 per side
+    expect(html).toMatch(/120\.00/);
+  });
 });
 
 describe("generatePaySlipHTML", () => {

@@ -90,6 +90,13 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
     pendingBills,
     currentlyAdmitted,
     consultations,
+    // Issue #48 (2026-04-24): Today-Snapshot needs admissions/discharges/surgeries/erCases
+    // in the same window. Previously these keys were missing so the admin-console
+    // always rendered 0 regardless of real activity.
+    admissionsInPeriod,
+    dischargesInPeriod,
+    surgeriesInPeriod,
+    erCasesInPeriod,
   ] = await Promise.all([
     prisma.patient.count(),
     prisma.patient.count({
@@ -113,6 +120,15 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
       where: { createdAt: { gte: from, lte: to } },
       select: { createdAt: true, updatedAt: true },
     }),
+    prisma.admission.count({ where: { admittedAt: { gte: from, lte: to } } }),
+    prisma.admission.count({
+      where: {
+        status: "DISCHARGED",
+        dischargedAt: { gte: from, lte: to },
+      },
+    }),
+    prisma.surgery.count({ where: { scheduledAt: { gte: from, lte: to } } }),
+    prisma.emergencyCase.count({ where: { arrivedAt: { gte: from, lte: to } } }),
   ]);
 
   const appointmentsByStatus: Record<string, number> = {
@@ -152,6 +168,9 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
   return {
     totalPatients,
     newPatientsInPeriod,
+    // Alias so the admin-console Today-Snapshot widget (Issue #48) and any
+    // older client code that expects `newPatients` keep working.
+    newPatients: newPatientsInPeriod,
     totalAppointments,
     appointmentsByStatus,
     totalRevenue,
@@ -159,6 +178,10 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
     pendingBills,
     currentlyAdmitted,
     avgConsultationTime,
+    admissions: admissionsInPeriod,
+    discharges: dischargesInPeriod,
+    surgeries: surgeriesInPeriod,
+    erCases: erCasesInPeriod,
   };
 }
 
@@ -203,6 +226,10 @@ router.get("/overview", async (req: Request, res: Response, next: NextFunction) 
       "pendingBills",
       "currentlyAdmitted",
       "avgConsultationTime",
+      "admissions",
+      "discharges",
+      "surgeries",
+      "erCases",
     ];
     const deltaPercent: Record<string, number> = {};
     numericKeys.forEach((k) => {

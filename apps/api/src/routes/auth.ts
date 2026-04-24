@@ -74,11 +74,29 @@ async function consumeTempToken(token: string): Promise<string | null> {
  * user record (this is an internal fallback — all public auth flows must
  * fetch the user and pass the real value).
  */
+/**
+ * Issue #1 — "Remember me" refresh-token TTL.
+ *
+ * When the login request passes `rememberMe: true` we mint a refresh token
+ * valid for 30 days instead of the 7-day default. The access-token TTL
+ * stays at 24h in both cases (any change there would widen the blast radius
+ * of a stolen bearer token, which the 2026-04-23 audit explicitly kept at
+ * 24h — see note below).
+ *
+ * Returning the expiry in seconds lets the caller persist the matching DB
+ * row with the same lifetime — keeping `RefreshToken.expiresAt` and the
+ * JWT `exp` claim in lockstep so the DB lookup and JWT verification don't
+ * disagree about when a token is dead.
+ */
+const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days (default)
+const REFRESH_TOKEN_REMEMBER_ME_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
 function generateTokens(
   userId: string,
   email: string,
   role: string,
-  tenantId: string | null | undefined
+  tenantId: string | null | undefined,
+  rememberMe: boolean = false
 ) {
   const jti = crypto.randomUUID();
   // Normalise undefined → null so downstream consumers see an explicit signal.
@@ -93,17 +111,24 @@ function generateTokens(
   // considered but add friction in ward-side tablets where re-auth during a
   // resuscitation is unsafe; tokens are also invalidated server-side via the
   // `jti` blocklist on password reset / 2FA changes. Leaving unchanged.
+  //
+  // Issue #1: access-token TTL intentionally NOT extended by rememberMe — a
+  // compromised access token should still expire within 24h regardless of
+  // the user's session-persistence preference.
   const accessToken = jwt.sign(
     { userId, email, role, tenantId: tid, jti },
     process.env.JWT_SECRET || "dev-secret",
     { expiresIn: "24h" }
   );
+  const refreshTtlSeconds = rememberMe
+    ? REFRESH_TOKEN_REMEMBER_ME_TTL_SECONDS
+    : REFRESH_TOKEN_TTL_SECONDS;
   const refreshToken = jwt.sign(
     { userId, email, role, tenantId: tid, jti: crypto.randomUUID() },
     process.env.JWT_REFRESH_SECRET || "dev-refresh-secret",
-    { expiresIn: "7d" }
+    { expiresIn: refreshTtlSeconds }
   );
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, refreshTtlSeconds };
 }
 
 /**
@@ -247,7 +272,11 @@ router.post(
   validate(loginSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password } = req.body;
+      const { email, password, rememberMe } = req.body as {
+        email: string;
+        password: string;
+        rememberMe?: boolean;
+      };
 
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user || !user.isActive) {
@@ -288,13 +317,21 @@ router.post(
         return;
       }
 
-      const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
+      // Issue #1: pass `rememberMe` so the refresh token is minted with a
+      // 30-day TTL when the user opted in, and the DB row matches.
+      const tokens = generateTokens(
+        user.id,
+        user.email,
+        user.role,
+        user.tenantId,
+        rememberMe === true
+      );
 
       await prisma.refreshToken.create({
         data: {
           token: tokens.refreshToken,
           userId: user.id,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now() + tokens.refreshTtlSeconds * 1000),
         },
       });
 

@@ -17,6 +17,7 @@
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import { prisma } from "@medcore/db";
+import { computeLineItemTax } from "@medcore/shared";
 
 // ─── Shared helpers ─────────────────────────────────────────
 
@@ -397,26 +398,47 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   drawKeyVal(doc, "Status", inv.paymentStatus, 310, topY + 56);
   doc.y = topY + 90;
 
+  // Per-line GST breakdown — computed at render time via the shared
+  // helper so older invoices (no persisted per-line tax columns) still
+  // render correctly. Totals block still uses inv.cgstAmount/sgstAmount
+  // when present; only the rows are computed here.
+  const linesWithTax = inv.items.map((it) => ({
+    it,
+    tax: computeLineItemTax(it.amount, it.category),
+  }));
+
   drawSectionTitle(doc, "Items");
   drawTable(
     doc,
     [
-      { label: "#", width: 25, align: "center" },
-      { label: "Description", width: 200 },
-      { label: "Category", width: 100 },
-      { label: "Qty", width: 40, align: "center" },
-      { label: "Unit", width: 70, align: "right" },
-      { label: "Amount", width: 80, align: "right" },
+      { label: "#", width: 22, align: "center" },
+      { label: "Description", width: 150 },
+      { label: "HSN/SAC", width: 55, align: "center" },
+      { label: "Qty", width: 32, align: "center" },
+      { label: "Rate", width: 55, align: "right" },
+      { label: "Taxable", width: 60, align: "right" },
+      { label: "CGST", width: 50, align: "right" },
+      { label: "SGST", width: 50, align: "right" },
+      { label: "Total", width: 61, align: "right" },
     ],
-    inv.items.map((it, idx) => [
+    linesWithTax.map(({ it, tax }, idx) => [
       String(idx + 1),
-      it.description,
-      it.category,
+      `${it.description} (${it.category})`,
+      tax.hsnSac,
       String(it.quantity),
       it.unitPrice.toFixed(2),
-      it.amount.toFixed(2),
+      tax.taxable.toFixed(2),
+      tax.cgst.toFixed(2),
+      tax.sgst.toFixed(2),
+      tax.total.toFixed(2),
     ])
   );
+
+  // Aggregate per-line computed GST for the summary block fallback.
+  const sumLineCgst = linesWithTax.reduce((s, x) => s + x.tax.cgst, 0);
+  const sumLineSgst = linesWithTax.reduce((s, x) => s + x.tax.sgst, 0);
+  const displayCgst = inv.cgstAmount > 0 ? inv.cgstAmount : +sumLineCgst.toFixed(2);
+  const displaySgst = inv.sgstAmount > 0 ? inv.sgstAmount : +sumLineSgst.toFixed(2);
 
   // Totals (right-aligned narrow table)
   doc.moveDown(0.6);
@@ -440,8 +462,8 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   if (inv.discountAmount > 0)
     totalLine("Discount", "-Rs. " + inv.discountAmount.toFixed(2));
   totalLine("Taxable Amount", "Rs. " + taxable.toFixed(2));
-  totalLine("CGST", "Rs. " + inv.cgstAmount.toFixed(2));
-  totalLine("SGST", "Rs. " + inv.sgstAmount.toFixed(2));
+  totalLine("CGST", "Rs. " + displayCgst.toFixed(2));
+  totalLine("SGST", "Rs. " + displaySgst.toFixed(2));
   if (inv.lateFeeAmount > 0)
     totalLine("Late Fee", "Rs. " + inv.lateFeeAmount.toFixed(2));
   // Highlight Total

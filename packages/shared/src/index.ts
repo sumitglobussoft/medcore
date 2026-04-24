@@ -27,3 +27,4 @@ export * from "./validation/reports";
 export * from "./constants";
 export * from "./types/ai";
 export * from "./validation/ai";
+export * from "./validation/marketing";

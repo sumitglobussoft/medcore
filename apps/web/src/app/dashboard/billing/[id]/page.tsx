@@ -7,6 +7,11 @@ import { api, openPrintEndpoint } from "@/lib/api";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useTranslation } from "@/lib/i18n";
+import {
+  categorizeService,
+  computeLineItemTax,
+} from "@medcore/shared";
 import {
   Printer,
   ArrowLeft,
@@ -18,6 +23,28 @@ import {
   CreditCard,
   X,
 } from "lucide-react";
+
+interface HospitalProfile {
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  gstin: string;
+  registration: string;
+  tagline: string;
+  logoUrl: string;
+}
+
+const DEFAULT_HOSPITAL: HospitalProfile = {
+  name: "MedCore Hospital & Diagnostics",
+  address: "42 Linking Road, Bandra West, Mumbai, Maharashtra 400050",
+  phone: "+91-80-2345-6789",
+  email: "info@medcorehospital.in",
+  gstin: "27AAACM1234Z1Z5",
+  registration: "",
+  tagline: "Hospital Operations Automation",
+  logoUrl: "",
+};
 
 interface InvoiceDetail {
   id: string;
@@ -72,12 +99,17 @@ export default function InvoiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const confirm = useConfirm();
+  const { t } = useTranslation();
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hospital, setHospital] = useState<HospitalProfile>(DEFAULT_HOSPITAL);
 
   // Add item form
   const [newDesc, setNewDesc] = useState("");
   const [newCategory, setNewCategory] = useState("CONSULTATION");
+  // Tracks whether the user has manually overridden the auto-derived category.
+  // Once they touch the dropdown, we stop overwriting it on description edits.
+  const [categoryTouched, setCategoryTouched] = useState(false);
   const [newQty, setNewQty] = useState("1");
   const [newPrice, setNewPrice] = useState("");
   const [adding, setAdding] = useState(false);
@@ -131,6 +163,17 @@ export default function InvoiceDetailPage() {
       } catch {
         setPendingApprovals([]);
       }
+      // Hospital profile — independent best-effort fetch. We keep the
+      // default identity values if the API is unavailable so the invoice
+      // header never shows "+91-XXXXXXXXXX" style placeholders.
+      try {
+        const h = await api.get<{ data: HospitalProfile }>(
+          `/billing/hospital-profile`
+        );
+        if (h?.data) setHospital(h.data);
+      } catch {
+        setHospital(DEFAULT_HOSPITAL);
+      }
     } catch {
       // empty
     }
@@ -167,11 +210,29 @@ export default function InvoiceDetailPage() {
       setNewDesc("");
       setNewQty("1");
       setNewPrice("");
+      setNewCategory("CONSULTATION");
+      setCategoryTouched(false);
       loadInvoice();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add item");
     }
     setAdding(false);
+  }
+
+  // When the user edits the description, auto-derive the category via
+  // the shared `categorizeService` helper — unless they've manually
+  // touched the Category dropdown (then we respect the override).
+  function onDescriptionChange(value: string) {
+    setNewDesc(value);
+    if (!categoryTouched) {
+      const suggested = categorizeService(value);
+      setNewCategory(suggested);
+    }
+  }
+
+  function onCategoryChange(value: string) {
+    setCategoryTouched(true);
+    setNewCategory(value);
   }
 
   async function removeItem(itemId: string) {
@@ -263,6 +324,21 @@ export default function InvoiceDetailPage() {
   const totalRefunded = refunds.reduce((s, p) => s + Math.abs(p.amount), 0);
   const netPaid = grossPaid - totalRefunded;
   const balance = Math.max(0, invoice.totalAmount - netPaid);
+
+  // Compute per-line GST at render time via the shared helper. We do NOT
+  // persist these columns in this pass — flagged as a follow-up to add
+  // `cgst`/`sgst`/`hsnSac` to `InvoiceLineItem` for audit purposes.
+  const itemsWithTax = (invoice.items || []).map((it) => ({
+    ...it,
+    tax: computeLineItemTax(it.amount, it.category),
+  }));
+  const computedCgst = itemsWithTax.reduce((s, it) => s + it.tax.cgst, 0);
+  const computedSgst = itemsWithTax.reduce((s, it) => s + it.tax.sgst, 0);
+  // Prefer the stored invoice taxAmount (canonical) when present; otherwise
+  // use the per-line computation so the old invoices still render correctly.
+  const displayCgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedCgst;
+  const displaySgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedSgst;
+  const displayTotalTax = displayCgst + displaySgst;
 
   const statusColors: Record<string, string> = {
     PENDING: "bg-red-100 text-red-700",
@@ -410,17 +486,26 @@ export default function InvoiceDetailPage() {
         <div className="mb-8 border-b pb-6">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-primary">MedCore</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Hospital Operations Automation
-              </p>
-              <p className="text-sm text-gray-500">
-                123 Medical Center Road, Healthcare District
-              </p>
-              <p className="text-sm text-gray-500">Phone: +91-XXXXXXXXXX</p>
-              <p className="mt-1 text-xs font-semibold text-gray-700">
-                GSTIN: 29ABCDE1234F1Z5
-              </p>
+              <h1 className="text-2xl font-bold text-primary">{hospital.name}</h1>
+              {hospital.tagline && (
+                <p className="mt-1 text-sm text-gray-500">{hospital.tagline}</p>
+              )}
+              {hospital.address && (
+                <p className="text-sm text-gray-500">{hospital.address}</p>
+              )}
+              {hospital.phone && (
+                <p className="text-sm text-gray-500">
+                  {t("dashboard.billing.phone", "Phone")}: {hospital.phone}
+                </p>
+              )}
+              {hospital.email && (
+                <p className="text-sm text-gray-500">{hospital.email}</p>
+              )}
+              {hospital.gstin && (
+                <p className="mt-1 text-xs font-semibold text-gray-700">
+                  GSTIN: {hospital.gstin}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <h2 className="text-lg font-semibold">TAX INVOICE</h2>
@@ -486,37 +571,71 @@ export default function InvoiceDetailPage() {
         </div>
 
         {/* Line Items */}
-        <div className="mb-6">
-          <table className="w-full">
+        <div className="mb-6 overflow-x-auto">
+          <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-t text-left text-sm text-gray-500">
+              <tr className="border-b border-t text-left text-gray-500">
                 <th className="py-3">#</th>
-                <th className="py-3">Description</th>
-                <th className="py-3 text-center">Qty</th>
-                <th className="py-3 text-right">Unit Price</th>
-                <th className="py-3 text-right">Amount</th>
+                <th className="py-3">
+                  {t("dashboard.billing.description", "Description")}
+                </th>
+                <th className="py-3 text-center">
+                  {t("dashboard.billing.hsnSac", "HSN/SAC")}
+                </th>
+                <th className="py-3 text-center">
+                  {t("dashboard.billing.qty", "Qty")}
+                </th>
+                <th className="py-3 text-right">
+                  {t("dashboard.billing.rate", "Rate")}
+                </th>
+                <th className="py-3 text-right">
+                  {t("dashboard.billing.taxable", "Taxable")}
+                </th>
+                <th className="py-3 text-right">
+                  {t("dashboard.billing.cgst", "CGST")}
+                </th>
+                <th className="py-3 text-right">
+                  {t("dashboard.billing.sgst", "SGST")}
+                </th>
+                <th className="py-3 text-right">
+                  {t("dashboard.billing.total", "Total")}
+                </th>
                 {isPending && <th className="no-print py-3" />}
               </tr>
             </thead>
             <tbody>
-              {invoice.items && invoice.items.length > 0 ? (
-                invoice.items.map((item, i) => (
+              {itemsWithTax.length > 0 ? (
+                itemsWithTax.map((item, i) => (
                   <tr key={item.id} className="border-b">
-                    <td className="py-3 text-sm">{i + 1}</td>
-                    <td className="py-3 text-sm">
+                    <td className="py-3">{i + 1}</td>
+                    <td className="py-3">
                       {item.description}
-                      <p className="text-xs text-gray-400">{item.category}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {item.category} · GST {item.tax.gstRate}%
+                      </p>
                     </td>
-                    <td className="py-3 text-center text-sm">{item.quantity}</td>
-                    <td className="py-3 text-right text-sm">
+                    <td className="py-3 text-center font-mono text-[11px]">
+                      {item.tax.hsnSac}
+                    </td>
+                    <td className="py-3 text-center">{item.quantity}</td>
+                    <td className="py-3 text-right">
                       {fmtMoney(item.unitPrice)}
                     </td>
-                    <td className="py-3 text-right text-sm font-medium">
-                      {fmtMoney(item.amount)}
+                    <td className="py-3 text-right">
+                      {fmtMoney(item.tax.taxable)}
+                    </td>
+                    <td className="py-3 text-right">
+                      {fmtMoney(item.tax.cgst)}
+                    </td>
+                    <td className="py-3 text-right">
+                      {fmtMoney(item.tax.sgst)}
+                    </td>
+                    <td className="py-3 text-right font-medium">
+                      {fmtMoney(item.tax.total)}
                     </td>
                     {isPending && (
                       <td className="no-print py-3 text-right">
-                        {invoice.items.length > 1 && (
+                        {itemsWithTax.length > 1 && (
                           <button
                             onClick={() => removeItem(item.id)}
                             className="rounded p-1 text-red-500 hover:bg-red-50"
@@ -531,8 +650,8 @@ export default function InvoiceDetailPage() {
                 ))
               ) : (
                 <tr className="border-b">
-                  <td className="py-3 text-sm" colSpan={5}>
-                    No items
+                  <td className="py-3" colSpan={9}>
+                    {t("dashboard.billing.noItems", "No items")}
                   </td>
                 </tr>
               )}
@@ -543,26 +662,32 @@ export default function InvoiceDetailPage() {
         {/* Add item form (only for PENDING invoices) */}
         {isPending && (
           <div className="no-print mb-6 rounded-lg border border-dashed bg-gray-50 p-4">
-            <h3 className="mb-3 text-sm font-semibold text-gray-700">Add Line Item</h3>
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">
+              {t("dashboard.billing.addLineItem", "Add Line Item")}
+            </h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-12">
               <input
                 type="text"
-                placeholder="Description"
+                aria-label={t("dashboard.billing.description", "Description")}
+                placeholder={t("dashboard.billing.description", "Description")}
                 value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
+                onChange={(e) => onDescriptionChange(e.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm sm:col-span-5"
               />
               <select
+                aria-label={t("dashboard.billing.category", "Category")}
                 value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
+                onChange={(e) => onCategoryChange(e.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm sm:col-span-3"
               >
                 {[
                   "CONSULTATION",
                   "PROCEDURE",
                   "LAB",
+                  "RADIOLOGY",
                   "PHARMACY",
-                  "ROOM",
+                  "MEDICINE",
+                  "ROOM_CHARGE",
                   "SURGERY",
                   "OTHER",
                 ].map((c) => (
@@ -574,7 +699,8 @@ export default function InvoiceDetailPage() {
               <input
                 type="number"
                 min="1"
-                placeholder="Qty"
+                aria-label={t("dashboard.billing.qty", "Qty")}
+                placeholder={t("dashboard.billing.qty", "Qty")}
                 value={newQty}
                 onChange={(e) => setNewQty(e.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm sm:col-span-1"
@@ -583,7 +709,8 @@ export default function InvoiceDetailPage() {
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="Unit Price"
+                aria-label={t("dashboard.billing.unitPrice", "Unit Price")}
+                placeholder={t("dashboard.billing.unitPrice", "Unit Price")}
                 value={newPrice}
                 onChange={(e) => setNewPrice(e.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm sm:col-span-2"
@@ -603,22 +730,30 @@ export default function InvoiceDetailPage() {
         <div className="mb-8 flex justify-end">
           <div className="w-72 space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Subtotal</span>
+              <span className="text-gray-500">
+                {t("dashboard.billing.subtotal", "Subtotal")}
+              </span>
               <span>{fmtMoney(invoice.subtotal)}</span>
             </div>
-            {invoice.taxAmount > 0 && (
+            {displayTotalTax > 0 && (
               <>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">CGST (9%)</span>
-                  <span>{fmtMoney(invoice.taxAmount / 2)}</span>
+                  <span className="text-gray-500" data-testid="totals-cgst-label">
+                    {t("dashboard.billing.cgst", "CGST")}
+                  </span>
+                  <span data-testid="totals-cgst">{fmtMoney(displayCgst)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">SGST (9%)</span>
-                  <span>{fmtMoney(invoice.taxAmount / 2)}</span>
+                  <span className="text-gray-500" data-testid="totals-sgst-label">
+                    {t("dashboard.billing.sgst", "SGST")}
+                  </span>
+                  <span data-testid="totals-sgst">{fmtMoney(displaySgst)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-1 text-sm font-medium">
-                  <span className="text-gray-600">Total GST (18%)</span>
-                  <span>{fmtMoney(invoice.taxAmount)}</span>
+                  <span className="text-gray-600">
+                    {t("dashboard.billing.totalGst", "Total GST")}
+                  </span>
+                  <span>{fmtMoney(displayTotalTax)}</span>
                 </div>
               </>
             )}

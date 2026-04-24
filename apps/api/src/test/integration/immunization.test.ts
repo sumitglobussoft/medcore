@@ -148,4 +148,88 @@ describeIfDB("Immunization API (integration)", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
   });
+
+  // ─────────────────────────────────────────────────────────
+  // Issue #38: per-patient overdue immunizations endpoint
+  // ─────────────────────────────────────────────────────────
+
+  it("per-patient schedule only returns that patient's overdue rows", async () => {
+    // Two patients, each with one overdue vaccine. The endpoint for patient A
+    // must return exactly 1 row (not the global 2).
+    const patientA = await createPatientFixture();
+    const patientB = await createPatientFixture();
+    const past = new Date(Date.now() - 30 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+
+    await addImmunization(patientA.id, {
+      vaccine: "Hepatitis B 2",
+      nextDueDate: past,
+    });
+    await addImmunization(patientB.id, {
+      vaccine: "Hepatitis B 2",
+      nextDueDate: past,
+    });
+    // A third, non-overdue entry for patient A to ensure the filter works.
+    const future = new Date(Date.now() + 30 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    await addImmunization(patientA.id, {
+      vaccine: "Booster",
+      nextDueDate: future,
+    });
+
+    const res = await request(app)
+      .get(
+        `/api/v1/ehr/patients/${patientA.id}/immunizations/schedule?filter=overdue`
+      )
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    // Exactly 1 overdue row for patient A.
+    expect(res.body.data.length).toBe(1);
+    expect(
+      res.body.data.every((r: any) => r.patientId === patientA.id)
+    ).toBe(true);
+  });
+
+  it("global schedule with ?patientId= scopes results to that patient", async () => {
+    const patientA = await createPatientFixture();
+    const patientB = await createPatientFixture();
+    const past = new Date(Date.now() - 60 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    await addImmunization(patientA.id, {
+      vaccine: "DPT 1",
+      nextDueDate: past,
+    });
+    await addImmunization(patientB.id, {
+      vaccine: "DPT 1",
+      nextDueDate: past,
+    });
+
+    const res = await request(app)
+      .get(
+        `/api/v1/ehr/immunizations/schedule?filter=overdue&patientId=${patientA.id}`
+      )
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(200);
+    expect(
+      res.body.data.every((r: any) => r.patientId === patientA.id)
+    ).toBe(true);
+  });
+
+  it("per-patient schedule returns 0 for adult with no pediatric rows", async () => {
+    // Adult with no immunization records at all — overdue count must be 0.
+    const adult = await createPatientFixture({
+      dateOfBirth: new Date("1990-01-01"),
+    });
+    const res = await request(app)
+      .get(
+        `/api/v1/ehr/patients/${adult.id}/immunizations/schedule?filter=overdue`
+      )
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(0);
+  });
 });

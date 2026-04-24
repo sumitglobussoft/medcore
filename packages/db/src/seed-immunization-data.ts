@@ -182,7 +182,11 @@ async function main() {
           }).catch(() => {});
           totalChildDoses++;
         } else {
-          // Overdue — set nextDueDate in the past to flag it
+          // Overdue — Issue #46: clamp to a realistic demo window (7-60 days)
+          // instead of showing a due date from years ago. The record is still
+          // "pending", but the dashboard won't display "3375 days overdue".
+          const overdueDays = rand(7, 60);
+          const clampedDueDate = daysAgo(overdueDays);
           await prisma.immunization.create({
             data: {
               patientId: patient.id,
@@ -193,8 +197,10 @@ async function main() {
               batchNumber: null,
               manufacturer: null,
               site: entry.site,
-              nextDueDate: dateGiven,
-              notes: `OVERDUE — was due ${dateGiven.toLocaleDateString("en-IN")}, not yet administered`,
+              nextDueDate: clampedDueDate,
+              notes: `OVERDUE — was due ${clampedDueDate.toLocaleDateString(
+                "en-IN"
+              )} (${overdueDays}d), not yet administered`,
             },
           }).catch(() => {});
           totalUpcomingDue++;

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -136,5 +136,122 @@ describe("AppointmentsPage", () => {
       await user.click(statsButtons[0]);
     }
     expect(container).toBeTruthy();
+  });
+
+  /**
+   * Issue #34: past-time slots on today's date must render as
+   * aria-disabled="true" and be functionally un-clickable. We mock the system
+   * clock to 15:30 and feed a slot list that straddles "now", then assert
+   * both the visual/a11y state and that clicks on a past slot do NOT open
+   * the patient-id prompt.
+   */
+  describe("past-slot gating on today's date (Issue #34)", () => {
+    let originalNow: typeof Date.now;
+    let originalDate: DateConstructor;
+    beforeEach(() => {
+      // Freeze "now" to 2026-04-24T15:30 local time. We avoid
+      // `vi.useFakeTimers()` because it also fakes the microtask queue,
+      // which makes userEvent hang. Instead we monkey-patch `Date.now` plus
+      // the zero-arg `new Date()` so the page's `toISODate(new Date())`
+      // default and the `Date.now()` comparisons both read the frozen value.
+      const fixedMs = new Date(2026, 3, 24, 15, 30, 0, 0).getTime();
+      originalNow = Date.now;
+      originalDate = global.Date;
+      Date.now = () => fixedMs;
+      const PatchedDate = function (this: Date, ...args: unknown[]) {
+        if (args.length === 0) {
+          return new originalDate(fixedMs) as unknown as Date;
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return new (originalDate as any)(...args);
+      } as unknown as DateConstructor;
+      PatchedDate.now = () => fixedMs;
+      PatchedDate.parse = originalDate.parse;
+      PatchedDate.UTC = originalDate.UTC;
+      // `Function.prototype` is read-only at the type level; use a cast so
+      // TS permits the assignment (the runtime behaviour is correct).
+      (PatchedDate as unknown as { prototype: unknown }).prototype =
+        originalDate.prototype;
+      global.Date = PatchedDate;
+    });
+
+    afterEach(() => {
+      Date.now = originalNow;
+      global.Date = originalDate;
+    });
+
+    it("marks slots before now as aria-disabled and allows booking future slots", async () => {
+      const user = userEvent.setup();
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === "/doctors")
+          return Promise.resolve({
+            data: [
+              { id: "d1", user: { name: "Dr. Rajesh Sharma" }, specialization: "GP" },
+            ],
+          });
+        if (url.startsWith("/appointments"))
+          return Promise.resolve({ data: [] });
+        if (url.startsWith("/doctors/d1/slots"))
+          return Promise.resolve({
+            data: {
+              slots: [
+                { startTime: "09:00", endTime: "09:15", isAvailable: true }, // past
+                { startTime: "14:00", endTime: "14:15", isAvailable: true }, // past
+                { startTime: "16:00", endTime: "16:15", isAvailable: true }, // future
+                { startTime: "18:00", endTime: "18:15", isAvailable: true }, // future
+              ],
+            },
+          });
+        return Promise.resolve({ data: [] });
+      });
+
+      render(<AppointmentsPage />);
+
+      // Open the booking panel.
+      const bookBtn = await screen.findByRole("button", {
+        name: /book appointment/i,
+      });
+      await user.click(bookBtn);
+
+      // Pick the doctor — triggers loadSlots("d1", today).
+      const doctorSelect = await screen.findByLabelText(/doctor/i);
+      await user.selectOptions(doctorSelect, "d1");
+
+      // Wait for the slot buttons to render.
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /09:00 - 09:15/ })).toBeInTheDocument();
+      });
+
+      const pastSlot = screen.getByRole("button", { name: /09:00 - 09:15/ });
+      const pastSlotTwo = screen.getByRole("button", { name: /14:00 - 14:15/ });
+      const futureSlot = screen.getByRole("button", { name: /16:00 - 16:15/ });
+      const futureSlotEve = screen.getByRole("button", { name: /18:00 - 18:15/ });
+
+      // Past slots: aria-disabled, disabled, line-through class.
+      expect(pastSlot).toHaveAttribute("aria-disabled", "true");
+      expect(pastSlot).toBeDisabled();
+      expect(pastSlotTwo).toHaveAttribute("aria-disabled", "true");
+      expect(pastSlotTwo).toBeDisabled();
+
+      // Future slots: aria-disabled="false" and not disabled.
+      expect(futureSlot).toHaveAttribute("aria-disabled", "false");
+      expect(futureSlot).not.toBeDisabled();
+      expect(futureSlotEve).toHaveAttribute("aria-disabled", "false");
+      expect(futureSlotEve).not.toBeDisabled();
+
+      // Clicking a past slot must NOT open the patient-id prompt modal.
+      await user.click(pastSlot);
+      expect(
+        screen.queryByTestId("patient-id-prompt")
+      ).not.toBeInTheDocument();
+
+      // Clicking a future slot DOES open the prompt (no freeze — this is
+      // the direct regression for Issue #35: a late-hour slot like 18:00
+      // must process a click synchronously without hanging the component).
+      await user.click(futureSlotEve);
+      expect(
+        await screen.findByTestId("patient-id-prompt")
+      ).toBeInTheDocument();
+    });
   });
 });

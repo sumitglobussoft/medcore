@@ -13,6 +13,10 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import {
+  serializeMedicine,
+  serializeMedicines,
+} from "../services/medicines/serialize";
 
 const router = Router();
 router.use(authenticate);
@@ -46,7 +50,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
     res.json({
       success: true,
-      data: medicines,
+      data: serializeMedicines(medicines),
       error: null,
       meta: { page: parseInt(page as string), limit: take, total },
     });
@@ -100,7 +104,7 @@ router.get(
 
       res.json({
         success: true,
-        data: { ...rest, interactions },
+        data: { ...serializeMedicine(rest), interactions },
         error: null,
       });
     } catch (err) {
@@ -109,6 +113,28 @@ router.get(
   }
 );
 
+// Map UI-facing field names (rxRequired, manufacturer) to Prisma column names.
+// The schema.prisma field names (prescriptionRequired, brand) are the source
+// of truth; the UI aliases are defined in services/medicines/serialize.ts.
+function mapMedicineInputToPrisma(
+  body: Record<string, unknown>
+): Record<string, unknown> {
+  const {
+    rxRequired,
+    manufacturer,
+    prescriptionRequired,
+    brand,
+    ...rest
+  } = body;
+  const out: Record<string, unknown> = { ...rest };
+  if (rxRequired !== undefined) out.prescriptionRequired = rxRequired;
+  else if (prescriptionRequired !== undefined)
+    out.prescriptionRequired = prescriptionRequired;
+  if (manufacturer !== undefined) out.brand = manufacturer;
+  else if (brand !== undefined) out.brand = brand;
+  return out;
+}
+
 // POST /api/v1/medicines — create medicine
 router.post(
   "/",
@@ -116,11 +142,14 @@ router.post(
   validate(createMedicineSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const medicine = await prisma.medicine.create({ data: req.body });
+      const data = mapMedicineInputToPrisma(req.body);
+      const medicine = await prisma.medicine.create({ data: data as any });
       auditLog(req, "MEDICINE_CREATE", "medicine", medicine.id, {
         name: medicine.name,
       }).catch(console.error);
-      res.status(201).json({ success: true, data: medicine, error: null });
+      res
+        .status(201)
+        .json({ success: true, data: serializeMedicine(medicine), error: null });
     } catch (err) {
       next(err);
     }
@@ -134,14 +163,15 @@ router.patch(
   validate(updateMedicineSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const data = mapMedicineInputToPrisma(req.body);
       const medicine = await prisma.medicine.update({
         where: { id: req.params.id },
-        data: req.body,
+        data: data as any,
       });
       auditLog(req, "MEDICINE_UPDATE", "medicine", medicine.id, req.body).catch(
         console.error
       );
-      res.json({ success: true, data: medicine, error: null });
+      res.json({ success: true, data: serializeMedicine(medicine), error: null });
     } catch (err) {
       next(err);
     }

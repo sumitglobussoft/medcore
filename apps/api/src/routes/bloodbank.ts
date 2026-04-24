@@ -442,6 +442,35 @@ router.get(
   }
 );
 
+/**
+ * Issue #49 (2026-04-24) — Single source of truth for "expiring in 7 days".
+ *
+ * Previously the blood-bank page computed this count two ways:
+ *   (a) top strip used `summary.expiringSoon` from this endpoint, which
+ *       required `expiresAt >= now && <= soon` (not yet expired);
+ *   (b) per-group cards iterated the paginated `/inventory` list and
+ *       counted `expiresAt <= soon` (no floor), which included already-
+ *       expired units and was capped at 200 rows.
+ *
+ * The page now consumes `expiringByBloodGroup` from this single helper for
+ * both widgets, guaranteeing summary === sum-of-per-group at the source.
+ */
+function getExpiringUnits<T extends { bloodGroup: string; expiresAt: Date }>(
+  units: T[],
+  days = 7
+): { expiring: T[]; byBloodGroup: Record<string, number> } {
+  const now = new Date();
+  const soon = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  const expiring = units.filter(
+    (u) => u.expiresAt >= now && u.expiresAt <= soon
+  );
+  const byBloodGroup: Record<string, number> = {};
+  for (const u of expiring) {
+    byBloodGroup[u.bloodGroup] = (byBloodGroup[u.bloodGroup] || 0) + 1;
+  }
+  return { expiring, byBloodGroup };
+}
+
 router.get(
   "/inventory/summary",
   async (_req: Request, res: Response, next: NextFunction) => {
@@ -453,17 +482,21 @@ router.get(
 
       const byGroup: Record<string, Record<string, number>> = {};
       const byComponent: Record<string, number> = {};
-      let expiringSoon = 0;
-      const now = new Date();
-      const soon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
       for (const u of units) {
         if (!byGroup[u.bloodGroup]) byGroup[u.bloodGroup] = {};
         byGroup[u.bloodGroup][u.component] =
           (byGroup[u.bloodGroup][u.component] || 0) + 1;
         byComponent[u.component] = (byComponent[u.component] || 0) + 1;
-        if (u.expiresAt <= soon && u.expiresAt >= now) expiringSoon += 1;
       }
+
+      // Single source of truth: both `expiringSoon` (scalar, shown in top
+      // strip) and `expiringByBloodGroup` (map, used by per-group cards)
+      // are derived from the same helper over the same unit set.
+      const { expiring, byBloodGroup: expiringByBloodGroup } = getExpiringUnits(
+        units,
+        7
+      );
 
       res.json({
         success: true,
@@ -471,7 +504,8 @@ router.get(
           totalAvailable: units.length,
           byBloodGroup: byGroup,
           byComponent,
-          expiringSoon,
+          expiringSoon: expiring.length,
+          expiringByBloodGroup,
         },
         error: null,
       });

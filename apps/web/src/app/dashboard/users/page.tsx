@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Plus, Shield, ShieldAlert, Printer } from "lucide-react";
 
 interface StaffUser {
@@ -140,11 +141,11 @@ export default function UsersPage() {
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               className="rounded-lg border px-3 py-2 text-sm"
             />
-            <input
+            <PasswordInput
               required
-              type="password"
               placeholder="Password"
               minLength={6}
+              autoComplete="new-password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               className="rounded-lg border px-3 py-2 text-sm"

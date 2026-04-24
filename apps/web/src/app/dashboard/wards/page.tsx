@@ -152,7 +152,25 @@ export default function WardsPage() {
       setBedForm({ bedNumber: "" });
       loadWards();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add bed");
+      // Issue #36 — the old handler only showed err.message which for a 400
+      // was the generic "Validation failed". Surface field-level details
+      // when the API attached them so the user can see which field is wrong.
+      const e = err as Error & {
+        status?: number;
+        payload?: {
+          error?: string;
+          details?: Array<{ field: string; message: string }>;
+        };
+      };
+      const details = e?.payload?.details;
+      const detailMsg =
+        Array.isArray(details) && details.length > 0
+          ? details.map((d) => `${d.field || "field"}: ${d.message}`).join("; ")
+          : "";
+      const message = detailMsg
+        ? `${e.message}: ${detailMsg}`
+        : e?.message || "Failed to add bed";
+      toast.error(message);
     }
   }
 

@@ -22,6 +22,9 @@ vi.mock("@/lib/store", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn() }),
   usePathname: () => "/login",
+  // Issue #33 brought `useSearchParams` into the page. Return a stub so tests
+  // do not need to simulate the ?redirect= param.
+  useSearchParams: () => ({ get: (_k: string) => null }),
 }));
 
 vi.mock("@/lib/toast", () => ({
@@ -44,7 +47,7 @@ async function submitCredentials() {
   const user = userEvent.setup();
   render(<LoginPage />);
   await user.type(screen.getByLabelText(/email/i), "user@medcore.local");
-  await user.type(screen.getByLabelText(/password/i), "correct-horse");
+  await user.type(screen.getByLabelText(/^password$/i), "correct-horse");
   await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 }
 
@@ -61,7 +64,7 @@ describe("LoginPage — status-aware error handling (Issue #15)", () => {
       screen.getByRole("heading", { name: /sign in/i })
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
   });
 
   it("shows the rate-limit message on 429", async () => {
@@ -106,5 +109,85 @@ describe("LoginPage — status-aware error handling (Issue #15)", () => {
     await waitFor(() =>
       expect(screen.getByText(/internal server error/i)).toBeInTheDocument()
     );
+  });
+});
+
+describe("LoginPage — Remember Me (Issue #1)", () => {
+  beforeEach(() => {
+    loginMock.mockReset();
+    verify2FAMock.mockReset();
+    pushMock.mockReset();
+  });
+
+  it("renders the Remember Me checkbox, unchecked by default", () => {
+    render(<LoginPage />);
+    const remember = screen.getByTestId("login-remember-me") as HTMLInputElement;
+    expect(remember).toBeInTheDocument();
+    expect(remember.type).toBe("checkbox");
+    expect(remember.checked).toBe(false);
+    // Label associated with the checkbox
+    expect(screen.getByLabelText(/remember me/i)).toBe(remember);
+  });
+
+  it("does NOT pass rememberMe when unchecked (preserves legacy 7d TTL)", async () => {
+    const user = userEvent.setup();
+    loginMock.mockResolvedValueOnce({});
+    render(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "user@medcore.local");
+    await user.type(screen.getByLabelText(/^password$/i), "correct-horse");
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+    await waitFor(() => expect(loginMock).toHaveBeenCalled());
+    // Third arg is rememberMe: must be false (or omitted/falsy).
+    expect(loginMock).toHaveBeenCalledWith(
+      "user@medcore.local",
+      "correct-horse",
+      false
+    );
+  });
+
+  it("passes rememberMe: true to the store when checked", async () => {
+    const user = userEvent.setup();
+    loginMock.mockResolvedValueOnce({});
+    render(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "user@medcore.local");
+    await user.type(screen.getByLabelText(/^password$/i), "correct-horse");
+    await user.click(screen.getByTestId("login-remember-me"));
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+    await waitFor(() => expect(loginMock).toHaveBeenCalled());
+    expect(loginMock).toHaveBeenCalledWith(
+      "user@medcore.local",
+      "correct-horse",
+      true
+    );
+  });
+});
+
+describe("LoginPage — password show/hide toggle (Issue #2)", () => {
+  beforeEach(() => {
+    loginMock.mockReset();
+    verify2FAMock.mockReset();
+    pushMock.mockReset();
+  });
+
+  it("renders the password toggle and reveals the value on click", async () => {
+    const user = userEvent.setup();
+    render(<LoginPage />);
+    const password = screen.getByLabelText(/^password$/i) as HTMLInputElement;
+    expect(password.type).toBe("password");
+    await user.type(password, "secret");
+    const toggle = screen.getByTestId("password-toggle");
+    await user.click(toggle);
+    expect(password.type).toBe("text");
+    await user.click(toggle);
+    expect(password.type).toBe("password");
+  });
+
+  it("toggle click does not submit the login form", async () => {
+    const user = userEvent.setup();
+    render(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "a@b.com");
+    await user.type(screen.getByLabelText(/^password$/i), "correct-horse");
+    await user.click(screen.getByTestId("password-toggle"));
+    expect(loginMock).not.toHaveBeenCalled();
   });
 });

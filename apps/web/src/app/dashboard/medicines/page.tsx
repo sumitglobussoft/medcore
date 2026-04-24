@@ -90,6 +90,13 @@ export default function MedicinesPage() {
 
   async function createMedicine(e: React.FormEvent) {
     e.preventDefault();
+    // Issue #41: Manufacturer is required. Guard here in addition to the
+    // `required` attribute (which covers the happy path) and the server-side
+    // Zod refinement (which is the source of truth).
+    if (!form.manufacturer.trim()) {
+      toast.error("Manufacturer is required");
+      return;
+    }
     try {
       await api.post("/medicines", {
         ...form,
@@ -97,7 +104,7 @@ export default function MedicinesPage() {
         form: form.form || undefined,
         strength: form.strength || undefined,
         category: form.category || undefined,
-        manufacturer: form.manufacturer || undefined,
+        manufacturer: form.manufacturer.trim(),
       });
       setShowAdd(false);
       setForm({
@@ -196,6 +203,12 @@ export default function MedicinesPage() {
               </div>
               <p className="mt-2 text-sm text-gray-600">
                 {[m.form, m.strength].filter(Boolean).join(" · ") || "—"}
+              </p>
+              <p
+                className="mt-1 text-xs text-gray-500"
+                data-testid="medicine-manufacturer"
+              >
+                Mfg: {m.manufacturer || "—"}
               </p>
               {m.category && (
                 <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
@@ -356,9 +369,10 @@ export default function MedicinesPage() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">
-                  Manufacturer
+                  Manufacturer <span className="text-red-500">*</span>
                 </label>
                 <input
+                  required
                   value={form.manufacturer}
                   onChange={(e) =>
                     setForm({ ...form, manufacturer: e.target.value })

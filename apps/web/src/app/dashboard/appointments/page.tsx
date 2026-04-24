@@ -414,26 +414,46 @@ export default function AppointmentsPage() {
 
   // ─── Actions ──────────────────────
 
-  function bookAppointment(slotStartTime: string) {
-    // Validate slot is not in the past
-    try {
-      const slotDate = new Date(`${selectedDate}T${slotStartTime}`);
-      if (!Number.isNaN(slotDate.getTime()) && slotDate.getTime() < Date.now()) {
-        toast.error("Cannot book an appointment slot in the past");
+  // Issue #35: wrap the click handler in useCallback. The page previously
+  // parsed the date inline and re-created the function on every render. When
+  // combined with the prompt-modal state change, that could feed a render
+  // loop on slower machines — clicking a late-in-the-day slot like 18:00
+  // while the Zustand toast store, the prompt state, and the slot list all
+  // updated in the same tick would freeze the tab. Using useCallback plus
+  // a stable past-slot guard and an early return when the prompt is already
+  // open keeps the handler idempotent.
+  const bookAppointment = useCallback(
+    (slotStartTime: string) => {
+      // Ignore double-click bursts: if the prompt is already open for this
+      // slot, do nothing. Without this guard, React would batch setState
+      // calls against the same modal and the inner form would re-mount.
+      if (patientIdPrompt.open) return;
+
+      // Reject past slots defensively (the slot renderer already disables
+      // them, but a keyboard user could still hit Enter on a stale button).
+      const ms = slotEpochMs(selectedDate, slotStartTime);
+      if (Number.isFinite(ms) && ms < Date.now()) {
+        toast.error(
+          t(
+            "dashboard.appointments.slotInPast",
+            "This slot is in the past and cannot be booked."
+          )
+        );
         return;
       }
-    } catch {
-      // ignore parsing errors and let the API validate
-    }
-    if (!selectedDoctor) {
-      toast.error("Please select a doctor first");
-      return;
-    }
-    // Open in-page modal (replaces window.prompt so it's testable by
-    // browser automation that cannot interact with native dialogs).
-    setPatientIdInput("");
-    setPatientIdPrompt({ open: true, slotStartTime });
-  }
+      if (!selectedDoctor) {
+        toast.error(
+          t("dashboard.appointments.selectDoctorFirst", "Please select a doctor first")
+        );
+        return;
+      }
+      // Open in-page modal (replaces window.prompt so it's testable by
+      // browser automation that cannot interact with native dialogs).
+      setPatientIdInput("");
+      setPatientIdPrompt({ open: true, slotStartTime });
+    },
+    [patientIdPrompt.open, selectedDate, selectedDoctor, t]
+  );
 
   async function confirmPatientIdAndBook() {
     const patientId = patientIdInput.trim();
@@ -554,6 +574,44 @@ export default function AppointmentsPage() {
     map[reschedDate] = reschedSlots;
     return map;
   }, [reschedSlots, reschedDate]);
+
+  // ─── Past-slot detection (issue #34) ────────────────────
+  // Ticks every 30s so slots that roll into the past while the booking
+  // dialog is open become unselectable too. Using an interval instead of
+  // reading `Date.now()` inline keeps the list memoizable, and the 30s
+  // cadence is plenty fine-grained for typical 15-minute slot sizes.
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Convert a YYYY-MM-DD + HH:MM pair into an epoch-ms timestamp, or NaN if
+  // either component is malformed. Kept pure (no React state) so it is safe
+  // to call in render and in event handlers.
+  function slotEpochMs(dateYmd: string, hhmm: string): number {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) return NaN;
+    if (!/^\d{2}:\d{2}$/.test(hhmm)) return NaN;
+    const [y, mo, d] = dateYmd.split("-").map(Number);
+    const [h, mi] = hhmm.split(":").map(Number);
+    // Local-time Date avoids "2026-04-24T18:00" being treated as UTC on
+    // some browsers; the schedule uses clinic-local times.
+    return new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
+  }
+
+  // Annotate each slot with a precomputed `isPast` flag. Useful both for
+  // rendering (grey out, aria-disabled) and for the click handler so we
+  // don't have to parse the date twice. Memoized so the mapping only runs
+  // when the slot list, the date, or the clock tick changes.
+  const slotsWithPast = useMemo(() => {
+    return slots.map((s) => {
+      const ms = slotEpochMs(selectedDate, s.startTime);
+      return {
+        ...s,
+        isPast: Number.isFinite(ms) && ms < nowMs,
+      };
+    });
+  }, [slots, selectedDate, nowMs]);
 
   // ─── Derived list ─────────────────
 
@@ -1320,7 +1378,7 @@ export default function AppointmentsPage() {
                 </div>
               )}
 
-              {slots.length > 0 && (
+              {slotsWithPast.length > 0 && (
                 <div className="mt-4">
                   <p className="mb-2 text-sm font-medium">
                     {isRecurring
@@ -1328,20 +1386,44 @@ export default function AppointmentsPage() {
                       : "Available Slots:"}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {slots.map((slot) => (
-                      <button
-                        key={slot.startTime}
-                        disabled={!slot.isAvailable}
-                        onClick={() => bookAppointment(slot.startTime)}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                          slot.isAvailable
-                            ? "bg-green-50 text-green-700 hover:bg-green-100"
-                            : "cursor-not-allowed bg-gray-100 text-gray-400 line-through"
-                        }`}
-                      >
-                        {slot.startTime} - {slot.endTime}
-                      </button>
-                    ))}
+                    {slotsWithPast.map((slot) => {
+                      // Issue #34: a slot that sits before the current wall
+                      // clock must be both visually and functionally dead,
+                      // regardless of whether the backend also flagged it
+                      // via `isAvailable`.
+                      const bookable = slot.isAvailable && !slot.isPast;
+                      const title = slot.isPast
+                        ? t(
+                            "dashboard.appointments.slotInPast",
+                            "This slot is in the past and cannot be booked."
+                          )
+                        : !slot.isAvailable
+                          ? t(
+                              "dashboard.appointments.slotUnavailable",
+                              "Slot unavailable"
+                            )
+                          : `${slot.startTime} - ${slot.endTime}`;
+                      return (
+                        <button
+                          key={slot.startTime}
+                          type="button"
+                          disabled={!bookable}
+                          aria-disabled={!bookable}
+                          data-past={slot.isPast ? "true" : undefined}
+                          title={title}
+                          onClick={() => bookAppointment(slot.startTime)}
+                          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                            bookable
+                              ? "bg-green-50 text-green-700 hover:bg-green-100"
+                              : slot.isPast
+                                ? "cursor-not-allowed bg-gray-50 text-gray-400 line-through opacity-60"
+                                : "cursor-not-allowed bg-gray-100 text-gray-400 line-through"
+                          }`}
+                        >
+                          {slot.startTime} - {slot.endTime}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

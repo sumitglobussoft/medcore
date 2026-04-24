@@ -176,14 +176,23 @@ router.post(
   }
 );
 
-// PATCH /api/v1/patients/:id
+// PATCH /api/v1/patients/:id — update demographics. Open to most staff so
+// typos in phone/address/name can be corrected without escalation. MR number
+// is immutable and is never touched here.
 router.patch(
   "/:id",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
   validate(updatePatientSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, phone, email, ...patientData } = req.body;
+      const body = req.body as {
+        name?: string;
+        phone?: string;
+        email?: string;
+        dateOfBirth?: string | null;
+        [key: string]: unknown;
+      };
+      const { name, phone, email, dateOfBirth, ...rest } = body;
 
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.id },
@@ -191,6 +200,14 @@ router.patch(
       if (!patient) {
         res.status(404).json({ success: false, data: null, error: "Patient not found" });
         return;
+      }
+
+      // Defence-in-depth: MR number is never editable via PATCH. The Zod
+      // schema doesn't include it, but strip any stray value just in case.
+      const patientData: Record<string, unknown> = { ...rest };
+      delete patientData.mrNumber;
+      if (dateOfBirth !== undefined) {
+        patientData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth as string) : null;
       }
 
       await prisma.$transaction(async (tx) => {
@@ -212,6 +229,15 @@ router.patch(
           });
         }
       });
+
+      auditLog(req, "UPDATE_PATIENT", "patient", req.params.id, {
+        fields: [
+          ...(name ? ["name"] : []),
+          ...(phone ? ["phone"] : []),
+          ...(email ? ["email"] : []),
+          ...Object.keys(patientData),
+        ],
+      }).catch(console.error);
 
       const updated = await prisma.patient.findUnique({
         where: { id: req.params.id },

@@ -41,6 +41,20 @@ interface HealthStatus {
   timestamp?: string;
 }
 
+/**
+ * Issue #47 breakdown row — one entry per action type seen in the last hour,
+ * surfaced as a mini-table under the System Health "Errors (1h)" tile so a
+ * raw count of 125 becomes "3 unique actions · top: LOGIN_FAILED (120) from
+ * 2 IPs" rather than an opaque number.
+ */
+interface ErrorBreakdownRow {
+  action: string;
+  count: number;
+  uniqueIps: number;
+  topIp?: string;
+  topIpCount?: number;
+}
+
 export default function AdminConsolePage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
@@ -53,6 +67,7 @@ export default function AdminConsolePage() {
   const [bloodLow, setBloodLow] = useState<any[]>([]);
   const [auditCount, setAuditCount] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
+  const [errorBreakdown, setErrorBreakdown] = useState<ErrorBreakdownRow[]>([]);
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [pendingExpenses, setPendingExpenses] = useState<any[]>([]);
   const [pendingPOs, setPendingPOs] = useState<any[]>([]);
@@ -63,6 +78,7 @@ export default function AdminConsolePage() {
     total: 0,
   });
   const [activeSessions, setActiveSessions] = useState(0);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!isLoading && user && user.role !== "ADMIN") {
@@ -70,10 +86,31 @@ export default function AdminConsolePage() {
     }
   }, [user, isLoading, router]);
 
+  // Issue #48 (2026-04-24): day-bounds must be computed in the viewer's
+  // timezone (hospital operates in IST) rather than UTC. `new Date()
+  // .toISOString().split("T")[0]` returns the UTC date which, after
+  // 18:30 local, is already tomorrow — producing empty snapshots.
+  function localTodayBounds(): { fromISO: string; toISO: string; dayKey: string } {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const dayKey = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
+    return { fromISO: start.toISOString(), toISO: end.toISOString(), dayKey };
+  }
+
+  // Issue #48: refresh the admin-console every 60s so freshly-registered
+  // patients show up in "Today Snapshot" without a hard reload. Also
+  // mitigates any intermediate caching of /analytics/overview.
+  useEffect(() => {
+    if (!user || user.role !== "ADMIN") return;
+    const id = window.setInterval(() => setRefreshTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, [user]);
+
   useEffect(() => {
     if (!user || user.role !== "ADMIN") return;
     (async () => {
-      const today = new Date().toISOString().split("T")[0];
+      const { fromISO, toISO, dayKey } = localTodayBounds();
       const hourAgo = new Date(Date.now() - 3600_000).toISOString();
       const [
         health,
@@ -84,6 +121,7 @@ export default function AdminConsolePage() {
         bloodSum,
         audit,
         auditErrors,
+        auditErrorRows,
         leaves,
         expenses,
         pos,
@@ -98,7 +136,9 @@ export default function AdminConsolePage() {
         )
           .then((r) => r.json())
           .catch(() => null) as Promise<HealthStatus | null>,
-        safe<any>(`/analytics/overview?from=${today}&to=${today}`, { data: null }),
+        // Issue #48: use ISO timestamps at local-midnight bounds so the
+        // server range filter aligns with the hospital's calendar day.
+        safe<any>(`/analytics/overview?from=${fromISO}&to=${toISO}`, { data: null }),
         safe<any>(`/complaints?status=OPEN&limit=50`, { data: [] }),
         safe<any>(`/pharmacy/inventory?lowStock=true&limit=1`, { meta: { total: 0 } }),
         safe<any>(`/pharmacy/inventory?expiring=true&limit=1`, { meta: { total: 0 } }),
@@ -110,12 +150,19 @@ export default function AdminConsolePage() {
         safe<any>(`/audit?from=${hourAgo}&action=LOGIN_FAILED&limit=1`, {
           meta: { total: 0 },
         }),
+        // Issue #47 (2026-04-24): also pull a recent page of error rows so
+        // we can render a breakdown (action · count · top-src-ip) beside
+        // the raw count. `limit=100` is enough to characterise a noisy
+        // hour without paging through thousands of entries.
+        safe<any>(`/audit?from=${hourAgo}&action=LOGIN_FAILED&limit=100`, {
+          data: [],
+        }),
         safe<any>(`/leaves/pending`, { data: [] }),
         safe<any>(`/expenses?status=PENDING&limit=20`, { data: [] }),
         safe<any>(`/purchase-orders?status=PENDING&limit=20`, { data: [] }),
         safe<any>(`/wards`, { data: [] }),
-        safe<any>(`/shifts/roster?date=${today}`, { data: [] }),
-        safe<any>(`/surgery?from=${today}&to=${today}&limit=100`, { data: [] }),
+        safe<any>(`/shifts/roster?date=${dayKey}`, { data: [] }),
+        safe<any>(`/surgery?from=${fromISO}&to=${toISO}&limit=100`, { data: [] }),
         safe<any>(`/doctors`, { data: [] }),
       ]);
 
@@ -126,12 +173,66 @@ export default function AdminConsolePage() {
       setLowStock(pharmLow.meta?.total || 0);
       setExpiringMeds(pharmExp.meta?.total || 0);
       const blood = bloodSum.data;
-      const lowUnits = Array.isArray(blood?.byGroup)
-        ? blood.byGroup.filter((g: any) => (g.available ?? 0) < 3)
-        : [];
-      setBloodLow(lowUnits);
+      // Issue #49: the summary now returns `byBloodGroup` (map keyed by
+      // group code, each value is a component→count map). A "low" group
+      // is one whose total AVAILABLE units fall below a threshold.
+      const bg: Record<string, Record<string, number>> = blood?.byBloodGroup || {};
+      const lowGroups = Object.entries(bg)
+        .map(([group, counts]) => ({
+          group,
+          available: Object.values(counts || {}).reduce(
+            (a: number, b) => a + (Number(b) || 0),
+            0
+          ),
+        }))
+        .filter((g) => g.available < 3);
+      setBloodLow(lowGroups);
       setAuditCount(audit.meta?.total || 0);
       setErrorCount(auditErrors.meta?.total || 0);
+
+      // Issue #47: summarise error rows into (action, count, uniqueIps,
+      // topIp, topIpCount). Even though the current query scopes to
+      // LOGIN_FAILED, the breakdown is implemented generically so future
+      // error actions appear automatically.
+      const errRows: any[] = Array.isArray(auditErrorRows.data)
+        ? auditErrorRows.data
+        : [];
+      const byAction = new Map<
+        string,
+        { count: number; ipCounts: Map<string, number> }
+      >();
+      for (const r of errRows) {
+        const action = r.action || "UNKNOWN";
+        const ip = (r.ipAddress as string) || "(unknown)";
+        if (!byAction.has(action)) {
+          byAction.set(action, { count: 0, ipCounts: new Map() });
+        }
+        const bucket = byAction.get(action)!;
+        bucket.count += 1;
+        bucket.ipCounts.set(ip, (bucket.ipCounts.get(ip) || 0) + 1);
+      }
+      const breakdown: ErrorBreakdownRow[] = Array.from(byAction.entries())
+        .map(([action, { count, ipCounts }]) => {
+          let topIp: string | undefined;
+          let topIpCount = 0;
+          ipCounts.forEach((c, ip) => {
+            if (c > topIpCount) {
+              topIp = ip;
+              topIpCount = c;
+            }
+          });
+          return {
+            action,
+            count,
+            uniqueIps: ipCounts.size,
+            topIp,
+            topIpCount,
+          };
+        })
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+      setErrorBreakdown(breakdown);
+
       setPendingLeaves(Array.isArray(leaves.data) ? leaves.data : []);
       setPendingExpenses(Array.isArray(expenses.data) ? expenses.data : []);
       setPendingPOs(Array.isArray(pos.data) ? pos.data : []);
@@ -151,7 +252,7 @@ export default function AdminConsolePage() {
       setActiveSessions(Array.isArray(users.data) ? users.data.length : 0);
       setLoaded(true);
     })();
-  }, [user]);
+  }, [user, refreshTick]);
 
   if (!user || user.role !== "ADMIN") {
     return (
@@ -242,6 +343,72 @@ export default function AdminConsolePage() {
             ok={true}
           />
         </div>
+
+        {/* Issue #47 (2026-04-24): when errors are non-zero, show an
+            actionable breakdown rather than just a raw count so ops can
+            tell bot-scraping apart from a real auth-service outage. */}
+        {errorCount > 0 && errorBreakdown.length > 0 && (
+          <div className="mt-4 border-t pt-3" data-testid="error-breakdown">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">
+              Error breakdown (last 1h, top {errorBreakdown.length})
+            </h3>
+            <div className="overflow-hidden rounded-lg border border-gray-200">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-600">
+                  <tr>
+                    <th className="p-2">Action</th>
+                    <th className="p-2">Count</th>
+                    <th className="p-2">Unique IPs</th>
+                    <th className="p-2">Most attempts from</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {errorBreakdown.map((row) => {
+                    const likelyBot =
+                      row.count >= 10 &&
+                      row.uniqueIps > 0 &&
+                      row.count / row.uniqueIps >= 20;
+                    return (
+                      <tr key={row.action} className="border-t border-gray-100">
+                        <td className="p-2 font-mono text-[11px]">
+                          <Link
+                            href={`/dashboard/audit?action=${encodeURIComponent(
+                              row.action
+                            )}&from=${hourAgoQs}`}
+                            className="text-primary hover:underline"
+                          >
+                            {row.action}
+                          </Link>
+                        </td>
+                        <td className="p-2 font-semibold">
+                          {row.count.toLocaleString("en-IN")}
+                          {likelyBot && (
+                            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                              likely bot traffic
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2">{row.uniqueIps}</td>
+                        <td className="p-2 font-mono text-[11px]">
+                          {row.topIp ? (
+                            <>
+                              {row.topIp}
+                              <span className="ml-1 text-gray-500">
+                                ({row.topIpCount})
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Critical Alerts */}

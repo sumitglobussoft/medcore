@@ -22,6 +22,9 @@ const en: Dict = {
   "login.submit": "Sign In",
   "login.submit.loading": "Signing in...",
   "login.forgot": "Forgot Password?",
+  "login.rememberMe": "Remember me",
+  "login.rememberMe.hint":
+    "Keep me signed in on this device for 30 days. Leave unchecked on shared computers.",
   "login.newPatient": "New Patient?",
   "login.register": "Register here",
   "login.error.generic": "Login failed",
@@ -44,6 +47,10 @@ const en: Dict = {
   "login.welcome": "Welcome back!",
   "login.demo.title": "Demo Accounts:",
 
+  // Auth — session-lifecycle strings shown outside the login form.
+  "auth.sessionExpired":
+    "Your session has expired. Please sign in again.",
+
   // Verify (public prescription verification)
   "verify.title": "Verified Prescription",
   "verify.subtitle": "Issued by {doctor} on {date}",
@@ -61,6 +68,10 @@ const en: Dict = {
   "verify.notFound.title": "Prescription Not Found",
   "verify.notFound.body": "The prescription ID could not be verified in our records. It may be a forged QR code, or the prescription has been voided or revoked.",
   "verify.print": "Print Verification",
+
+  // Password input (shared component — Issue #2)
+  "passwordInput.show": "Show password",
+  "passwordInput.hide": "Hide password",
 
   // Register
   "register.title": "Patient Registration",
@@ -318,6 +329,10 @@ const en: Dict = {
   "dashboard.appointments.occurrences": "Occurrences",
   "dashboard.appointments.availableSlots": "Available Slots",
   "dashboard.appointments.pickStartSlot": "Pick a start slot (will repeat):",
+  "dashboard.appointments.slotInPast":
+    "This slot is in the past and cannot be booked.",
+  "dashboard.appointments.slotUnavailable": "Slot unavailable",
+  "dashboard.appointments.selectDoctorFirst": "Please select a doctor first",
   "dashboard.appointments.tab.upcoming": "Upcoming",
   "dashboard.appointments.tab.past": "Past",
   "dashboard.appointments.tab.cancelled": "Cancelled",
@@ -370,6 +385,19 @@ const en: Dict = {
   "dashboard.billing.status.paid": "Paid",
   "dashboard.billing.status.partial": "Partial",
   "dashboard.billing.status.unpaid": "Unpaid",
+  "dashboard.billing.cgst": "CGST",
+  "dashboard.billing.sgst": "SGST",
+  "dashboard.billing.totalGst": "Total GST",
+  "dashboard.billing.hsnSac": "HSN/SAC",
+  "dashboard.billing.taxable": "Taxable",
+  "dashboard.billing.rate": "Rate",
+  "dashboard.billing.qty": "Qty",
+  "dashboard.billing.unitPrice": "Unit Price",
+  "dashboard.billing.description": "Description",
+  "dashboard.billing.category": "Category",
+  "dashboard.billing.addLineItem": "Add Line Item",
+  "dashboard.billing.noItems": "No items",
+  "dashboard.billing.phone": "Phone",
 
   // ─── Admissions ────────────────────────────────────────
   "dashboard.admissions.title": "Admissions",
@@ -471,6 +499,68 @@ const en: Dict = {
   "dashboard.nav.abdm": "ABDM / ABHA",
   "dashboard.nav.fhirExport": "FHIR Export",
   "dashboard.nav.insuranceClaims": "Insurance Claims",
+
+  // Patient edit modal (Issue #39)
+  "patient.edit.button": "Edit",
+  "patient.edit.title": "Edit Patient",
+  "patient.edit.mrNumber": "MR Number",
+  "patient.edit.mrNumber.hint": "MR number cannot be changed.",
+  "patient.edit.name": "Full Name",
+  "patient.edit.dateOfBirth": "Date of Birth",
+  "patient.edit.gender": "Gender",
+  "patient.edit.gender.male": "Male",
+  "patient.edit.gender.female": "Female",
+  "patient.edit.gender.other": "Other",
+  "patient.edit.phone": "Phone",
+  "patient.edit.email": "Email",
+  "patient.edit.address": "Address",
+  "patient.edit.bloodGroup": "Blood Group",
+  "patient.edit.bloodGroup.none": "Not specified",
+  "patient.edit.emergencyContact": "Emergency Contact Name",
+  "patient.edit.emergencyPhone": "Emergency Contact Phone",
+  "patient.edit.cancel": "Cancel",
+  "patient.edit.save": "Save Changes",
+  "patient.edit.saving": "Saving...",
+  "patient.edit.success": "Patient details updated",
+  "patient.edit.error": "Could not update patient",
+  "patient.edit.name.required": "Name is required",
+  "patient.edit.phone.required": "Phone is required",
+
+  // Marketing contact form (Issue #45)
+  "contact.field.fullName": "Full name",
+  "contact.field.fullName.placeholder": "Dr. Meera Rao",
+  "contact.field.email": "Work email",
+  "contact.field.email.placeholder": "meera@hospital.in",
+  "contact.field.phone": "Phone (Indian mobile, optional)",
+  "contact.field.phone.placeholder": "+91 98xxxxxxxx",
+  "contact.field.hospitalName": "Hospital name",
+  "contact.field.hospitalName.placeholder": "Asha Hospital",
+  "contact.field.hospitalSize": "Hospital size",
+  "contact.field.role": "Your role",
+  "contact.field.preferredContactTime": "Preferred contact time",
+  "contact.field.message": "Message",
+  "contact.field.message.placeholder":
+    "Tell us about your current setup and what you're hoping to improve.",
+  "contact.field.select": "Select...",
+  "contact.role.admin": "Administrator",
+  "contact.role.doctor": "Doctor",
+  "contact.role.it": "IT",
+  "contact.role.other": "Other",
+  "contact.time.morning": "Morning",
+  "contact.time.afternoon": "Afternoon",
+  "contact.time.evening": "Evening",
+  "contact.time.anytime": "Anytime",
+  "contact.submit": "Request a Demo",
+  "contact.submit.loading": "Sending...",
+  "contact.consent":
+    "By submitting, you agree that MedCore may contact you about the demo. We will never share your information.",
+  "contact.success.title": "Thanks — we'll be in touch.",
+  "contact.success.body":
+    "We've received your enquiry and will reply within one business day.",
+  "contact.success.again": "Submit another enquiry",
+  "contact.error.generic":
+    "Something went wrong. Please try again or email hello@medcore.in.",
+  "contact.error.network": "Network error. Please try again.",
 };
 
 const hi: Dict = {
@@ -487,6 +577,9 @@ const hi: Dict = {
   "login.submit": "साइन इन",
   "login.submit.loading": "साइन इन हो रहा है...",
   "login.forgot": "पासवर्ड भूल गए?",
+  "login.rememberMe": "मुझे याद रखें",
+  "login.rememberMe.hint":
+    "इस डिवाइस पर मुझे 30 दिनों तक साइन-इन रखें। साझा कंप्यूटर पर इसे अनचेक छोड़ें।",
   "login.newPatient": "नए मरीज़?",
   "login.register": "यहाँ पंजीकरण करें",
   "login.error.generic": "लॉगिन विफल",
@@ -508,6 +601,10 @@ const hi: Dict = {
   "login.2fa.back": "लॉगिन पर वापस जाएँ",
   "login.welcome": "पुनः स्वागत है!",
   "login.demo.title": "डेमो खाते:",
+
+  // Auth — session-lifecycle strings shown outside the login form.
+  "auth.sessionExpired":
+    "आपका सत्र समाप्त हो गया है। कृपया फिर से साइन इन करें।",
 
   // Verify
   "verify.title": "सत्यापित प्रिस्क्रिप्शन",
@@ -784,6 +881,10 @@ const hi: Dict = {
   "dashboard.appointments.occurrences": "घटनाएँ",
   "dashboard.appointments.availableSlots": "उपलब्ध समय",
   "dashboard.appointments.pickStartSlot": "प्रारंभ स्लॉट चुनें (दोहराया जाएगा):",
+  "dashboard.appointments.slotInPast":
+    "यह स्लॉट बीत चुका है और इसे बुक नहीं किया जा सकता।",
+  "dashboard.appointments.slotUnavailable": "स्लॉट उपलब्ध नहीं है",
+  "dashboard.appointments.selectDoctorFirst": "कृपया पहले डॉक्टर चुनें",
   "dashboard.appointments.tab.upcoming": "आगामी",
   "dashboard.appointments.tab.past": "पिछले",
   "dashboard.appointments.tab.cancelled": "रद्द",
@@ -836,6 +937,19 @@ const hi: Dict = {
   "dashboard.billing.status.paid": "भुगतान",
   "dashboard.billing.status.partial": "आंशिक",
   "dashboard.billing.status.unpaid": "अदत्त",
+  "dashboard.billing.cgst": "सीजीएसटी",
+  "dashboard.billing.sgst": "एसजीएसटी",
+  "dashboard.billing.totalGst": "कुल जीएसटी",
+  "dashboard.billing.hsnSac": "HSN/SAC",
+  "dashboard.billing.taxable": "कर-योग्य",
+  "dashboard.billing.rate": "दर",
+  "dashboard.billing.qty": "मात्रा",
+  "dashboard.billing.unitPrice": "इकाई मूल्य",
+  "dashboard.billing.description": "विवरण",
+  "dashboard.billing.category": "श्रेणी",
+  "dashboard.billing.addLineItem": "लाइन आइटम जोड़ें",
+  "dashboard.billing.noItems": "कोई आइटम नहीं",
+  "dashboard.billing.phone": "फ़ोन",
 
   // ─── Admissions ────────────────────────────────────────
   "dashboard.admissions.title": "भर्ती",
@@ -937,6 +1051,72 @@ const hi: Dict = {
   "dashboard.nav.abdm": "ABDM / ABHA",
   "dashboard.nav.fhirExport": "FHIR निर्यात",
   "dashboard.nav.insuranceClaims": "बीमा दावे",
+
+  // Patient edit modal (Issue #39)
+  "patient.edit.button": "संपादित करें",
+  "patient.edit.title": "मरीज़ का विवरण संपादित करें",
+  "patient.edit.mrNumber": "एमआर नंबर",
+  "patient.edit.mrNumber.hint": "एमआर नंबर बदला नहीं जा सकता।",
+  "patient.edit.name": "पूरा नाम",
+  "patient.edit.dateOfBirth": "जन्म तिथि",
+  "patient.edit.gender": "लिंग",
+  "patient.edit.gender.male": "पुरुष",
+  "patient.edit.gender.female": "महिला",
+  "patient.edit.gender.other": "अन्य",
+  "patient.edit.phone": "फ़ोन",
+  "patient.edit.email": "ईमेल",
+  "patient.edit.address": "पता",
+  "patient.edit.bloodGroup": "रक्त समूह",
+  "patient.edit.bloodGroup.none": "निर्दिष्ट नहीं",
+  "patient.edit.emergencyContact": "आपातकालीन संपर्क नाम",
+  "patient.edit.emergencyPhone": "आपातकालीन संपर्क फ़ोन",
+  "patient.edit.cancel": "रद्द करें",
+  "patient.edit.save": "परिवर्तन सहेजें",
+  "patient.edit.saving": "सहेजा जा रहा है...",
+  "patient.edit.success": "मरीज़ का विवरण अद्यतन किया गया",
+  "patient.edit.error": "मरीज़ का विवरण अद्यतन नहीं हो सका",
+  "patient.edit.name.required": "नाम आवश्यक है",
+  "patient.edit.phone.required": "फ़ोन आवश्यक है",
+
+  // Password input (shared component — Issue #2)
+  "passwordInput.show": "पासवर्ड दिखाएँ",
+  "passwordInput.hide": "पासवर्ड छिपाएँ",
+
+  // Marketing contact form (Issue #45)
+  "contact.field.fullName": "पूरा नाम",
+  "contact.field.fullName.placeholder": "डॉ. मीरा राव",
+  "contact.field.email": "कार्य ईमेल",
+  "contact.field.email.placeholder": "meera@hospital.in",
+  "contact.field.phone": "फ़ोन (भारतीय मोबाइल, वैकल्पिक)",
+  "contact.field.phone.placeholder": "+91 98xxxxxxxx",
+  "contact.field.hospitalName": "अस्पताल का नाम",
+  "contact.field.hospitalName.placeholder": "आशा अस्पताल",
+  "contact.field.hospitalSize": "अस्पताल का आकार",
+  "contact.field.role": "आपकी भूमिका",
+  "contact.field.preferredContactTime": "पसंदीदा संपर्क समय",
+  "contact.field.message": "संदेश",
+  "contact.field.message.placeholder":
+    "हमें अपनी वर्तमान व्यवस्था के बारे में और बताएँ कि आप क्या सुधार चाहते हैं।",
+  "contact.field.select": "चुनें...",
+  "contact.role.admin": "प्रशासक",
+  "contact.role.doctor": "डॉक्टर",
+  "contact.role.it": "आईटी",
+  "contact.role.other": "अन्य",
+  "contact.time.morning": "सुबह",
+  "contact.time.afternoon": "दोपहर",
+  "contact.time.evening": "शाम",
+  "contact.time.anytime": "कभी भी",
+  "contact.submit": "डेमो का अनुरोध करें",
+  "contact.submit.loading": "भेजा जा रहा है...",
+  "contact.consent":
+    "सबमिट करके आप सहमत हैं कि मेडकोर डेमो के बारे में आपसे संपर्क कर सकता है। हम कभी आपकी जानकारी साझा नहीं करेंगे।",
+  "contact.success.title": "धन्यवाद — हम जल्द ही संपर्क करेंगे।",
+  "contact.success.body":
+    "हमें आपकी पूछताछ मिल गई है और हम एक कार्यदिवस में जवाब देंगे।",
+  "contact.success.again": "एक और पूछताछ भेजें",
+  "contact.error.generic":
+    "कुछ गड़बड़ हो गई। कृपया पुनः प्रयास करें या hello@medcore.in पर ईमेल करें।",
+  "contact.error.network": "नेटवर्क त्रुटि। कृपया पुनः प्रयास करें।",
 };
 
 const translations: Record<Lang, Dict> = { en, hi };
