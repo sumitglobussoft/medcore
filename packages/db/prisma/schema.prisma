@@ -1061,6 +1061,16 @@ model InvoiceItem {
   unitPrice   Float
   amount      Float
 
+  // GST snapshot per line (issue #43 follow-up). Computed at line-item
+  // create from the shared computeLineItemTax() helper and persisted so
+  // historical invoices retain the exact tax presented to the patient —
+  // critical for GSTR-1 audit trail if rates change. cgstAmount + sgstAmount
+  // on Invoice continue to carry the rolled-up totals.
+  cgst      Float   @default(0)
+  sgst      Float   @default(0)
+  gstRate   Float   @default(0)
+  hsnSac    String?
+
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("invoice_items")

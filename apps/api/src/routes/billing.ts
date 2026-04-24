@@ -23,6 +23,7 @@ import {
   CREDIT_NOTE_PREFIX,
   ADVANCE_RECEIPT_PREFIX,
   DEFAULT_GST_PERCENT,
+  computeLineItemTax,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -947,6 +948,11 @@ router.post(
         invoice.subtotal > 0 ? (invoice.taxAmount / invoice.subtotal) * 100 : 0;
 
       const updated = await prisma.$transaction(async (tx) => {
+        // Persist the per-line GST snapshot at create time so historical
+        // invoices retain the exact tax presented to the patient even if
+        // rates change later (issue #43 / GSTR-1 audit trail).
+        const lineAmount = quantity * unitPrice;
+        const tax = computeLineItemTax(lineAmount, category);
         await tx.invoiceItem.create({
           data: {
             invoiceId: invoice.id,
@@ -954,7 +960,11 @@ router.post(
             category,
             quantity,
             unitPrice,
-            amount: quantity * unitPrice,
+            amount: lineAmount,
+            cgst: tax.cgst,
+            sgst: tax.sgst,
+            gstRate: tax.gstRate,
+            hsnSac: tax.hsnSac,
           },
         });
         const current = await tx.invoice.findUnique({
@@ -1344,6 +1354,10 @@ router.post(
       for (const inv of candidates) {
         const lateFee = pct > 0 ? +((inv.totalAmount * pct) / 100).toFixed(2) : flat;
         await prisma.$transaction(async (tx) => {
+          // Late fees are not a supply of goods/services so GST does not
+          // apply — computeLineItemTax for "LATE_FEE" returns rate=0 which
+          // writes zero cgst/sgst/gstRate, matching the spec.
+          const lateTax = computeLineItemTax(lateFee, "LATE_FEE");
           await tx.invoiceItem.create({
             data: {
               invoiceId: inv.id,
@@ -1352,6 +1366,10 @@ router.post(
               quantity: 1,
               unitPrice: lateFee,
               amount: lateFee,
+              cgst: lateTax.cgst,
+              sgst: lateTax.sgst,
+              gstRate: lateTax.gstRate,
+              hsnSac: lateTax.hsnSac,
             },
           });
           await tx.invoice.update({

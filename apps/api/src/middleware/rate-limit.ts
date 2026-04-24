@@ -5,7 +5,22 @@ interface RateLimitEntry {
   resetTime: number;
 }
 
+/**
+ * Rate limiter. Returns a pass-through middleware when either
+ * `NODE_ENV === "test"` (to keep the test suite deterministic) or
+ * `DISABLE_RATE_LIMITS === "true"` (ops escape hatch: set on the prod
+ * server while running load/E2E campaigns, unset to re-enable).
+ *
+ * Covers every caller including the global 600/min gate and every
+ * per-route limiter across the API.
+ */
 export function rateLimit(maxRequests: number, windowMs: number) {
+  if (
+    process.env.NODE_ENV === "test" ||
+    process.env.DISABLE_RATE_LIMITS === "true"
+  ) {
+    return (_req: Request, _res: Response, next: NextFunction) => next();
+  }
   const store = new Map<string, RateLimitEntry>();
 
   // Clean up expired entries every 60 seconds
