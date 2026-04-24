@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Search, Plus, Pill, X } from "lucide-react";
 
@@ -110,7 +111,7 @@ export default function MedicinesPage() {
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create medicine");
+      toast.error(err instanceof Error ? err.message : "Failed to create medicine");
     }
   }
 

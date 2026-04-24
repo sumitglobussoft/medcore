@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import { Syringe, RefreshCw } from "lucide-react";
 
 interface DueAdministration {
@@ -45,6 +47,7 @@ function urgencyClass(scheduledAt: string): {
 }
 
 export default function MedicationDashboardPage() {
+  const promptUser = usePrompt();
   const [items, setItems] = useState<DueAdministration[]>([]);
   const [wards, setWards] = useState<Ward[]>([]);
   const [wardFilter, setWardFilter] = useState("");
@@ -80,15 +83,21 @@ export default function MedicationDashboardPage() {
   }, []);
 
   async function updateStatus(id: string, status: string) {
-    const notes =
-      status === "MISSED" || status === "REFUSED" || status === "HOLD"
-        ? prompt(`Reason for ${status.toLowerCase()}?`) || undefined
-        : undefined;
+    let notes: string | undefined;
+    if (status === "MISSED" || status === "REFUSED" || status === "HOLD") {
+      const reason = await promptUser({
+        title: `Reason for ${status.toLowerCase()}?`,
+        label: "Reason",
+        multiline: true,
+      });
+      if (reason === null) return;
+      notes = reason || undefined;
+    }
     try {
       await api.patch(`/medication/administrations/${id}`, { status, notes });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : "Failed to update");
     }
   }
 

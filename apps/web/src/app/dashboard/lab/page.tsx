@@ -3,6 +3,7 @@
 import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { Plus, FlaskConical } from "lucide-react";
@@ -156,7 +157,7 @@ export default function LabPage() {
       await api.patch(`/lab/orders/${orderId}/status`, { status });
       loadOrders();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : "Failed to update");
     }
   }
 
@@ -519,8 +520,14 @@ function NewOrderModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedPatient) return alert("Select a patient");
-    if (selectedTests.length === 0) return alert("Select at least one test");
+    if (!selectedPatient) {
+      toast.error("Select a patient");
+      return;
+    }
+    if (selectedTests.length === 0) {
+      toast.error("Select at least one test");
+      return;
+    }
     try {
       await api.post("/lab/orders", {
         patientId: selectedPatient.id,
@@ -531,7 +538,7 @@ function NewOrderModal({
       onSaved();
       onClose();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : "Failed to create order");
     }
   }
 

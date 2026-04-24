@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import {
   User as UserIcon,
   Shield,
@@ -285,6 +286,7 @@ function ProfileTab() {
 
 function SecurityTab() {
   const { refreshUser } = useAuthStore();
+  const askConfirm = useConfirm();
   const [twoFAEnabled, setTwoFAEnabled] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [secret, setSecret] = useState("");
@@ -377,7 +379,7 @@ function SecurityTab() {
   }
 
   async function logoutOthers() {
-    if (!confirm("This will sign out all other sessions. Continue?")) return;
+    if (!(await askConfirm({ title: "Sign out all other sessions?", message: "This will sign out all other sessions.", confirmLabel: "Continue" }))) return;
     try {
       await api.post("/auth/sessions/logout-others");
       toast.success("All other sessions signed out");

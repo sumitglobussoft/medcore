@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { Percent } from "lucide-react";
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED";
@@ -34,6 +36,8 @@ function fmtMoney(n: number) {
 }
 
 export default function DiscountApprovalsPage() {
+  const confirm = useConfirm();
+  const promptUser = usePrompt();
   const [tab, setTab] = useState<Tab>("PENDING");
   const [rows, setRows] = useState<ApprovalRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,19 +61,24 @@ export default function DiscountApprovalsPage() {
   }, [load]);
 
   async function approve(id: string) {
-    if (!confirm("Approve this discount?")) return;
+    if (!(await confirm({ title: "Approve this discount?" }))) return;
     setActing(id);
     try {
       await api.post(`/billing/discount-approvals/${id}/approve`);
       await load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setActing(null);
   }
 
   async function reject(id: string) {
-    const reason = prompt("Rejection reason:");
+    const reason = await promptUser({
+      title: "Reject discount",
+      label: "Rejection reason",
+      required: true,
+      multiline: true,
+    });
     if (!reason) return;
     setActing(id);
     try {
@@ -78,7 +87,7 @@ export default function DiscountApprovalsPage() {
       });
       await load();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setActing(null);
   }

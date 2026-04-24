@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 
 interface Holiday {
@@ -42,6 +44,7 @@ const HOLIDAY_TEMPLATE: Array<{
 export default function HolidaysPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const confirm = useConfirm();
   const [year, setYear] = useState(new Date().getFullYear());
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +81,7 @@ export default function HolidaysPage() {
 
   async function createHoliday() {
     if (!form.date || !form.name) {
-      alert("Date and name required");
+      toast.error("Date and name required");
       return;
     }
     try {
@@ -92,22 +95,22 @@ export default function HolidaysPage() {
       setForm({ date: "", name: "", type: "PUBLIC", description: "" });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
   async function deleteHoliday(id: string) {
-    if (!confirm("Delete this holiday?")) return;
+    if (!(await confirm({ title: "Delete this holiday?", danger: true }))) return;
     try {
       await api.delete(`/hr-ops/holidays/${id}`);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
   async function importTemplate() {
-    if (!confirm(`Import ${HOLIDAY_TEMPLATE.length} common Indian holidays for ${year}?`))
+    if (!(await confirm({ title: `Import ${HOLIDAY_TEMPLATE.length} common Indian holidays for ${year}?` })))
       return;
     let added = 0;
     let skipped = 0;
@@ -129,7 +132,7 @@ export default function HolidaysPage() {
         skipped++;
       }
     }
-    alert(`Added ${added} holidays. Skipped ${skipped} (already exist or failed).`);
+    toast.success(`Added ${added} holidays. Skipped ${skipped} (already exist or failed).`);
     load();
   }
 

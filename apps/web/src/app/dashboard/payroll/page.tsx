@@ -448,7 +448,7 @@ function OvertimePanel({
       });
       load();
     } catch (e) {
-      alert((e as Error).message);
+      toast.error((e as Error).message);
     } finally {
       setRunning(false);
     }
@@ -552,4 +552,5 @@ function OvertimePanel({
         )}
       </div>
     </div>
-  )
+  );
+}

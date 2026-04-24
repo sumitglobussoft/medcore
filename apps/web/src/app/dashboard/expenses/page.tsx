@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Wallet, Plus, X } from "lucide-react";
 
@@ -65,6 +67,7 @@ function today() {
 
 export default function ExpensesPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,12 +104,12 @@ export default function ExpensesPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this expense?")) return;
+    if (!(await confirm({ title: "Delete this expense?", danger: true }))) return;
     try {
       await api.delete(`/expenses/${id}`);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Delete failed");
+      toast.error(err instanceof Error ? err.message : "Delete failed");
     }
   }
 

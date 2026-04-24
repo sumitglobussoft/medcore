@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import {
   ArrowLeft,
   Scissors,
@@ -86,6 +87,7 @@ export default function SurgeryDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
+  const promptUser = usePrompt();
   const [surgery, setSurgery] = useState<Surgery | null>(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
@@ -149,7 +151,12 @@ export default function SurgeryDetailPage() {
 
   async function cancelSurgery() {
     if (!surgery) return;
-    const reason = prompt("Cancellation reason:");
+    const reason = await promptUser({
+      title: "Cancel surgery",
+      label: "Cancellation reason",
+      required: true,
+      multiline: true,
+    });
     if (!reason) return;
     try {
       await api.patch(`/surgery/${surgery.id}/cancel`, { reason });

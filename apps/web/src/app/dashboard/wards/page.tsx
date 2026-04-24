@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { getSocket } from "@/lib/socket";
 import { Plus, Hotel, TrendingUp } from "lucide-react";
@@ -137,7 +138,7 @@ export default function WardsPage() {
       setWardForm({ name: "", type: "GENERAL", floor: "", description: "" });
       loadWards();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create ward");
+      toast.error(err instanceof Error ? err.message : "Failed to create ward");
     }
   }
 
@@ -151,7 +152,7 @@ export default function WardsPage() {
       setBedForm({ bedNumber: "" });
       loadWards();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add bed");
+      toast.error(err instanceof Error ? err.message : "Failed to add bed");
     }
   }
 
@@ -160,7 +161,7 @@ export default function WardsPage() {
       await api.patch(`/beds/${bedId}/status`, { status });
       loadWards();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update bed");
+      toast.error(err instanceof Error ? err.message : "Failed to update bed");
     }
   }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface Complaint {
   id: string;
@@ -148,7 +149,7 @@ export default function ComplaintsPage() {
 
   async function submit() {
     if (!form.description) {
-      alert("Description required");
+      toast.error("Description required");
       return;
     }
     try {
@@ -161,7 +162,7 @@ export default function ComplaintsPage() {
       if (form.name) body.name = form.name;
       if (form.phone) body.phone = form.phone;
       if (!form.patientId && !form.name) {
-        alert("Either patient ID or caller name required");
+        toast.error("Either patient ID or caller name required");
         return;
       }
       await api.post("/complaints", body);
@@ -176,7 +177,7 @@ export default function ComplaintsPage() {
       });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -185,7 +186,7 @@ export default function ComplaintsPage() {
       await api.patch(`/complaints/${id}`, { assignedTo: userId });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -194,7 +195,7 @@ export default function ComplaintsPage() {
       await api.patch(`/complaints/${id}`, { status });
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 
@@ -209,7 +210,7 @@ export default function ComplaintsPage() {
       setResolveText("");
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed");
+      toast.error(err instanceof Error ? err.message : "Failed");
     }
   }
 

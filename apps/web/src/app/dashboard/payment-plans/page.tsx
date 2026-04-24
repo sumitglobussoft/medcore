@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { CreditCard, X } from "lucide-react";
 
 type Tab = "ACTIVE" | "OVERDUE" | "COMPLETED" | "ALL";
@@ -327,7 +328,7 @@ function PlanDetailModal({
       await load();
       onRefresh();
     } catch (err) {
-      alert((err as Error).message);
+      toast.error((err as Error).message);
     }
     setPaying(null);
   }

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { formatDate } from "@/lib/format";
 import { PlaneTakeoff, Plus, XCircle } from "lucide-react";
 
@@ -33,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function MyLeavesPage() {
+  const confirm = useConfirm();
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -111,17 +114,17 @@ export default function MyLeavesPage() {
           return;
         }
       }
-      alert(err instanceof Error ? err.message : "Request failed");
+      toast.error(err instanceof Error ? err.message : "Request failed");
     }
   }
 
   async function cancelLeave(id: string) {
-    if (!confirm("Cancel this leave request?")) return;
+    if (!(await confirm({ title: "Cancel this leave request?", danger: true }))) return;
     try {
       await api.patch(`/leaves/${id}/cancel`);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 

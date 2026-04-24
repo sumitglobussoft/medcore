@@ -177,18 +177,30 @@ describe("DialogProvider / useConfirm / usePrompt", () => {
     await waitFor(() => expect(results).toEqual(["ok"]));
   });
 
-  it("throws when hook is used outside the provider", () => {
-    function Broken() {
-      useConfirm();
-      return null;
+  it("falls back to a no-op (resolves false / null) when used outside the provider", async () => {
+    const results: Array<boolean | string | null> = [];
+    function Probe() {
+      const confirm = useConfirm();
+      const promptUser = usePrompt();
+      return (
+        <button
+          onClick={async () => {
+            results.push(await confirm({ title: "T" }));
+            results.push(await promptUser({ title: "T", label: "L" }));
+          }}
+        >
+          ask
+        </button>
+      );
     }
-    // Suppress React's console.error noise for this expected throw.
-    const spy = globalThis.console.error;
-    globalThis.console.error = () => {};
+    const warnSpy = globalThis.console.warn;
+    globalThis.console.warn = () => {};
     try {
-      expect(() => render(<Broken />)).toThrow(/DialogProvider/);
+      render(<Probe />);
+      await userEvent.click(screen.getByText("ask"));
+      await waitFor(() => expect(results).toEqual([false, null]));
     } finally {
-      globalThis.console.error = spy;
+      globalThis.console.warn = warnSpy;
     }
   });
 });

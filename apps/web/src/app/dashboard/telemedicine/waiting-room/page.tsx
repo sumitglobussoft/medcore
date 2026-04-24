@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
@@ -150,7 +151,7 @@ export default function TelemedicineWaitingRoomPage() {
       setWaitStatus("waiting");
     } catch (err) {
       setWaitStatus("idle");
-      alert(err instanceof Error ? err.message : "Failed to join waiting room");
+      toast.error(err instanceof Error ? err.message : "Failed to join waiting room");
     }
   }, [sessionId, cameraOk, micOk]);
 

@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Scissors } from "lucide-react";
 
@@ -57,6 +59,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function SurgeryPage() {
   const { user } = useAuthStore();
+  const promptUser = usePrompt();
   const [surgeries, setSurgeries] = useState<Surgery[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("SCHEDULED");
@@ -135,11 +138,11 @@ export default function SurgeryPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedPatient) {
-      alert("Select a patient");
+      toast.error("Select a patient");
       return;
     }
     if (!form.scheduledAt) {
-      alert("Select scheduled date/time");
+      toast.error("Select scheduled date/time");
       return;
     }
     try {
@@ -173,7 +176,7 @@ export default function SurgeryPage() {
       });
       loadSurgeries();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Scheduling failed");
+      toast.error(err instanceof Error ? err.message : "Scheduling failed");
     }
   }
 
@@ -182,28 +185,38 @@ export default function SurgeryPage() {
       await api.patch(`/surgery/${id}/start`, {});
       loadSurgeries();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Start failed");
+      toast.error(err instanceof Error ? err.message : "Start failed");
     }
   }
 
   async function completeSurgery(id: string) {
-    const postOpNotes = prompt("Post-op notes (optional):") || undefined;
+    const postOpNotes = await promptUser({
+      title: "Complete surgery",
+      label: "Post-op notes (optional)",
+      multiline: true,
+    });
+    if (postOpNotes === null) return;
     try {
-      await api.patch(`/surgery/${id}/complete`, { postOpNotes });
+      await api.patch(`/surgery/${id}/complete`, { postOpNotes: postOpNotes || undefined });
       loadSurgeries();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Complete failed");
+      toast.error(err instanceof Error ? err.message : "Complete failed");
     }
   }
 
   async function cancelSurgery(id: string) {
-    const reason = prompt("Cancellation reason:");
+    const reason = await promptUser({
+      title: "Cancel surgery",
+      label: "Cancellation reason",
+      required: true,
+      multiline: true,
+    });
     if (!reason) return;
     try {
       await api.patch(`/surgery/${id}/cancel`, { reason });
       loadSurgeries();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Cancel failed");
+      toast.error(err instanceof Error ? err.message : "Cancel failed");
     }
   }
 

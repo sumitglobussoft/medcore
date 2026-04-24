@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Plus, X, CalendarOff, Clock } from "lucide-react";
 
@@ -144,7 +145,7 @@ export default function SchedulePage() {
       setShowScheduleForm(false);
       loadSchedule();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add schedule");
+      toast.error(err instanceof Error ? err.message : "Failed to add schedule");
     }
   }
 
@@ -168,7 +169,7 @@ export default function SchedulePage() {
       });
       loadSchedule();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to add override");
+      toast.error(err instanceof Error ? err.message : "Failed to add override");
     }
   }
 

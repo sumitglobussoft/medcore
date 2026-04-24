@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
 
 interface LabTest {
@@ -69,6 +70,7 @@ export default function LabOrderPage({
   params: Promise<{ orderId: string }>;
 }) {
   const { orderId } = use(params);
+  const confirm = useConfirm();
   const [order, setOrder] = useState<LabOrder | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,7 +90,7 @@ export default function LabOrderPage({
   }
 
   async function markComplete() {
-    if (!confirm("Mark this order as complete?")) return;
+    if (!(await confirm({ title: "Mark this order as complete?" }))) return;
     try {
       await api.patch(`/lab/orders/${orderId}/status`, { status: "COMPLETED" });
       load();

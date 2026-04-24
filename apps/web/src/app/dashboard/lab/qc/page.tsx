@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { Activity, CheckCircle, XCircle, Plus } from "lucide-react";
 
@@ -124,7 +125,7 @@ export default function LabQCPage() {
       await loadEntries();
     } catch (e) {
       console.error(e);
-      alert("Failed to submit QC entry");
+      toast.error("Failed to submit QC entry");
     } finally {
       setSubmitting(false);
     }
