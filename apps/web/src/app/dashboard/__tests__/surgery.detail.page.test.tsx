@@ -78,8 +78,22 @@ describe("SurgeryDetailPage", () => {
     );
   });
 
+  // Dispatch GETs by URL so child cards (observations list, anesthesia record,
+  // etc.) receive the shape they expect instead of the top-level surgery object.
+  function mockSurgeryGets() {
+    apiMock.get.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/observations")) {
+        return Promise.resolve({ data: [] });
+      }
+      if (typeof url === "string" && url.includes("/anesthesia-record")) {
+        return Promise.resolve({ data: null });
+      }
+      return Promise.resolve({ data: sampleSurgery });
+    });
+  }
+
   it("renders populated surgery details", async () => {
-    apiMock.get.mockResolvedValue({ data: sampleSurgery });
+    mockSurgeryGets();
     render(<SurgeryDetailPage />);
     await waitFor(() =>
       expect(screen.getAllByText(/SG-001/).length).toBeGreaterThan(0)
@@ -89,7 +103,7 @@ describe("SurgeryDetailPage", () => {
   });
 
   it("renders back link", async () => {
-    apiMock.get.mockResolvedValue({ data: sampleSurgery });
+    mockSurgeryGets();
     render(<SurgeryDetailPage />);
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /back to surgery/i })).toBeInTheDocument()
@@ -97,7 +111,7 @@ describe("SurgeryDetailPage", () => {
   });
 
   it("renders patient and surgeon sections", async () => {
-    apiMock.get.mockResolvedValue({ data: sampleSurgery });
+    mockSurgeryGets();
     render(<SurgeryDetailPage />);
     await waitFor(() =>
       expect(screen.getAllByText(/dr\. singh/i).length).toBeGreaterThan(0)

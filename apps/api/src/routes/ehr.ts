@@ -169,7 +169,7 @@ router.delete(
       await prisma.patientAllergy.delete({ where: { id: req.params.id } });
       auditLog(
         req,
-        "DELETE_ALLERGY",
+        "ALLERGY_DELETE",
         "patient_allergy",
         req.params.id
       ).catch(console.error);
@@ -244,7 +244,7 @@ router.patch(
       });
       auditLog(
         req,
-        "UPDATE_CONDITION",
+        "CONDITION_UPDATE",
         "chronic_condition",
         updated.id,
         req.body
@@ -264,7 +264,7 @@ router.delete(
       await prisma.chronicCondition.delete({ where: { id: req.params.id } });
       auditLog(
         req,
-        "DELETE_CONDITION",
+        "CONDITION_DELETE",
         "chronic_condition",
         req.params.id
       ).catch(console.error);
@@ -326,7 +326,7 @@ router.post(
       const created = await prisma.familyHistory.create({ data: req.body });
       auditLog(
         req,
-        "CREATE_FAMILY_HISTORY",
+        "FAMILY_HISTORY_CREATE",
         "family_history",
         created.id,
         req.body
@@ -346,7 +346,7 @@ router.delete(
       await prisma.familyHistory.delete({ where: { id: req.params.id } });
       auditLog(
         req,
-        "DELETE_FAMILY_HISTORY",
+        "FAMILY_HISTORY_DELETE",
         "family_history",
         req.params.id
       ).catch(console.error);
@@ -632,7 +632,7 @@ router.patch(
       });
       auditLog(
         req,
-        "UPDATE_IMMUNIZATION",
+        "IMMUNIZATION_UPDATE",
         "immunization",
         updated.id,
         req.body
@@ -652,7 +652,7 @@ router.delete(
       await prisma.immunization.delete({ where: { id: req.params.id } });
       auditLog(
         req,
-        "DELETE_IMMUNIZATION",
+        "IMMUNIZATION_DELETE",
         "immunization",
         req.params.id
       ).catch(console.error);
@@ -783,7 +783,7 @@ router.delete(
       await prisma.patientDocument.delete({ where: { id: req.params.id } });
       auditLog(
         req,
-        "DELETE_DOCUMENT",
+        "DOCUMENT_DELETE",
         "patient_document",
         req.params.id
       ).catch(console.error);
@@ -938,7 +938,7 @@ router.patch(
       });
       auditLog(
         req,
-        "UPDATE_ADVANCE_DIRECTIVE",
+        "ADVANCE_DIRECTIVE_UPDATE",
         "advance_directive",
         updated.id,
         req.body
@@ -961,7 +961,7 @@ router.delete(
       });
       auditLog(
         req,
-        "SOFT_DELETE_ADVANCE_DIRECTIVE",
+        "ADVANCE_DIRECTIVE_DELETE",
         "advance_directive",
         updated.id
       ).catch(console.error);

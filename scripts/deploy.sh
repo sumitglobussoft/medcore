@@ -45,6 +45,13 @@ git checkout main
 git pull --ff-only origin main
 
 echo "=== 2. Installing dependencies ==="
+# NOTE: @tailwindcss/oxide-linux-x64-gnu is pinned in apps/web/package.json
+# `optionalDependencies` to work around the npm optional-deps race (npm/cli#4828)
+# that used to crash the web build with "Cannot find native binding" after `npm ci`.
+# Do NOT reintroduce a manual `npm install --no-save @tailwindcss/oxide-linux-x64-gnu`
+# step here — if it ever breaks again, bump the pinned version in
+# apps/web/package.json to match whatever @tailwindcss/oxide resolves to in
+# package-lock.json (search `node_modules/@tailwindcss/oxide` and copy the version).
 npm ci --ignore-scripts 2>/dev/null || npm ci
 
 echo "=== 3. Generating Prisma client ==="

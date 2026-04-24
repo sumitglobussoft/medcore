@@ -230,7 +230,7 @@ router.patch(
         }
       });
 
-      auditLog(req, "UPDATE_PATIENT", "patient", req.params.id, {
+      auditLog(req, "PATIENT_UPDATE", "patient", req.params.id, {
         fields: [
           ...(name ? ["name"] : []),
           ...(phone ? ["phone"] : []),

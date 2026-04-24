@@ -276,9 +276,40 @@ const RENAMES: Record<string, string> = {
   // -- finance (advance is a user action) --------------------------------
   ADVANCE_APPLIED: "ADVANCE_APPLY",
 
+  // -- 2026-04-24 straggler pass (20 remaining non-canonical names) ------
+  // EHR / clinical CRUD — verb-first to entity-first, past → imperative.
+  CREATE_DRUG_INTERACTION: "DRUG_INTERACTION_CREATE",
+  CREATE_FAMILY_HISTORY: "FAMILY_HISTORY_CREATE",
+  DELETE_ALLERGY: "ALLERGY_DELETE",
+  DELETE_CONDITION: "CONDITION_DELETE",
+  DELETE_DOCUMENT: "DOCUMENT_DELETE",
+  DELETE_FAMILY_HISTORY: "FAMILY_HISTORY_DELETE",
+  DELETE_IMMUNIZATION: "IMMUNIZATION_DELETE",
+  SOFT_DELETE_ADVANCE_DIRECTIVE: "ADVANCE_DIRECTIVE_DELETE",
+  UPDATE_ADVANCE_DIRECTIVE: "ADVANCE_DIRECTIVE_UPDATE",
+  UPDATE_CERTIFICATION: "CERTIFICATION_UPDATE",
+  UPDATE_CONDITION: "CONDITION_UPDATE",
+  UPDATE_IMMUNIZATION: "IMMUNIZATION_UPDATE",
+  UPDATE_MED_RECONCILIATION: "MED_RECONCILIATION_UPDATE",
+  UPDATE_PATIENT: "PATIENT_UPDATE",
+  UPDATE_SCHEDULED_REPORT: "SCHEDULED_REPORT_UPDATE",
+
+  // -- visitors (match SHIFT_CHECK_IN / SHIFT_CHECK_OUT convention) ------
+  CHECKIN_VISITOR: "VISITOR_CHECK_IN",
+  CHECKOUT_VISITOR: "VISITOR_CHECK_OUT",
+
+  // -- billing / pharmacy ------------------------------------------------
+  BULK_PAYMENT: "PAYMENT_BULK_CREATE",
+  STOCK_MOVEMENT: "STOCK_MOVE",
+
   // NOTE: the following are intentionally LEFT AS-IS (true events
   // or already-canonical names). They are documented in
   // docs/AUDIT_RENAME_MAP_2026-04-23.md for operations.
+  //
+  // Also preserved this pass (2026-04-24):
+  //   ABDM_GATEWAY_SIGNATURE_INVALID — true event (inbound signature rejected)
+  //   AI_CLAIM_PENDING_DRAFTS_LIST — already <ENTITY>_<VERB>; LIST is on the
+  //     whitelist and "PENDING_DRAFTS" is the meaningful entity qualifier.
 };
 
 function listTsFiles(dir: string, out: string[] = []): string[] {

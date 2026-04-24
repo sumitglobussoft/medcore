@@ -103,7 +103,19 @@ export default function FeedbackPage() {
     // Load AI NPS-drivers widget once on mount. Never blocks the main list.
     api
       .get<{ data: NpsDriversSummary }>("/ai/sentiment/nps-drivers?days=30")
-      .then((r) => setNpsDrivers(r.data))
+      .then((r) => {
+        const d = r.data as NpsDriversSummary | null | undefined;
+        if (
+          d &&
+          Array.isArray(d.positiveThemes) &&
+          Array.isArray(d.negativeThemes) &&
+          Array.isArray(d.actionableInsights)
+        ) {
+          setNpsDrivers(d);
+        } else {
+          setNpsDrivers(null);
+        }
+      })
       .catch(() => setNpsDrivers(null));
   }, []);
 
@@ -164,7 +176,7 @@ export default function FeedbackPage() {
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Overall Avg Rating</p>
           <p className="mt-1 text-3xl font-bold text-gray-800 dark:text-gray-100">
-            {summary?.overallAvg.toFixed(2) ?? "0.00"}
+            {summary?.overallAvg != null ? summary.overallAvg.toFixed(2) : "0.00"}
           </p>
           <div className="mt-1 text-sm">
             <StarDisplay rating={Math.round(summary?.overallAvg ?? 0)} />
@@ -250,7 +262,7 @@ export default function FeedbackPage() {
         <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Average Rating by Category</h2>
         <div className="space-y-3">
           {CATEGORIES.map((c) => {
-            const v = summary?.avgRatingByCategory[c] ?? 0;
+            const v = summary?.avgRatingByCategory?.[c] ?? 0;
             const pct = (v / 5) * 100;
             return (
               <div key={c} className="flex items-center gap-3">

@@ -1467,7 +1467,7 @@ router.post(
         return created;
       });
 
-      auditLog(req, "BULK_PAYMENT", "patient", patientId, {
+      auditLog(req, "PAYMENT_BULK_CREATE", "patient", patientId, {
         count: results.length,
         total: results.reduce((s, r) => s + r.amount, 0),
       }).catch(console.error);

@@ -118,7 +118,7 @@ router.post(
         },
       });
 
-      auditLog(req, "CHECKIN_VISITOR", "visitor", visitor.id, {
+      auditLog(req, "VISITOR_CHECK_IN", "visitor", visitor.id, {
         passNumber,
         name,
       }).catch(console.error);
@@ -287,7 +287,7 @@ router.patch(
         },
       });
 
-      auditLog(req, "CHECKOUT_VISITOR", "visitor", updated.id, {}).catch(
+      auditLog(req, "VISITOR_CHECK_OUT", "visitor", updated.id, {}).catch(
         console.error
       );
 

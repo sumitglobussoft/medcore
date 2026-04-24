@@ -226,7 +226,7 @@ router.patch(
       });
       auditLog(
         req,
-        "UPDATE_MED_RECONCILIATION",
+        "MED_RECONCILIATION_UPDATE",
         "med_reconciliation",
         updated.id,
         req.body

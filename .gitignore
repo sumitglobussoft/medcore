@@ -17,6 +17,10 @@ uploads/
 .DS_Store
 Thumbs.db
 backups/*.sql.gz
+# Catch ad-hoc DB dumps left at the repo root (see ops incident 2026-04-22 where
+# a ~2MB root-owned medcore_software_db-22042026.sql sat in the prod working tree).
+/medcore_software_db-*.sql
+/*.sql.gz
 .claude/
 *.tsbuildinfo
 playwright-report/

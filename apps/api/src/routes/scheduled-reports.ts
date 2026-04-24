@@ -326,7 +326,7 @@ router.patch(
 
       auditLog(
         req,
-        "UPDATE_SCHEDULED_REPORT",
+        "SCHEDULED_REPORT_UPDATE",
         "scheduled_report",
         updated.id,
         req.body as Record<string, unknown>

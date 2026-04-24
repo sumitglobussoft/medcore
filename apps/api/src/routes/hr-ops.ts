@@ -315,7 +315,7 @@ router.patch(
       });
       auditLog(
         req,
-        "UPDATE_CERTIFICATION",
+        "CERTIFICATION_UPDATE",
         "staff_certification",
         updated.id,
         req.body

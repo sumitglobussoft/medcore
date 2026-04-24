@@ -299,6 +299,72 @@ URLs that used the old signing secret.
 
 ---
 
+## 8a. Runtime rate-limit controls
+
+The API has a hard ops escape hatch for bulk testing / load campaigns:
+setting `DISABLE_RATE_LIMITS=true` on `medcore-api` turns every limiter
+into a pass-through (implemented in `apps/api/src/middleware/rate-limit.ts`;
+only `"true"` — exact string — bypasses, anything else leaves limits on).
+
+This is **intentionally NOT** persisted in `ecosystem.medcore.config.js`.
+It is a short-lived ops tool; baking it into the ecosystem file would make
+it survive reboots and silently expose the prod API. Instead toggle it at
+runtime on the live pm2 process.
+
+### Option A — helper script (recommended)
+
+From a laptop with the repo checked out and `.env` populated:
+
+```bash
+# disable rate limits for an E2E / load window:
+scripts/toggle-rate-limits.sh on
+
+# re-enable (default behaviour) once done:
+scripts/toggle-rate-limits.sh off
+```
+
+The script SSHs to prod, runs `pm2 restart medcore-api --update-env` with the
+variable set/cleared, then hammers `/api/v1/auth/login` 40 times and prints
+the 429 count so you have immediate evidence the state took effect.
+Requires `plink` (Windows / Git-Bash) or `sshpass` (POSIX).
+
+### Option B — manual pm2 recipe
+
+Use this if the toggle script isn't available:
+
+```bash
+ssh empcloud-development@163.227.174.141
+export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"
+
+# --- turn limits OFF (bypass ON) ---
+DISABLE_RATE_LIMITS=true pm2 restart medcore-api --update-env
+
+# --- turn limits back ON (the safe state) ---
+# NOTE: `unset` in your shell does NOT propagate through --update-env
+# because pm2 keeps the previously-set value. You MUST explicitly set it
+# to a non-"true" value (anything else disables the bypass):
+DISABLE_RATE_LIMITS=false pm2 restart medcore-api --update-env
+pm2 save
+
+# verify:
+pm2 env $(pm2 jlist | jq '.[] | select(.name=="medcore-api") | .pm_id') \
+  | grep DISABLE_RATE_LIMITS
+
+# sanity-hammer: expect some 429s when limits are ON, zero when OFF
+for i in $(seq 1 40); do \
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:4100/api/v1/auth/login \
+    -H 'Content-Type: application/json' \
+    --data '{"email":"probe@x.com","password":"x"}'; \
+done | sort | uniq -c
+```
+
+Default / safe state is **limits ON** (`DISABLE_RATE_LIMITS` unset or set to
+anything other than the literal string `true`). Leaving prod with limits
+disabled is considered a P2 until corrected.
+
+---
+
 ## 9. Troubleshooting
 
 | Symptom | Likely cause | Fix |

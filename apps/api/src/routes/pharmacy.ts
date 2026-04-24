@@ -250,7 +250,7 @@ router.post(
 
       auditLog(
         req,
-        "STOCK_MOVEMENT",
+        "STOCK_MOVE",
         "stock_movement",
         movement.id,
         { type, quantity, reason }

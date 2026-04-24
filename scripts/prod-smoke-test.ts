@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
- * Production smoke test — verifies the 7 new AI-feature dashboard pages
- * load against the live demo. Run AFTER `scripts/deploy.sh` and
- * `scripts/verify-deploy.sh`.
+ * Production smoke test — verifies all 21 AI-feature dashboard pages load
+ * against the live demo (7 original + 14 newer pages shipped Apr 2026).
+ * Run AFTER `scripts/deploy.sh` and `scripts/verify-deploy.sh`.
  *
  * Usage:
  *   npx tsx scripts/prod-smoke-test.ts
@@ -16,7 +16,7 @@
  *            behavior for every /dashboard/* route when not authenticated).
  *   - 307  — Next.js temporary redirect variant of the above.
  *
- * Anything else (4xx/5xx/timeout) is a failure.
+ * Anything else (4xx/5xx/timeout — in particular 404 and 5xx) is a failure.
  *
  * No new dependencies: uses the global `fetch` available in Node 18+.
  */
@@ -25,6 +25,7 @@ const DEMO_URL = process.env.DEMO_URL ?? "https://medcore.globusdemos.com";
 const TIMEOUT_MS = 15_000;
 
 const PAGES = [
+  // Original 7 AI pages.
   "/dashboard/adherence",
   "/dashboard/ai-analytics",
   "/dashboard/er-triage",
@@ -32,6 +33,20 @@ const PAGES = [
   "/dashboard/letters",
   "/dashboard/pharmacy-forecast",
   "/dashboard/predictions",
+  // 14 newer AI pages (Apr 2026 PRD batch).
+  "/dashboard/ai/chart-search",
+  "/dashboard/ai-differential",
+  "/dashboard/ai-followup",
+  "/dashboard/lab",
+  "/dashboard/bill-explainer",
+  "/dashboard/insurance-claims",
+  "/dashboard/capacity-forecast",
+  "/dashboard/ai-roster",
+  "/dashboard/ai-fraud",
+  "/dashboard/ai-doc-qa",
+  "/dashboard/feedback",
+  "/dashboard/fhir-export",
+  "/dashboard/abdm",
 ] as const;
 
 const ACCEPTABLE_STATUSES = new Set([200, 302, 307]);
@@ -102,8 +117,23 @@ async function main() {
         : r.redirectedTo
           ? `-> ${r.redirectedTo}`
           : "";
-    console.log(`  [${mark}] ${r.path.padEnd(30)} ${String(r.status).padEnd(5)} ${extra}`);
+    console.log(`  [${mark}] ${r.path.padEnd(34)} ${String(r.status).padEnd(5)} ${extra}`);
     if (!r.ok) failures++;
+  }
+
+  // Explicitly call out 404 and 5xx as regressions — acceptance criteria
+  // for the smoke suite is "none of these pages return 404 or 5xx".
+  const hardFailures = results.filter(
+    (r) =>
+      typeof r.status === "number" &&
+      (r.status === 404 || r.status >= 500)
+  );
+  if (hardFailures.length > 0) {
+    console.error("");
+    console.error("Hard failures (404 or 5xx):");
+    for (const r of hardFailures) {
+      console.error(`  ${r.path} -> ${r.status}`);
+    }
   }
 
   console.log("");

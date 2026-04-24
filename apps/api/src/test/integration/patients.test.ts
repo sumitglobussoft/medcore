@@ -139,7 +139,7 @@ describeIfDB("Patients API (integration)", () => {
     const patient = await createPatientFixture();
     const prisma = await getPrisma();
     const before = await prisma.auditLog.count({
-      where: { entity: "patient", entityId: patient.id, action: "UPDATE_PATIENT" },
+      where: { entity: "patient", entityId: patient.id, action: "PATIENT_UPDATE" },
     });
     await request(app)
       .patch(`/api/v1/patients/${patient.id}`)
@@ -149,7 +149,7 @@ describeIfDB("Patients API (integration)", () => {
     // auditLog is fire-and-forget; allow a brief window for the insert.
     await new Promise((r) => setTimeout(r, 50));
     const after = await prisma.auditLog.count({
-      where: { entity: "patient", entityId: patient.id, action: "UPDATE_PATIENT" },
+      where: { entity: "patient", entityId: patient.id, action: "PATIENT_UPDATE" },
     });
     expect(after).toBeGreaterThan(before);
   });

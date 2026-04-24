@@ -604,6 +604,538 @@ const TABLES: Array<{
         data: { tenantId: id },
       }),
   },
+  // ── Extended scope (2026-04-24 — migration
+  //    20260424000002_admission_dama_and_tenant_extension) ──────────────
+  {
+    label: "doctor_schedules",
+    count: () => prisma.doctorSchedule.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.doctorSchedule.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "schedule_overrides",
+    count: () => prisma.scheduleOverride.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.scheduleOverride.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "prescription_templates",
+    count: () =>
+      prisma.prescriptionTemplate.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.prescriptionTemplate.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "insurance_claims",
+    count: () => prisma.insuranceClaim.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.insuranceClaim.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "ipd_intake_output",
+    count: () => prisma.ipdIntakeOutput.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.ipdIntakeOutput.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "inventory_items",
+    count: () => prisma.inventoryItem.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.inventoryItem.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "stock_movements",
+    count: () => prisma.stockMovement.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.stockMovement.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "operating_theaters",
+    count: () => prisma.operatingTheater.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.operatingTheater.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "anesthesia_records",
+    count: () => prisma.anesthesiaRecord.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.anesthesiaRecord.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "post_op_observations",
+    count: () => prisma.postOpObservation.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.postOpObservation.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "suppliers",
+    count: () => prisma.supplier.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.supplier.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "purchase_orders",
+    count: () => prisma.purchaseOrder.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.purchaseOrder.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "expenses",
+    count: () => prisma.expense.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.expense.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_donors",
+    count: () => prisma.bloodDonor.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodDonor.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_donations",
+    count: () => prisma.bloodDonation.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodDonation.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_screenings",
+    count: () => prisma.bloodScreening.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodScreening.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_temperature_logs",
+    count: () =>
+      prisma.bloodTemperatureLog.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodTemperatureLog.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_cross_matches",
+    count: () => prisma.bloodCrossMatch.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodCrossMatch.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_units",
+    count: () => prisma.bloodUnit.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodUnit.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "blood_requests",
+    count: () => prisma.bloodRequest.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.bloodRequest.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "ambulances",
+    count: () => prisma.ambulance.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.ambulance.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "ambulance_fuel_logs",
+    count: () => prisma.ambulanceFuelLog.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.ambulanceFuelLog.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "ambulance_trips",
+    count: () => prisma.ambulanceTrip.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.ambulanceTrip.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "assets",
+    count: () => prisma.asset.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.asset.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "asset_transfers",
+    count: () => prisma.assetTransfer.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.assetTransfer.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "asset_assignments",
+    count: () => prisma.assetAssignment.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.assetAssignment.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "asset_maintenance",
+    count: () => prisma.assetMaintenance.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.assetMaintenance.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "ultrasound_records",
+    count: () => prisma.ultrasoundRecord.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.ultrasoundRecord.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "visitors",
+    count: () => prisma.visitor.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.visitor.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "credit_notes",
+    count: () => prisma.creditNote.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.creditNote.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "advance_payments",
+    count: () => prisma.advancePayment.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.advancePayment.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "supplier_payments",
+    count: () => prisma.supplierPayment.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.supplierPayment.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "supplier_catalog_items",
+    count: () =>
+      prisma.supplierCatalogItem.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.supplierCatalogItem.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "grns",
+    count: () => prisma.grn.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.grn.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "visitor_blacklist",
+    count: () => prisma.visitorBlacklist.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.visitorBlacklist.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "expense_budgets",
+    count: () => prisma.expenseBudget.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.expenseBudget.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "leave_balances",
+    count: () => prisma.leaveBalance.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.leaveBalance.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "notification_templates",
+    count: () =>
+      prisma.notificationTemplate.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.notificationTemplate.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "notification_schedules",
+    count: () =>
+      prisma.notificationSchedule.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.notificationSchedule.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "notification_broadcasts",
+    count: () =>
+      prisma.notificationBroadcast.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.notificationBroadcast.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "advance_directives",
+    count: () => prisma.advanceDirective.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.advanceDirective.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "patient_belongings",
+    count: () => prisma.patientBelongings.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.patientBelongings.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "discount_approvals",
+    count: () => prisma.discountApproval.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.discountApproval.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "pharmacy_returns",
+    count: () => prisma.pharmacyReturn.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.pharmacyReturn.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "stock_transfers",
+    count: () => prisma.stockTransfer.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.stockTransfer.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "controlled_substance_register",
+    count: () =>
+      prisma.controlledSubstanceEntry.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.controlledSubstanceEntry.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "lab_qc_entries",
+    count: () => prisma.labQCEntry.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.labQCEntry.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "shared_links",
+    count: () => prisma.sharedLink.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.sharedLink.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "partographs",
+    count: () => prisma.partograph.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.partograph.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "postnatal_visits",
+    count: () => prisma.postnatalVisit.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.postnatalVisit.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "milestone_records",
+    count: () => prisma.milestoneRecord.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.milestoneRecord.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "feeding_logs",
+    count: () => prisma.feedingLog.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.feedingLog.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "donor_deferrals",
+    count: () => prisma.donorDeferral.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.donorDeferral.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "component_separations",
+    count: () =>
+      prisma.componentSeparation.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.componentSeparation.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "adherence_dose_logs",
+    count: () => prisma.adherenceDoseLog.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.adherenceDoseLog.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "abha_links",
+    count: () => prisma.abhaLink.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.abhaLink.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "care_contexts",
+    count: () => prisma.careContext.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.careContext.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
+  {
+    label: "insurance_claims_v2",
+    count: () => prisma.insuranceClaim2.count({ where: { tenantId: null } }),
+    updateNullToDefault: (id) =>
+      prisma.insuranceClaim2.updateMany({
+        where: { tenantId: null },
+        data: { tenantId: id },
+      }),
+  },
 ];
 
 const DEFAULT_TENANT_SUBDOMAIN = "default";

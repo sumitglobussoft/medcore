@@ -18,11 +18,17 @@ filters continue to work.
 
 | Bucket | Count |
 |---|---:|
-| Renamed this pass | 185 |
+| Renamed in the 2026-04-23 main pass | 185 |
+| Renamed in the 2026-04-24 straggler pass | 19 |
 | Already renamed in commit `c1c3cd7` | 23 |
-| Already canonical (no change) | 75 |
-| True events (past-tense kept) | 7 |
-| **Total unique actions** | **290** |
+| Already canonical (no change) | 90 |
+| True events (past-tense kept) | 8 |
+| **Total unique actions (after all renames)** | **324** |
+
+> The 2026-04-24 pass normalized the last 19 non-canonical action
+> strings discovered after the 185-rename wave. Every call site in
+> `apps/api/src/**` now matches `<ENTITY>_<VERB>` (imperative) except
+> the 8 intentionally-preserved true events.
 
 ## Renames applied (185)
 
@@ -517,12 +523,13 @@ approved abbreviation. No change.
 - `VISITOR_BLACKLIST_REMOVE`
 - `VISITOR_PHOTO`
 
-## True events — past-tense preserved (7)
+## True events — past-tense preserved (8)
 
 These are events that happen TO the system rather than actions
 performed BY a user. Past-tense is semantically correct; renaming
 them to imperative form would be misleading.
 
+- `ABDM_GATEWAY_SIGNATURE_INVALID`
 - `ADVANCE_RECEIVED`
 - `BLOOD_TEMP_OUT_OF_RANGE`
 - `FHIR_BUNDLE_RECEIVED`
@@ -530,3 +537,82 @@ them to imperative form would be misleading.
 - `PAYMENT_PLAN_REMINDERS_SENT`
 - `PO_INVOICE_RECORDED`
 - `TRIP_ARRIVED_SCENE`
+
+---
+
+## 2026-04-24 straggler pass (19)
+
+This pass finished normalizing the 19 call sites still on verb-first
+or noun-form action strings after the 185-rename wave. All live code
+in `apps/api/src/**` now matches `<ENTITY>_<VERB>` (imperative) or is
+one of the 8 intentional true events above.
+
+Ops migration SQL:
+
+```sql
+UPDATE audit_logs SET action = CASE action
+  WHEN 'BULK_PAYMENT' THEN 'PAYMENT_BULK_CREATE'
+  WHEN 'CHECKIN_VISITOR' THEN 'VISITOR_CHECK_IN'
+  WHEN 'CHECKOUT_VISITOR' THEN 'VISITOR_CHECK_OUT'
+  WHEN 'CREATE_DRUG_INTERACTION' THEN 'DRUG_INTERACTION_CREATE'
+  WHEN 'CREATE_FAMILY_HISTORY' THEN 'FAMILY_HISTORY_CREATE'
+  WHEN 'DELETE_ALLERGY' THEN 'ALLERGY_DELETE'
+  WHEN 'DELETE_CONDITION' THEN 'CONDITION_DELETE'
+  WHEN 'DELETE_DOCUMENT' THEN 'DOCUMENT_DELETE'
+  WHEN 'DELETE_FAMILY_HISTORY' THEN 'FAMILY_HISTORY_DELETE'
+  WHEN 'DELETE_IMMUNIZATION' THEN 'IMMUNIZATION_DELETE'
+  WHEN 'SOFT_DELETE_ADVANCE_DIRECTIVE' THEN 'ADVANCE_DIRECTIVE_DELETE'
+  WHEN 'STOCK_MOVEMENT' THEN 'STOCK_MOVE'
+  WHEN 'UPDATE_ADVANCE_DIRECTIVE' THEN 'ADVANCE_DIRECTIVE_UPDATE'
+  WHEN 'UPDATE_CERTIFICATION' THEN 'CERTIFICATION_UPDATE'
+  WHEN 'UPDATE_CONDITION' THEN 'CONDITION_UPDATE'
+  WHEN 'UPDATE_IMMUNIZATION' THEN 'IMMUNIZATION_UPDATE'
+  WHEN 'UPDATE_MED_RECONCILIATION' THEN 'MED_RECONCILIATION_UPDATE'
+  WHEN 'UPDATE_PATIENT' THEN 'PATIENT_UPDATE'
+  WHEN 'UPDATE_SCHEDULED_REPORT' THEN 'SCHEDULED_REPORT_UPDATE'
+  ELSE action
+END WHERE action IN ('BULK_PAYMENT', 'CHECKIN_VISITOR', 'CHECKOUT_VISITOR', 'CREATE_DRUG_INTERACTION', 'CREATE_FAMILY_HISTORY', 'DELETE_ALLERGY', 'DELETE_CONDITION', 'DELETE_DOCUMENT', 'DELETE_FAMILY_HISTORY', 'DELETE_IMMUNIZATION', 'SOFT_DELETE_ADVANCE_DIRECTIVE', 'STOCK_MOVEMENT', 'UPDATE_ADVANCE_DIRECTIVE', 'UPDATE_CERTIFICATION', 'UPDATE_CONDITION', 'UPDATE_IMMUNIZATION', 'UPDATE_MED_RECONCILIATION', 'UPDATE_PATIENT', 'UPDATE_SCHEDULED_REPORT');
+```
+
+| Old | New |
+|---|---|
+| `BULK_PAYMENT` | `PAYMENT_BULK_CREATE` |
+| `CHECKIN_VISITOR` | `VISITOR_CHECK_IN` |
+| `CHECKOUT_VISITOR` | `VISITOR_CHECK_OUT` |
+| `CREATE_DRUG_INTERACTION` | `DRUG_INTERACTION_CREATE` |
+| `CREATE_FAMILY_HISTORY` | `FAMILY_HISTORY_CREATE` |
+| `DELETE_ALLERGY` | `ALLERGY_DELETE` |
+| `DELETE_CONDITION` | `CONDITION_DELETE` |
+| `DELETE_DOCUMENT` | `DOCUMENT_DELETE` |
+| `DELETE_FAMILY_HISTORY` | `FAMILY_HISTORY_DELETE` |
+| `DELETE_IMMUNIZATION` | `IMMUNIZATION_DELETE` |
+| `SOFT_DELETE_ADVANCE_DIRECTIVE` | `ADVANCE_DIRECTIVE_DELETE` |
+| `STOCK_MOVEMENT` | `STOCK_MOVE` |
+| `UPDATE_ADVANCE_DIRECTIVE` | `ADVANCE_DIRECTIVE_UPDATE` |
+| `UPDATE_CERTIFICATION` | `CERTIFICATION_UPDATE` |
+| `UPDATE_CONDITION` | `CONDITION_UPDATE` |
+| `UPDATE_IMMUNIZATION` | `IMMUNIZATION_UPDATE` |
+| `UPDATE_MED_RECONCILIATION` | `MED_RECONCILIATION_UPDATE` |
+| `UPDATE_PATIENT` | `PATIENT_UPDATE` |
+| `UPDATE_SCHEDULED_REPORT` | `SCHEDULED_REPORT_UPDATE` |
+
+### Notes on choices this pass
+
+- `SOFT_DELETE_ADVANCE_DIRECTIVE` collapsed to `ADVANCE_DIRECTIVE_DELETE`
+  because the audit log row already captures the soft-vs-hard distinction
+  via the `metadata` payload — the action name should describe intent,
+  not the physical strategy.
+- `BULK_PAYMENT` became `PAYMENT_BULK_CREATE` (a bulk-payment operation
+  *creates* N Payment rows) to stay on the CREATE verb whitelist.
+- `STOCK_MOVEMENT` became `STOCK_MOVE` to match the earlier
+  `STOCK_ADJUSTMENT → STOCK_ADJUST` normalization (noun-form → verb
+  imperative).
+- `CHECKIN_VISITOR` / `CHECKOUT_VISITOR` became
+  `VISITOR_CHECK_IN` / `VISITOR_CHECK_OUT` to match the existing
+  `SHIFT_CHECK_IN` / `SHIFT_CHECK_OUT` convention.
+- `ABDM_GATEWAY_SIGNATURE_INVALID` is a true event (the inbound HMAC
+  validation failed) and joins the preserved list above rather than being
+  renamed.
+- `AI_CLAIM_PENDING_DRAFTS_LIST` is already `<ENTITY>_<VERB>`
+  (LIST is on the whitelist; `AI_CLAIM_PENDING_DRAFTS` is the entity);
+  no rename applied.

@@ -203,7 +203,7 @@ router.post(
 
       auditLog(
         req,
-        "CREATE_DRUG_INTERACTION",
+        "DRUG_INTERACTION_CREATE",
         "drug_interaction",
         interaction.id,
         { drugAId, drugBId, severity }
