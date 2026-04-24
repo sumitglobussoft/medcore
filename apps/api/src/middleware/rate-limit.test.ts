@@ -6,10 +6,23 @@
 // each route file). To still guarantee the (count, windowMs) configuration
 // works, we exercise the middleware directly against a minimal Express app
 // here.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import express from "express";
 import request from "supertest";
 import { rateLimit } from "./rate-limit";
+
+// `rateLimit` is a pass-through when `NODE_ENV === "test"` (see rate-limit.ts
+// — intentional, so integration tests don't flake on per-route caps). To
+// exercise the real limiter from a unit test we flip NODE_ENV off for the
+// lifetime of this suite and restore it afterwards. No other middleware reads
+// NODE_ENV at rate-limit construction time, so this is scope-safe.
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+beforeAll(() => {
+  process.env.NODE_ENV = "development";
+});
+afterAll(() => {
+  process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+});
 
 function makeApp(limit: number, windowMs: number) {
   const app = express();

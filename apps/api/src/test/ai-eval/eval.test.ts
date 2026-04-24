@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest";
 import { runTriageEval, runSoapEval } from "./eval-runner";
 import { TRIAGE_CASES } from "./fixtures/triage-cases";
 
-describe("AI Eval Harness", () => {
+// The eval harness calls the live Sarvam + OpenAI endpoints. Without a real
+// SARVAM_API_KEY configured we skip — the harness is intended for CI nightly
+// runs + pre-release regression checks, not every `vitest run` on a dev box.
+const HAS_LIVE_LLM =
+  !!(process.env.SARVAM_API_KEY || process.env.OPENAI_API_KEY);
+const describeLive = HAS_LIVE_LLM ? describe : describe.skip;
+
+describeLive("AI Eval Harness", () => {
   it(
     "triage emergency detection: 100% pass rate",
     async () => {

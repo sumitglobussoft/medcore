@@ -1,0 +1,34 @@
+appId: ${MAESTRO_APP_ID}
+name: Mark today's dose as taken
+tags:
+  - regression
+  - ai
+  - adherence
+---
+- runFlow: login.yaml
+
+# "My Medications" is the home-tile label for the adherence screen
+# (apps/mobile/app/(tabs)/index.tsx line 85).
+- tapOn: "My Medications"
+
+- assertVisible:
+    text: "Medication Reminders"
+    timeout: 30000
+
+# Dose chips use accessibility labels of the form "Dose at HH:mm"
+# (see adherence.tsx, `accessibilityLabel={`Dose at ${time}...`}`).
+# Flow depends on at least one active schedule being seeded for
+# patient1 — the demo loader enrolls a morning dose at 08:00.
+- assertVisible:
+    text: "Dose at 08:00"
+    timeout: 20000
+
+- tapOn:
+    id: "Dose at 08:00"
+
+# After the optimistic toggle the accessibility label flips to include
+# ", taken" and the chip color turns green. We assert the "taken"
+# suffix variant now renders.
+- assertVisible:
+    text: "Dose at 08:00, taken"
+    timeout: 15000

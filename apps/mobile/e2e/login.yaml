@@ -1,0 +1,39 @@
+appId: ${MAESTRO_APP_ID}
+name: Patient login
+tags:
+  - smoke
+  - auth
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+
+# Login screen is the initial route when no token is stored.
+- assertVisible:
+    text: "MedCore"
+    timeout: 30000
+- assertVisible: "Welcome Back"
+- assertVisible: "Sign in to your account"
+
+# Fill email — placeholder "you@example.com" is unique on the screen.
+- tapOn:
+    text: "you@example.com"
+- inputText: ${PATIENT_EMAIL}
+
+# Fill password — placeholder "Enter your password" is unique.
+- tapOn:
+    text: "Enter your password"
+- inputText: ${PATIENT_PASSWORD}
+
+# Submit.
+- tapOn:
+    text: "Sign In"
+
+# Home screen lands on the patient dashboard; the header greeting is
+# "Welcome back," and "Quick Actions" is the first section heading.
+- assertVisible:
+    text: "Welcome back,"
+    timeout: 20000
+- assertVisible: "Quick Actions"
+- assertVisible: "Book Appointment"
+- assertVisible: "AI Triage"

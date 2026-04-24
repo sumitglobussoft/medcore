@@ -6,6 +6,7 @@ import { sendNotification, drainScheduled } from "./notification";
 import { runDailyFraudScan } from "../routes/ai-fraud";
 import { runDailyDocQAScheduledTask } from "../routes/ai-doc-qa";
 import { runDailyNpsDriverRollup } from "../routes/ai-sentiment";
+import { runAuditLogArchival } from "./audit-archival";
 
 // ───────────────────────────────────────────────────────
 // Lightweight setInterval-based scheduler.
@@ -415,6 +416,79 @@ async function cleanupOrphanedUploads(): Promise<void> {
   }
 }
 
+// ─── Rate-limit bypass alarm (Gap 3) ───────────────────
+//
+// `DISABLE_RATE_LIMITS=true` is an ops escape hatch for running load tests /
+// E2E campaigns against prod without tripping the 429 gate. It MUST be
+// short-lived — left on permanently it silently disables the global 600/min
+// defence plus every per-route limiter. This alarm counts consecutive
+// scheduler ticks that observed the env var set and fires a single
+// `RATE_LIMITS_DISABLED_EXTENDED` audit entry once the counter reaches 3
+// (≈ 3 minutes of sustained bypass). The counter resets the moment
+// DISABLE_RATE_LIMITS is unset. The alarm is rate-limited to once per 6h to
+// avoid audit-log spam during an extended campaign.
+
+interface RateLimitAlarmState {
+  count: number;
+  firedAt: Date | null;
+}
+
+const rateLimitAlarmState: RateLimitAlarmState = {
+  count: 0,
+  firedAt: null,
+};
+
+const RATE_LIMIT_ALARM_THRESHOLD = 3;
+const RATE_LIMIT_ALARM_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+async function rateLimitBypassCheck(): Promise<void> {
+  const bypassed = process.env.DISABLE_RATE_LIMITS === "true";
+  if (!bypassed) {
+    rateLimitAlarmState.count = 0;
+    return;
+  }
+  rateLimitAlarmState.count += 1;
+  if (rateLimitAlarmState.count < RATE_LIMIT_ALARM_THRESHOLD) return;
+
+  const now = Date.now();
+  if (
+    rateLimitAlarmState.firedAt &&
+    now - rateLimitAlarmState.firedAt.getTime() < RATE_LIMIT_ALARM_COOLDOWN_MS
+  ) {
+    return;
+  }
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "RATE_LIMITS_DISABLED_EXTENDED",
+        entity: "system",
+        entityId: "rate_limit_bypass",
+        details: {
+          severity: "WARNING",
+          consecutiveChecks: rateLimitAlarmState.count,
+          message:
+            "DISABLE_RATE_LIMITS=true observed across 3+ scheduler ticks — ops must unset this env var unless a load/E2E campaign is still running.",
+        } as any,
+      } as any,
+    });
+    rateLimitAlarmState.firedAt = new Date();
+  } catch (err) {
+    console.error("[rate_limit_bypass_check]", err);
+  }
+}
+
+/** Test-only reset hook for {@link rateLimitAlarmState}. */
+export function _resetRateLimitAlarmForTests(): void {
+  rateLimitAlarmState.count = 0;
+  rateLimitAlarmState.firedAt = null;
+}
+
+/** Test-only peek hook for {@link rateLimitAlarmState}. */
+export function _peekRateLimitAlarmStateForTests(): RateLimitAlarmState {
+  return { ...rateLimitAlarmState };
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -501,6 +575,19 @@ const TASKS: ScheduledTask[] = [
     runAtHour: 5,
     run: runDailyNpsDriverRollup,
   },
+  {
+    name: "rate_limit_bypass_check",
+    intervalMinutes: 1,
+    run: rateLimitBypassCheck,
+  },
+  {
+    name: "audit_log_archival",
+    intervalMinutes: 24 * 60,
+    runAtHour: 3,
+    run: async () => {
+      await runAuditLogArchival({});
+    },
+  },
 ];
 
 let intervalHandle: NodeJS.Timeout | null = null;
@@ -543,5 +630,62 @@ export function stopScheduledTasks(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+  }
+}
+
+/**
+ * Observability hook for `/api/health/deep`. Returns a per-task digest
+ * (name, configured interval, last-run timestamp, minutes since last run).
+ * Missing last-run rows report `lastRunAt: null` / `minutesSinceLastRun: null`.
+ */
+export async function getSchedulerStatus(): Promise<
+  Array<{
+    name: string;
+    intervalMinutes: number;
+    lastRunAt: string | null;
+    minutesSinceLastRun: number | null;
+  }>
+> {
+  const now = Date.now();
+  const out: Array<{
+    name: string;
+    intervalMinutes: number;
+    lastRunAt: string | null;
+    minutesSinceLastRun: number | null;
+  }> = [];
+  for (const t of TASKS) {
+    const last = await getLastRun(t.name);
+    out.push({
+      name: t.name,
+      intervalMinutes: t.intervalMinutes,
+      lastRunAt: last ? last.toISOString() : null,
+      minutesSinceLastRun: last
+        ? Math.max(0, Math.floor((now - last.getTime()) / 60000))
+        : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Test-only hook: run one scheduler tick synchronously. Used by the
+ * rate-limit-bypass-check test suite so we don't have to sleep for the 60s
+ * interval. Unlike the prod `tick()` this awaits each task.
+ */
+export async function _runSchedulerTickForTests(): Promise<void> {
+  const now = new Date();
+  for (const task of TASKS) {
+    try {
+      if (task.runAtHour != null && now.getHours() !== task.runAtHour) continue;
+      const last = await getLastRun(task.name);
+      if (last) {
+        const sinceMin = (now.getTime() - last.getTime()) / 60000;
+        if (sinceMin < task.intervalMinutes) continue;
+      }
+      await setLastRun(task.name, now);
+      await task.run();
+    } catch (err) {
+      console.error(`[scheduler-test] ${task.name} failed`, err);
+    }
   }
 }

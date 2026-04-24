@@ -1,0 +1,42 @@
+appId: ${MAESTRO_APP_ID}
+name: AI triage red-flag detection
+tags:
+  - regression
+  - ai
+  - safety
+---
+- runFlow: login.yaml
+
+- tapOn: "AI Triage"
+
+- assertVisible:
+    text: "AI Triage"
+    timeout: 30000
+- assertVisible:
+    text: "Describe your symptoms..."
+    timeout: 30000
+
+# Classic red-flag symptom that must trip the emergency banner.
+# See apps/api/src/services/ai/triage.ts — "chest pain" + "radiating
+# to left arm" is in the red-flag lexicon and the triage classifier
+# must return isEmergency=true.
+- tapOn:
+    text: "Describe your symptoms..."
+- inputText: "I have chest pain radiating to my left arm"
+- tapOn:
+    id: "Send message"
+
+# User bubble lands immediately (optimistic append).
+- assertVisible:
+    text: "I have chest pain radiating to my left arm"
+    timeout: 15000
+
+# Emergency banner text comes from triage.tsx's <View style="emergencyBanner">:
+#   "Possible emergency detected. Please call 108 or go to the nearest ER."
+- assertVisible:
+    text: "Possible emergency detected"
+    timeout: 45000
+
+# Composer is disabled when isEmergency=true; placeholder flips to the
+# paused-state string.
+- assertVisible: "Chat paused — please seek immediate care"

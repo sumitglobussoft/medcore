@@ -145,6 +145,7 @@ const navByRole: Record<
   ADMIN: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/admin-console", label: "Admin Console", icon: LayoutDashboard },
+    { href: "/dashboard/agent-console", label: "Agent Console", icon: HeartPulse },
     { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
@@ -202,6 +203,7 @@ const navByRole: Record<
     { href: "/dashboard/scribe", label: "AI Scribe", icon: Mic },
     { href: "/dashboard/ai/chart-search", label: "Chart Search", icon: Brain },
     { href: "/dashboard/ai-analytics", label: "AI Analytics", icon: Sparkles },
+    { href: "/dashboard/ai-kpis", label: "AI KPIs", icon: BarChart3 },
     { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
     { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
     { href: "/dashboard/pharmacy-forecast", label: "Pharmacy Forecast", icon: FlaskRound },
@@ -248,6 +250,7 @@ const navByRole: Record<
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/agent-console", label: "Agent Console", icon: HeartPulse },
     { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/walk-in", label: "Walk-in", icon: UserPlus },
@@ -515,6 +518,7 @@ export default function DashboardLayout({
   const NAV_LABEL_TO_KEY: Record<string, string> = {
     Dashboard: "dashboard.nav.dashboard",
     "Admin Console": "dashboard.nav.adminConsole",
+    "Agent Console": "dashboard.nav.agentConsole",
     Calendar: "dashboard.nav.calendar",
     Appointments: "dashboard.nav.appointments",
     "My Appointments": "dashboard.nav.myAppointments",

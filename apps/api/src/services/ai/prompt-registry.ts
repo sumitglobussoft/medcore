@@ -48,6 +48,21 @@ export function clearPromptCache(): void {
   cache.clear();
 }
 
+/**
+ * Observability hook: returns the age in seconds of the OLDEST cache entry.
+ * Returns 0 when the cache is empty. Consumed by the Prometheus gauge in
+ * `services/metrics.ts` so ops can alarm if a cache entry has somehow outlived
+ * the 60s TTL (would indicate clearPromptCache() isn't firing on mutation).
+ */
+export function getOldestPromptCacheAgeSeconds(): number {
+  if (cache.size === 0) return 0;
+  let oldest = Date.now();
+  for (const entry of cache.values()) {
+    if (entry.fetchedAt < oldest) oldest = entry.fetchedAt;
+  }
+  return Math.max(0, Math.floor((Date.now() - oldest) / 1000));
+}
+
 // ── Readers ───────────────────────────────────────────────────────────────────
 
 /**

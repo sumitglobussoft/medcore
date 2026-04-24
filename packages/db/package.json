@@ -26,6 +26,7 @@
     "db:seed-hospital-config": "tsx src/seed-hospital-config.ts",
     "db:seed-prompts": "tsx src/seed-prompts.ts",
     "db:seed-prompts-v2": "tsx src/seed-prompt-v2-triage.ts",
+    "db:seed-snomed": "tsx src/seed-snomed.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

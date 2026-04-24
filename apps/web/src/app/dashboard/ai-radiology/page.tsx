@@ -476,6 +476,7 @@ function ReportDetailModal({
     report.finalImpression ?? report.aiImpression ?? ""
   );
   const [busy, setBusy] = useState(false);
+  const [activeFindingIdx, setActiveFindingIdx] = useState<number | null>(null);
   const canApprove = report.status === "DRAFT" || report.status === "RADIOLOGIST_REVIEW";
   const canAmend = report.status === "FINAL" || report.status === "AMENDED";
 
@@ -483,6 +484,15 @@ function ReportDetailModal({
     () => (Array.isArray(report.aiFindings) ? report.aiFindings : []),
     [report.aiFindings]
   );
+
+  // First image in the study is the preview target. `key` is the relative
+  // storage path; the `/uploads/…` path is served by the API's static mount.
+  const primaryImage = Array.isArray(report.study?.images)
+    ? report.study!.images![0]
+    : null;
+  const primaryImageUrl = primaryImage
+    ? `/${primaryImage.key.replace(/^\/+/, "")}`
+    : null;
 
   async function approve() {
     if (finalText.trim().length < 10) {
@@ -548,6 +558,52 @@ function ReportDetailModal({
           </button>
         </div>
 
+        {/* Image preview with region overlay. Each `aiFinding.region` is
+            rendered as an absolutely-positioned box over the primary image;
+            click the finding in the left pane to highlight its region here. */}
+        {primaryImageUrl && (
+          <div
+            data-testid="radiology-image-container"
+            className="relative mb-4 w-full overflow-hidden rounded-lg border border-gray-200 bg-black dark:border-gray-700"
+            style={{ aspectRatio: "4 / 3" }}
+          >
+            <img
+              src={primaryImageUrl}
+              alt={report.study?.bodyPart ?? "Radiology study"}
+              className="h-full w-full object-contain"
+            />
+            {findings.map((f, i) =>
+              f.region ? (
+                <div
+                  key={i}
+                  data-testid={`radiology-region-${i}`}
+                  data-confidence={f.confidence}
+                  data-active={activeFindingIdx === i ? "true" : "false"}
+                  onClick={() =>
+                    setActiveFindingIdx((prev) => (prev === i ? null : i))
+                  }
+                  className={`absolute cursor-pointer border-2 transition ${
+                    activeFindingIdx === i
+                      ? "z-10 border-yellow-400 shadow-[0_0_0_2px_rgba(250,204,21,0.6)]"
+                      : f.confidence === "high"
+                        ? "border-red-500/80"
+                        : f.confidence === "medium"
+                          ? "border-amber-400/80"
+                          : "border-blue-400/70"
+                  }`}
+                  style={{
+                    left: `${Math.max(0, f.region.x) * 100}%`,
+                    top: `${Math.max(0, f.region.y) * 100}%`,
+                    width: `${Math.min(1, f.region.w) * 100}%`,
+                    height: `${Math.min(1, f.region.h) * 100}%`,
+                  }}
+                  title={f.region.label ?? f.description}
+                />
+              ) : null,
+            )}
+          </div>
+        )}
+
         {/* Side-by-side layout */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* Left: AI draft */}
@@ -570,6 +626,18 @@ function ReportDetailModal({
                 <ul className="space-y-1">
                   {findings.map((f, i) => (
                     <li key={i} className="text-xs text-gray-600 dark:text-gray-400">
+                      <button
+                        type="button"
+                        data-testid={`radiology-finding-${i}`}
+                        onClick={() =>
+                          setActiveFindingIdx((prev) => (prev === i ? null : i))
+                        }
+                        className={`block w-full rounded px-1 py-0.5 text-left transition hover:bg-blue-50 dark:hover:bg-blue-900/30 ${
+                          activeFindingIdx === i
+                            ? "bg-blue-100 dark:bg-blue-900/40"
+                            : ""
+                        }`}
+                      >
                       <span className={`font-semibold uppercase ${CONFIDENCE_COLOR[f.confidence]}`}>
                         [{f.confidence}]
                       </span>{" "}
@@ -579,16 +647,10 @@ function ReportDetailModal({
                           ↳ {f.suggestedFollowUp}
                         </div>
                       )}
+                      </button>
                     </li>
                   ))}
                 </ul>
-                {/* Deferred: region bounding-box overlay on the image preview */}
-                <p className="mt-2 text-[10px] italic text-gray-400">
-                  {t(
-                    "radiology.detail.overlayDeferred",
-                    "Region overlay on images is not yet implemented."
-                  )}
-                </p>
               </div>
             )}
           </div>

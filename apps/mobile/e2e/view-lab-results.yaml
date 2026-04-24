@@ -1,0 +1,39 @@
+appId: ${MAESTRO_APP_ID}
+name: View lab explanation entrypoint
+tags:
+  - regression
+  - ai
+  - labs
+---
+- runFlow: login.yaml
+
+# Lab Explanations lives under the "Quick Actions" grid on the home
+# dashboard, not as a bottom-tab. The tile label is "Lab Explanations".
+- tapOn: "Lab Explanations"
+
+- assertVisible:
+    text: "Lab Report Explanation"
+    timeout: 30000
+- assertVisible: "Lab Order ID"
+- assertVisible: "View Explanation"
+
+# The empty hint renders before any lab order id is entered. We don't
+# exercise the full fetch here because it depends on a specific lab
+# order id being seeded for the patient — that's covered separately
+# in the API test tier. This flow proves the screen mounts, the
+# input is focusable, and the "View Explanation" primary action is
+# rendered.
+- assertVisible: "Enter a lab order ID to view its AI-generated explanation."
+
+- tapOn: "Enter your lab order ID"
+- inputText: "demo-lab-order-id"
+
+# The "View Explanation" button becomes enabled as soon as the input
+# has non-whitespace content.
+- tapOn: "View Explanation"
+
+# Either the explanation renders or an error box appears — both are
+# acceptable outcomes (the seeded id may not match). We wait briefly
+# for either and don't assert further on the body.
+- waitForAnimationToEnd:
+    timeout: 15000

@@ -95,6 +95,11 @@ import { aiRosterRouter } from "./routes/ai-roster";
 import { aiFraudRouter } from "./routes/ai-fraud";
 import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
+import { tenantsRouter } from "./routes/tenants";
+import { agentConsoleRouter } from "./routes/agent-console";
+import { aiKpisRouter } from "./routes/ai-kpis";
+import { healthRouter } from "./routes/health";
+import { patientDataExportRouter } from "./routes/patient-data-export";
 import { startChronicCareScheduler } from "./services/chronic-care-scheduler";
 import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
@@ -238,12 +243,16 @@ export function buildApp() {
   app.use("/api/v1/ai/fraud", aiFraudRouter);
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
+  app.use("/api/v1/tenants", tenantsRouter);
+  app.use("/api/v1/agent-console", agentConsoleRouter);
+  app.use("/api/v1/ai/kpis", aiKpisRouter);
+  app.use("/api/v1/patient-data-export", patientDataExportRouter);
   app.use("/api/v1", patientExtrasRouter);
 
-  // Health check
-  app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
+  // Health check — the router provides shallow `/api/health` (public) plus
+  // `/api/health/deep` (ADMIN) with DB probe + scheduler status + prompt
+  // cache age. Must be mounted BEFORE any inline handler for the same path.
+  app.use("/api/health", healthRouter);
 
   // Sentry error handler must come before the custom error handler
   if (process.env.SENTRY_DSN) {

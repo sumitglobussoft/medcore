@@ -1,0 +1,40 @@
+appId: ${MAESTRO_APP_ID}
+name: View prescription list and detail
+tags:
+  - regression
+  - prescriptions
+---
+- runFlow: login.yaml
+
+# Navigate via the bottom tab bar. The prescriptions tab is labelled "Rx".
+- tapOn: "Rx"
+
+# PrescriptionsScreen either shows the empty state or at least one
+# Rx card. The test account (patient1@medcore.local) is seeded with
+# a prescription by the demo data loader, so we assert the loaded
+# list is not in its empty state.
+- assertVisible:
+    text: "Rx"
+    timeout: 20000
+
+# Either an Rx circle badge is visible (at least one prescription),
+# or the empty-state text. Fail loudly on the empty state since the
+# seed data should always populate this for patient1.
+- runScript: |
+    if (maestro.copyTextFrom && maestro.copyTextFrom("No prescriptions yet")) {
+      throw new Error("Expected seeded prescription for patient1 but got empty state");
+    }
+
+# Tap the first Rx card — the source uses a TouchableOpacity wrapping
+# a `<Text>Rx</Text>` pill. Tapping the visible "Rx" (pill text) opens
+# the expanded detail section.
+- tapOn:
+    text: "Rx"
+    index: 0
+
+# Expanded detail shows the Medicine / Dosage / Duration table header.
+- assertVisible:
+    text: "Medicine"
+    timeout: 15000
+- assertVisible: "Dosage"
+- assertVisible: "Duration"

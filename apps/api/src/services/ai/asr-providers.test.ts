@@ -173,6 +173,88 @@ describe("AssemblyAIASRClient.transcribe", () => {
     expect(secondBody.audio_url).toBe("https://cdn.assemblyai.com/u/abc");
     expect(secondBody.language_code).toBe("en");
   });
+
+  // ── PRD §4.5.2 medical-vocabulary tuning ────────────────────────────────────
+
+  it("attaches word_boost + boost_param=high by default (PRD §4.5.2)", async () => {
+    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
+    const fetchSeq: Array<() => Response> = [
+      () =>
+        new Response(JSON.stringify({ upload_url: "https://cdn.assemblyai.com/u/x" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      () =>
+        new Response(
+          JSON.stringify({
+            id: "tr-abc",
+            status: "completed",
+            text: "",
+            utterances: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+    ];
+    let idx = 0;
+    const fetchMock = vi.fn(async () => fetchSeq[Math.min(idx++, fetchSeq.length - 1)]());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = getASRClient("assemblyai");
+    // Default: medicalVocabulary is undefined, which should enable boosting.
+    await client.transcribe(Buffer.from([1, 2, 3]), { language: "en-IN" });
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    // calls[0] = upload, calls[1] = transcript create
+    const body = JSON.parse(calls[1][1].body as string);
+    expect(Array.isArray(body.word_boost)).toBe(true);
+    expect(body.word_boost.length).toBeGreaterThan(200);
+    expect(body.word_boost).toContain("Amoxicillin");
+    expect(body.boost_param).toBe("high");
+
+    // Log metadata should record the boost size so ops can verify from logs.
+    const aaiLog = logAICallSpy.mock.calls
+      .map((c) => c[0])
+      .find((e) => e.feature === "asr-assemblyai" && !e.error);
+    expect(aaiLog).toBeTruthy();
+    expect(aaiLog.metadata?.boostedWords).toBe(body.word_boost.length);
+    expect(aaiLog.metadata?.boostParam).toBe("high");
+  });
+
+  it("omits word_boost when medicalVocabulary=false (operator kill-switch)", async () => {
+    process.env.ASSEMBLYAI_API_KEY = "test-aai-key";
+    const fetchSeq: Array<() => Response> = [
+      () =>
+        new Response(JSON.stringify({ upload_url: "https://cdn.assemblyai.com/u/x" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      () =>
+        new Response(
+          JSON.stringify({ id: "tr-xyz", status: "completed", text: "", utterances: [] }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        ),
+    ];
+    let idx = 0;
+    const fetchMock = vi.fn(async () => fetchSeq[Math.min(idx++, fetchSeq.length - 1)]());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = getASRClient("assemblyai");
+    await client.transcribe(Buffer.from([1, 2, 3]), {
+      language: "en-IN",
+      medicalVocabulary: false,
+    });
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const body = JSON.parse(calls[1][1].body as string);
+    expect(body.word_boost).toBeUndefined();
+    expect(body.boost_param).toBeUndefined();
+
+    const aaiLog = logAICallSpy.mock.calls
+      .map((c) => c[0])
+      .find((e) => e.feature === "asr-assemblyai" && !e.error);
+    expect(aaiLog?.metadata?.boostedWords).toBe(0);
+    expect(aaiLog?.metadata?.boostParam).toBeNull();
+  });
 });
 
 // ── Speaker mapping helper ────────────────────────────────────────────────────

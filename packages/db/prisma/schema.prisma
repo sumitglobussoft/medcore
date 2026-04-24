@@ -475,120 +475,126 @@ model Tenant {
   notifications        Notification[]
 
   // ── Extended scope (2026-04-23) ───────────────────────
-  patientAllergies         PatientAllergy[]
-  chronicConditions        ChronicCondition[]
-  familyHistories          FamilyHistory[]
-  immunizations            Immunization[]
-  patientDocuments         PatientDocument[]
-  vitals                   Vitals[]
-  ipdVitals                IpdVitals[]
-  patientFamilyLinks       PatientFamilyLink[]
+  patientAllergies          PatientAllergy[]
+  chronicConditions         ChronicCondition[]
+  familyHistories           FamilyHistory[]
+  immunizations             Immunization[]
+  patientDocuments          PatientDocument[]
+  vitals                    Vitals[]
+  ipdVitals                 IpdVitals[]
+  patientFamilyLinks        PatientFamilyLink[]
   medicationAdministrations MedicationAdministration[]
-  antenatalCases           AntenatalCase[]
-  ancVisits                AncVisit[]
-  growthRecords            GrowthRecord[]
-  medReconciliations       MedReconciliation[]
-  preAuthRequests          PreAuthRequest[]
-  aiScribeSessions         AIScribeSession[]
-  aiTriageSessions         AITriageSession[]
-  labReportExplanations    LabReportExplanation[]
-  adherenceSchedules       AdherenceSchedule[]
-  consentArtefacts         ConsentArtefact[]
-  waitlistEntries          WaitlistEntry[]
-  coordinatedVisits        CoordinatedVisit[]
-  healthPackages           HealthPackage[]
-  packagePurchases         PackagePurchase[]
-  paymentPlans             PaymentPlan[]
-  paymentPlanInstallments  PaymentPlanInstallment[]
-  scheduledReports         ScheduledReport[]
-  reportRuns               ReportRun[]
-  patientFeedback          PatientFeedback[]
-  complaints               Complaint[]
-  staffCertifications      StaffCertification[]
-  overtimeRecords          OvertimeRecord[]
-  holidays                 Holiday[]
-  beds                     Bed[]
-  wards                    Ward[]
-  chatRooms                ChatRoom[]
-  chatMessages             ChatMessage[]
-  chatParticipants         ChatParticipant[]
+  antenatalCases            AntenatalCase[]
+  ancVisits                 AncVisit[]
+  growthRecords             GrowthRecord[]
+  medReconciliations        MedReconciliation[]
+  preAuthRequests           PreAuthRequest[]
+  aiScribeSessions          AIScribeSession[]
+  aiTriageSessions          AITriageSession[]
+  labReportExplanations     LabReportExplanation[]
+  adherenceSchedules        AdherenceSchedule[]
+  consentArtefacts          ConsentArtefact[]
+  waitlistEntries           WaitlistEntry[]
+  coordinatedVisits         CoordinatedVisit[]
+  healthPackages            HealthPackage[]
+  packagePurchases          PackagePurchase[]
+  paymentPlans              PaymentPlan[]
+  paymentPlanInstallments   PaymentPlanInstallment[]
+  scheduledReports          ScheduledReport[]
+  reportRuns                ReportRun[]
+  patientFeedback           PatientFeedback[]
+  complaints                Complaint[]
+  staffCertifications       StaffCertification[]
+  overtimeRecords           OvertimeRecord[]
+  holidays                  Holiday[]
+  beds                      Bed[]
+  wards                     Ward[]
+  chatRooms                 ChatRoom[]
+  chatMessages              ChatMessage[]
+  chatParticipants          ChatParticipant[]
 
   // ── Back-relations merged from .prisma-models-*.md (see end of file) ──
-  billExplanations         BillExplanation[]
-  previsitChecklists       PrevisitChecklist[]
-  symptomDiaryEntries      SymptomDiaryEntry[]
-  chronicCarePlans         ChronicCarePlan[]
-  chronicCareCheckIns      ChronicCareCheckIn[]
-  chronicCareAlerts        ChronicCareAlert[]
-  staffRosterProposals     StaffRosterProposal[]
-  fraudAlerts              FraudAlert[]
-  docQaReports             DocQAReport[]
-  feedbackSentiments       FeedbackSentiment[]
-  npsDailyRollups          NpsDailyRollup[]
-  claimDenialHistories     ClaimDenialHistory[]
+  billExplanations     BillExplanation[]
+  previsitChecklists   PrevisitChecklist[]
+  symptomDiaryEntries  SymptomDiaryEntry[]
+  chronicCarePlans     ChronicCarePlan[]
+  chronicCareCheckIns  ChronicCareCheckIn[]
+  chronicCareAlerts    ChronicCareAlert[]
+  staffRosterProposals StaffRosterProposal[]
+  fraudAlerts          FraudAlert[]
+  docQaReports         DocQAReport[]
+  feedbackSentiments   FeedbackSentiment[]
+  npsDailyRollups      NpsDailyRollup[]
+  claimDenialHistories ClaimDenialHistory[]
 
   // ── Extended scope (2026-04-24 — migration
   //    20260424000002_admission_dama_and_tenant_extension) ───────────────
-  doctorSchedules          DoctorSchedule[]
-  scheduleOverrides        ScheduleOverride[]
-  prescriptionTemplates    PrescriptionTemplate[]
-  insuranceClaims          InsuranceClaim[]
-  ipdIntakeOutputs         IpdIntakeOutput[]
-  inventoryItems           InventoryItem[]
-  stockMovements           StockMovement[]
-  operatingTheaters        OperatingTheater[]
-  anesthesiaRecords        AnesthesiaRecord[]
-  postOpObservations       PostOpObservation[]
-  suppliers                Supplier[]
-  purchaseOrders           PurchaseOrder[]
-  expenses                 Expense[]
-  bloodDonors              BloodDonor[]
-  bloodDonations           BloodDonation[]
-  bloodScreenings          BloodScreening[]
-  bloodTemperatureLogs     BloodTemperatureLog[]
-  bloodCrossMatches        BloodCrossMatch[]
-  bloodUnits               BloodUnit[]
-  bloodRequests            BloodRequest[]
-  ambulances               Ambulance[]
-  ambulanceFuelLogs        AmbulanceFuelLog[]
-  ambulanceTrips           AmbulanceTrip[]
-  assets                   Asset[]
-  assetTransfers           AssetTransfer[]
-  assetAssignments         AssetAssignment[]
-  assetMaintenances        AssetMaintenance[]
-  ultrasoundRecords        UltrasoundRecord[]
-  visitors                 Visitor[]
-  creditNotes              CreditNote[]
-  advancePayments          AdvancePayment[]
-  supplierPayments         SupplierPayment[]
-  supplierCatalogItems     SupplierCatalogItem[]
-  grns                     Grn[]
-  visitorBlacklists        VisitorBlacklist[]
-  expenseBudgets           ExpenseBudget[]
-  leaveBalances            LeaveBalance[]
-  notificationTemplates    NotificationTemplate[]
-  notificationSchedules    NotificationSchedule[]
-  notificationBroadcasts   NotificationBroadcast[]
-  advanceDirectives        AdvanceDirective[]
-  patientBelongings        PatientBelongings[]
-  discountApprovals        DiscountApproval[]
-  pharmacyReturns          PharmacyReturn[]
-  stockTransfers           StockTransfer[]
+  doctorSchedules            DoctorSchedule[]
+  scheduleOverrides          ScheduleOverride[]
+  prescriptionTemplates      PrescriptionTemplate[]
+  insuranceClaims            InsuranceClaim[]
+  ipdIntakeOutputs           IpdIntakeOutput[]
+  inventoryItems             InventoryItem[]
+  stockMovements             StockMovement[]
+  operatingTheaters          OperatingTheater[]
+  anesthesiaRecords          AnesthesiaRecord[]
+  postOpObservations         PostOpObservation[]
+  suppliers                  Supplier[]
+  purchaseOrders             PurchaseOrder[]
+  expenses                   Expense[]
+  bloodDonors                BloodDonor[]
+  bloodDonations             BloodDonation[]
+  bloodScreenings            BloodScreening[]
+  bloodTemperatureLogs       BloodTemperatureLog[]
+  bloodCrossMatches          BloodCrossMatch[]
+  bloodUnits                 BloodUnit[]
+  bloodRequests              BloodRequest[]
+  ambulances                 Ambulance[]
+  ambulanceFuelLogs          AmbulanceFuelLog[]
+  ambulanceTrips             AmbulanceTrip[]
+  assets                     Asset[]
+  assetTransfers             AssetTransfer[]
+  assetAssignments           AssetAssignment[]
+  assetMaintenances          AssetMaintenance[]
+  ultrasoundRecords          UltrasoundRecord[]
+  visitors                   Visitor[]
+  creditNotes                CreditNote[]
+  advancePayments            AdvancePayment[]
+  supplierPayments           SupplierPayment[]
+  supplierCatalogItems       SupplierCatalogItem[]
+  grns                       Grn[]
+  visitorBlacklists          VisitorBlacklist[]
+  expenseBudgets             ExpenseBudget[]
+  leaveBalances              LeaveBalance[]
+  notificationTemplates      NotificationTemplate[]
+  notificationSchedules      NotificationSchedule[]
+  notificationBroadcasts     NotificationBroadcast[]
+  advanceDirectives          AdvanceDirective[]
+  patientBelongings          PatientBelongings[]
+  discountApprovals          DiscountApproval[]
+  pharmacyReturns            PharmacyReturn[]
+  stockTransfers             StockTransfer[]
   controlledSubstanceEntries ControlledSubstanceEntry[]
-  labQcEntries             LabQCEntry[]
-  sharedLinks              SharedLink[]
-  partographs              Partograph[]
-  postnatalVisits          PostnatalVisit[]
-  milestoneRecords         MilestoneRecord[]
-  feedingLogs              FeedingLog[]
-  donorDeferrals           DonorDeferral[]
-  componentSeparations     ComponentSeparation[]
-  adherenceDoseLogs        AdherenceDoseLog[]
-  abhaLinks                AbhaLink[]
-  careContexts             CareContext[]
-  insuranceClaimsV2        InsuranceClaim2[]
-  radiologyStudies         RadiologyStudy[]
-  radiologyReports         RadiologyReport[]
+  labQcEntries               LabQCEntry[]
+  sharedLinks                SharedLink[]
+  partographs                Partograph[]
+  postnatalVisits            PostnatalVisit[]
+  milestoneRecords           MilestoneRecord[]
+  feedingLogs                FeedingLog[]
+  donorDeferrals             DonorDeferral[]
+  componentSeparations       ComponentSeparation[]
+  adherenceDoseLogs          AdherenceDoseLog[]
+  abhaLinks                  AbhaLink[]
+  careContexts               CareContext[]
+  insuranceClaimsV2          InsuranceClaim2[]
+  radiologyStudies           RadiologyStudy[]
+  radiologyReports           RadiologyReport[]
+
+  // ── PRD closure (2026-04-24 — migration
+  //    20260424000004_prd_closure_models) ──────────────────────────────────
+  patientDataExports  PatientDataExport[]
+  frontDeskCalls      FrontDeskCall[]
+  medicationIncidents MedicationIncident[]
 
   @@map("tenants")
 }
@@ -596,15 +602,15 @@ model Tenant {
 // ─── USERS & AUTH ───────────────────────────────────────
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  phone        String
-  name         String
-  passwordHash String
-  role         Role
-  isActive     Boolean  @default(true)
-  photoUrl     String?
-  twoFactorEnabled     Boolean @default(false)
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  phone                String
+  name                 String
+  passwordHash         String
+  role                 Role
+  isActive             Boolean   @default(true)
+  photoUrl             String?
+  twoFactorEnabled     Boolean   @default(false)
   twoFactorSecret      String?
   twoFactorBackupCodes Json?
   preferredLanguage    String?
@@ -612,11 +618,11 @@ model User {
   pushToken            String?
   pushPlatform         String?
   pushTokenUpdatedAt   DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  tenantId     String?
-  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   doctor                    Doctor?
   patient                   Patient?
@@ -643,8 +649,11 @@ model User {
   twoFactorTempTokens       TwoFactorTempToken[]
 
   // ── Back-relations merged from .prisma-models-ops-forecast.md ────────
-  proposalsCreated          StaffRosterProposal[] @relation("RosterProposalCreator")
-  proposalsApplied          StaffRosterProposal[] @relation("RosterProposalApplier")
+  proposalsCreated StaffRosterProposal[] @relation("RosterProposalCreator")
+  proposalsApplied StaffRosterProposal[] @relation("RosterProposalApplier")
+
+  // ── PRD closure (2026-04-24) ─────────────────────────────
+  medicationIncidentsReported MedicationIncident[] @relation("MedicationIncidentReporter")
 
   @@index([email])
   @@index([phone])
@@ -699,22 +708,22 @@ model TwoFactorTempToken {
 // ─── DOCTOR ─────────────────────────────────────────────
 
 model Doctor {
-  id             String  @id @default(uuid())
-  userId         String  @unique
-  specialization String?
-  qualification  String?
-  signatureUrl     String?
-  consultationFee  Decimal? @db.Decimal(10, 2)
-  experienceYears  Int?
-  languages        String[]
-  averageRating    Decimal? @db.Decimal(3, 2)
-  subSpecialty     String?
-  bio              String?
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  specialization  String?
+  qualification   String?
+  signatureUrl    String?
+  consultationFee Decimal? @db.Decimal(10, 2)
+  experienceYears Int?
+  languages       String[]
+  averageRating   Decimal? @db.Decimal(3, 2)
+  subSpecialty    String?
+  bio             String?
 
-  tenantId         String?
-  tenant           Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
   schedules            DoctorSchedule[]
   scheduleOverrides    ScheduleOverride[]
   appointments         Appointment[]
@@ -723,11 +732,11 @@ model Doctor {
   admissions           Admission[]
   medicationOrders     MedicationOrder[]
   labOrders            LabOrder[]
-  referralsFrom        Referral[]            @relation("ReferrerDoctor")
-  referralsTo          Referral[]            @relation("RefereeDoctor")
-  surgeriesLead        Surgery[]             @relation("LeadSurgeon")
+  referralsFrom        Referral[]                 @relation("ReferrerDoctor")
+  referralsTo          Referral[]                 @relation("RefereeDoctor")
+  surgeriesLead        Surgery[]                  @relation("LeadSurgeon")
   telemedicineSessions TelemedicineSession[]
-  emergencyCases       EmergencyCase[]       @relation("EmergencyAttendingDoctor")
+  emergencyCases       EmergencyCase[]            @relation("EmergencyAttendingDoctor")
   ancCases             AntenatalCase[]
   waitlistEntries      WaitlistEntry[]
   controlledEntries    ControlledSubstanceEntry[]
@@ -799,20 +808,20 @@ model Patient {
   photoUrl              String?
   mergedIntoId          String?
   // Family linking (Apr 2026)
-  guardianPatientId    String?
+  guardianPatientId     String?
   // No-show policy (Apr 2026)
   noShowCount           Int       @default(0)
   // Pricing tier (Apr 2026) — STANDARD, EMPLOYEE, SENIOR_CITIZEN, BPL, VIP
   pricingTier           String    @default("STANDARD")
 
-  tenantId             String?
-  tenant               Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  guardian             Patient?              @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
-  dependents           Patient[]             @relation("PatientGuardian")
-  familyLinks          PatientFamilyLink[]   @relation("PatientPrimary")
-  familyLinkedBy       PatientFamilyLink[]   @relation("PatientRelated")
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guardian             Patient?                   @relation("PatientGuardian", fields: [guardianPatientId], references: [id])
+  dependents           Patient[]                  @relation("PatientGuardian")
+  familyLinks          PatientFamilyLink[]        @relation("PatientPrimary")
+  familyLinkedBy       PatientFamilyLink[]        @relation("PatientRelated")
   appointments         Appointment[]
   vitals               Vitals[]
   prescriptions        Prescription[]
@@ -825,7 +834,7 @@ model Patient {
   familyHistory        FamilyHistory[]
   immunizations        Immunization[]
   documents            PatientDocument[]
-  referralsFrom        Referral[]            @relation("PatientReferrals")
+  referralsFrom        Referral[]                 @relation("PatientReferrals")
   surgeries            Surgery[]
   packagePurchases     PackagePurchase[]
   telemedicineSessions TelemedicineSession[]
@@ -856,12 +865,16 @@ model Patient {
   doseLogs             AdherenceDoseLog[]
 
   // ── Back-relations merged from .prisma-models-patient-tools.md ───────
-  billExplanations     BillExplanation[]
-  previsitChecklists   PrevisitChecklist[]
-  symptomDiaryEntries  SymptomDiaryEntry[]
-  chronicCarePlans     ChronicCarePlan[]
-  chronicCareCheckIns  ChronicCareCheckIn[]
-  chronicCareAlerts    ChronicCareAlert[]
+  billExplanations    BillExplanation[]
+  previsitChecklists  PrevisitChecklist[]
+  symptomDiaryEntries SymptomDiaryEntry[]
+  chronicCarePlans    ChronicCarePlan[]
+  chronicCareCheckIns ChronicCareCheckIn[]
+  chronicCareAlerts   ChronicCareAlert[]
+
+  // ── PRD closure (2026-04-24) ─────────────────────────────
+  dataExports         PatientDataExport[]
+  medicationIncidents MedicationIncident[]
 
   @@index([mrNumber])
   @@index([tenantId])
@@ -889,29 +902,32 @@ model Appointment {
   updatedAt             DateTime          @updatedAt
 
   // Group appointments (Apr 2026) — therapy / training sessions
-  groupId               String?
+  groupId String?
 
   // Coordinated multi-doctor visit (Apr 2026)
-  coordinatedVisitId    String?
+  coordinatedVisitId String?
 
   // LWBS (Left Without Being Seen) - reuses NO_SHOW status (Apr 2026)
-  lwbsReason            String?
+  lwbsReason String?
 
-  tenantId              String?
-  tenant                Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  patient           Patient           @relation(fields: [patientId], references: [id])
-  doctor            Doctor            @relation(fields: [doctorId], references: [id])
-  vitals            Vitals?
-  consultation      Consultation?
-  prescription      Prescription?
-  invoice           Invoice?
-  coordinatedVisit  CoordinatedVisit? @relation("CoordinatedAppointments", fields: [coordinatedVisitId], references: [id])
-  aiTriageSession   AITriageSession?
-  aiScribeSession   AIScribeSession?
+  patient          Patient           @relation(fields: [patientId], references: [id])
+  doctor           Doctor            @relation(fields: [doctorId], references: [id])
+  vitals           Vitals?
+  consultation     Consultation?
+  prescription     Prescription?
+  invoice          Invoice?
+  coordinatedVisit CoordinatedVisit? @relation("CoordinatedAppointments", fields: [coordinatedVisitId], references: [id])
+  aiTriageSession  AITriageSession?
+  aiScribeSession  AIScribeSession?
 
   // ── Back-relation merged from .prisma-models-patient-tools.md ────────
   previsitChecklist PrevisitChecklist?
+
+  // ── PRD closure (2026-04-24) ─────────────────────────────
+  feedbacks PatientFeedback[]
 
   @@unique([doctorId, date, tokenNumber])
   @@index([doctorId, date])
@@ -987,8 +1003,8 @@ model Consultation {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenantId      String?
-  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
@@ -1020,14 +1036,17 @@ model Prescription {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenantId      String?
-  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  appointment Appointment        @relation(fields: [appointmentId], references: [id])
-  patient     Patient            @relation(fields: [patientId], references: [id])
-  doctor      Doctor             @relation(fields: [doctorId], references: [id])
-  items       PrescriptionItem[]
+  appointment       Appointment                @relation(fields: [appointmentId], references: [id])
+  patient           Patient                    @relation(fields: [patientId], references: [id])
+  doctor            Doctor                     @relation(fields: [doctorId], references: [id])
+  items             PrescriptionItem[]
   controlledEntries ControlledSubstanceEntry[]
+
+  // ── PRD closure (2026-04-24) ─────────────────────────────
+  medicationIncidents MedicationIncident[]
 
   @@index([patientId])
   @@index([tenantId])
@@ -1086,33 +1105,33 @@ model PrescriptionTemplate {
 // ─── BILLING ────────────────────────────────────────────
 
 model Invoice {
-  id              String        @id @default(uuid())
-  invoiceNumber   String        @unique
-  appointmentId   String        @unique
-  patientId       String
-  subtotal        Float
-  taxAmount       Float         @default(0)
-  cgstAmount      Float         @default(0) // Central GST half of taxAmount
-  sgstAmount      Float         @default(0) // State GST half
-  packageDiscount Float         @default(0) // discount from active HealthPackage
-  advanceApplied  Float         @default(0) // deposit applied to this invoice
-  discountAmount  Float         @default(0)
-  totalAmount     Float
-  paymentStatus   PaymentStatus @default(PENDING)
+  id               String        @id @default(uuid())
+  invoiceNumber    String        @unique
+  appointmentId    String        @unique
+  patientId        String
+  subtotal         Float
+  taxAmount        Float         @default(0)
+  cgstAmount       Float         @default(0) // Central GST half of taxAmount
+  sgstAmount       Float         @default(0) // State GST half
+  packageDiscount  Float         @default(0) // discount from active HealthPackage
+  advanceApplied   Float         @default(0) // deposit applied to this invoice
+  discountAmount   Float         @default(0)
+  totalAmount      Float
+  paymentStatus    PaymentStatus @default(PENDING)
   // Razorpay order id stored when /pay-online creates the order; used by
   // the webhook handler to look up the invoice in O(1).
-  razorpayOrderId String?       @unique
-  dueDate         DateTime?     @db.Date
-  reminderSentAt  DateTime?
+  razorpayOrderId  String?       @unique
+  dueDate          DateTime?     @db.Date
+  reminderSentAt   DateTime?
   // Late-fee automation (Apr 2026)
-  lateFeeAmount    Float     @default(0)
+  lateFeeAmount    Float         @default(0)
   lateFeeAppliedAt DateTime?
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  tenantId        String?
-  tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   appointment       Appointment        @relation(fields: [appointmentId], references: [id])
   patient           Patient            @relation(fields: [patientId], references: [id])
@@ -1122,10 +1141,10 @@ model Invoice {
   insuranceClaimsV2 InsuranceClaim2[]
   paymentPlans      PaymentPlan[]
   discountApprovals DiscountApproval[]
-  creditNotes     CreditNote[]
+  creditNotes       CreditNote[]
 
   // ── Back-relation merged from .prisma-models-patient-tools.md ────────
-  billExplanation   BillExplanation?
+  billExplanation BillExplanation?
 
   @@index([patientId])
   @@index([invoiceNumber])
@@ -1147,10 +1166,10 @@ model InvoiceItem {
   // historical invoices retain the exact tax presented to the patient —
   // critical for GSTR-1 audit trail if rates change. cgstAmount + sgstAmount
   // on Invoice continue to carry the rolled-up totals.
-  cgst      Float   @default(0)
-  sgst      Float   @default(0)
-  gstRate   Float   @default(0)
-  hsnSac    String?
+  cgst    Float   @default(0)
+  sgst    Float   @default(0)
+  gstRate Float   @default(0)
+  hsnSac  String?
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -1158,19 +1177,19 @@ model InvoiceItem {
 }
 
 model Payment {
-  id            String            @id @default(uuid())
+  id            String           @id @default(uuid())
   invoiceId     String
   amount        Float
   mode          PaymentMode
   // Provider transaction id (Razorpay payment_id, etc.) — unique to enforce
   // idempotency: replays of the same browser callback or webhook MUST NOT
   // create duplicate Payment rows.
-  transactionId String?           @unique
-  status        PaymentTxnStatus  @default(CAPTURED)
-  paidAt        DateTime          @default(now())
+  transactionId String?          @unique
+  status        PaymentTxnStatus @default(CAPTURED)
+  paidAt        DateTime         @default(now())
 
-  tenantId      String?
-  tenant        Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
@@ -1221,8 +1240,8 @@ model Notification {
   readAt         DateTime?
   createdAt      DateTime                   @default(now())
 
-  tenantId       String?
-  tenant         Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   user User @relation(fields: [userId], references: [id])
 
@@ -1345,8 +1364,8 @@ model Admission {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
-  tenantId             String?
-  tenant               Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient          Patient            @relation(fields: [patientId], references: [id])
   doctor           Doctor             @relation(fields: [doctorId], references: [id])
@@ -1406,8 +1425,8 @@ model MedicationOrder {
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
 
-  tenantId     String?
-  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   admission       Admission                  @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   doctor          Doctor                     @relation(fields: [doctorId], references: [id])
@@ -1448,8 +1467,8 @@ model NurseRound {
   notes       String
   performedAt DateTime @default(now())
 
-  tenantId    String?
-  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
   nurse     User      @relation(fields: [nurseId], references: [id])
@@ -1485,36 +1504,36 @@ model IpdIntakeOutput {
 // ═══════════════════════════════════════════════════════
 
 model Medicine {
-  id                   String   @id @default(uuid())
-  name                 String   @unique
-  genericName          String?
-  brand                String?
-  form                 String? // tablet, syrup, injection, etc.
-  strength             String? // "500mg", "250mg/5ml"
-  category             String? // antibiotic, analgesic, etc.
-  description          String?
-  sideEffects          String?
-  contraindications    String?
-  prescriptionRequired Boolean  @default(true)
-  pregnancyCategory    String? // A, B, C, D, X
-  isNarcotic           Boolean  @default(false)
-  schedule             String? // H, H1, X, G
-  pediatricDoseMgPerKg Float?
-  maxDailyDoseMg       Float?
+  id                      String   @id @default(uuid())
+  name                    String   @unique
+  genericName             String?
+  brand                   String?
+  form                    String? // tablet, syrup, injection, etc.
+  strength                String? // "500mg", "250mg/5ml"
+  category                String? // antibiotic, analgesic, etc.
+  description             String?
+  sideEffects             String?
+  contraindications       String?
+  prescriptionRequired    Boolean  @default(true)
+  pregnancyCategory       String? // A, B, C, D, X
+  isNarcotic              Boolean  @default(false)
+  schedule                String? // H, H1, X, G
+  pediatricDoseMgPerKg    Float?
+  maxDailyDoseMg          Float?
   // Controlled substance register (Apr 2026)
-  scheduleClass        String? // H, H1, X, etc.
-  requiresRegister     Boolean  @default(false)
+  scheduleClass           String? // H, H1, X, etc.
+  requiresRegister        Boolean  @default(false)
   // Patient education leaflet (Apr 2026)
-  patientInstructions  String? // markdown leaflet text
+  patientInstructions     String? // markdown leaflet text
   // Renal dosing (Apr 2026)
   renalAdjustmentNotes    String?
-  requiresRenalAdjustment Boolean @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  requiresRenalAdjustment Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   medicationOrders  MedicationOrder[]
-  interactionsA     DrugInteraction[] @relation("DrugA")
-  interactionsB     DrugInteraction[] @relation("DrugB")
+  interactionsA     DrugInteraction[]          @relation("DrugA")
+  interactionsB     DrugInteraction[]          @relation("DrugB")
   inventoryItems    InventoryItem[]
   controlledEntries ControlledSubstanceEntry[]
 
@@ -1660,8 +1679,8 @@ model LabOrder {
   priority        String        @default("ROUTINE") // ROUTINE, URGENT, STAT
   stat            Boolean       @default(false)
 
-  tenantId        String?
-  tenant          Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient          Patient          @relation(fields: [patientId], references: [id])
   doctor           Doctor           @relation(fields: [doctorId], references: [id])
@@ -1706,8 +1725,8 @@ model LabResult {
   verifiedBy  String? // user id (doctor)
   verifiedAt  DateTime?
 
-  tenantId    String?
-  tenant      Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   orderItem LabOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
@@ -1846,8 +1865,8 @@ model Referral {
   referredAt       DateTime       @default(now())
   respondedAt      DateTime?
 
-  tenantId         String?
-  tenant           Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient    Patient @relation("PatientReferrals", fields: [patientId], references: [id])
   fromDoctor Doctor  @relation("ReferrerDoctor", fields: [fromDoctorId], references: [id])
@@ -1882,60 +1901,60 @@ model OperatingTheater {
 }
 
 model Surgery {
-  id                   String        @id @default(uuid())
-  caseNumber           String        @unique
-  patientId            String
-  surgeonId            String
-  otId                 String
-  procedure            String
-  scheduledAt          DateTime
-  durationMin          Int? // estimated duration
-  actualStartAt        DateTime?
-  actualEndAt          DateTime?
-  status               SurgeryStatus @default(SCHEDULED)
-  anaesthesiologist    String?
-  assistants           String? // comma-separated names or JSON
-  preOpNotes           String?
-  postOpNotes          String?
-  diagnosis            String?
-  cost                 Float?        @default(0)
+  id                     String        @id @default(uuid())
+  caseNumber             String        @unique
+  patientId              String
+  surgeonId              String
+  otId                   String
+  procedure              String
+  scheduledAt            DateTime
+  durationMin            Int? // estimated duration
+  actualStartAt          DateTime?
+  actualEndAt            DateTime?
+  status                 SurgeryStatus @default(SCHEDULED)
+  anaesthesiologist      String?
+  assistants             String? // comma-separated names or JSON
+  preOpNotes             String?
+  postOpNotes            String?
+  diagnosis              String?
+  cost                   Float?        @default(0)
   // Pre-op checklist (Apr 2026)
-  consentSigned        Boolean       @default(false)
-  consentSignedAt      DateTime?
-  npoSince             DateTime? // Nil Per Oral start time
-  allergiesVerified    Boolean       @default(false)
-  antibioticsGiven     Boolean       @default(false)
-  antibioticsAt        DateTime?
-  siteMarked           Boolean       @default(false)
-  bloodReserved        Boolean       @default(false)
-  preOpChecklistBy     String?
+  consentSigned          Boolean       @default(false)
+  consentSignedAt        DateTime?
+  npoSince               DateTime? // Nil Per Oral start time
+  allergiesVerified      Boolean       @default(false)
+  antibioticsGiven       Boolean       @default(false)
+  antibioticsAt          DateTime?
+  siteMarked             Boolean       @default(false)
+  bloodReserved          Boolean       @default(false)
+  preOpChecklistBy       String?
   // Intra-op timing
-  anesthesiaStartAt    DateTime?
-  anesthesiaEndAt      DateTime?
-  incisionAt           DateTime?
-  closureAt            DateTime?
+  anesthesiaStartAt      DateTime?
+  anesthesiaEndAt        DateTime?
+  incisionAt             DateTime?
+  closureAt              DateTime?
   // Complications
-  complications        String? // JSON/text — "bleeding", "hypotension", etc.
-  complicationSeverity String? // MILD, MODERATE, SEVERE
-  bloodLossMl          Int?
+  complications          String? // JSON/text — "bleeding", "hypotension", etc.
+  complicationSeverity   String? // MILD, MODERATE, SEVERE
+  bloodLossMl            Int?
   // Turnaround tracking (Apr 2026)
-  previousSurgeryId    String?
+  previousSurgeryId      String?
   // Post-op checklist (Apr 2026)
-  sponge_countCorrect  Boolean?
+  sponge_countCorrect    Boolean?
   instrumentCountCorrect Boolean?
-  specimenLabeled      Boolean?
-  patientStable        Boolean?
-  postOpChecklistBy    String?
+  specimenLabeled        Boolean?
+  patientStable          Boolean?
+  postOpChecklistBy      String?
   // SSI tracking (Apr 2026)
-  ssiDetected          Boolean       @default(false)
-  ssiType              String? // SUPERFICIAL, DEEP, ORGAN_SPACE
-  ssiDetectedDate      DateTime?
-  ssiTreatment         String?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  ssiDetected            Boolean       @default(false)
+  ssiType                String? // SUPERFICIAL, DEEP, ORGAN_SPACE
+  ssiDetectedDate        DateTime?
+  ssiTreatment           String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
-  tenantId             String?
-  tenant               Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient Patient          @relation(fields: [patientId], references: [id])
   surgeon Doctor           @relation("LeadSurgeon", fields: [surgeonId], references: [id])
@@ -1953,8 +1972,8 @@ model Surgery {
 }
 
 model AnesthesiaRecord {
-  id             String   @id @default(uuid())
-  surgeryId      String   @unique
+  id             String    @id @default(uuid())
+  surgeryId      String    @unique
   anesthetist    String?
   anesthesiaType String // GENERAL, SPINAL, EPIDURAL, LOCAL, REGIONAL, SEDATION
   inductionAt    DateTime?
@@ -1967,8 +1986,8 @@ model AnesthesiaRecord {
   complications  String?
   recoveryNotes  String?
   performedBy    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -2018,8 +2037,8 @@ model StaffShift {
   notes     String?
   createdAt DateTime    @default(now())
 
-  tenantId  String?
-  tenant    Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2045,8 +2064,8 @@ model LeaveRequest {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  tenantId        String?
-  tenant          Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   user     User  @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
   approver User? @relation("LeaveApprover", fields: [approvedBy], references: [id])
@@ -2271,8 +2290,8 @@ model TelemedicineSession {
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  tenantId            String?
-  tenant              Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  Doctor  @relation(fields: [doctorId], references: [id])
@@ -2334,8 +2353,8 @@ model EmergencyCase {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
-  tenantId          String?
-  tenant            Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   patient         Patient?   @relation(fields: [patientId], references: [id])
   attendingDoctor Doctor?    @relation("EmergencyAttendingDoctor", fields: [attendingDoctorId], references: [id])
@@ -2399,9 +2418,9 @@ model BloodDonation {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  donor      BloodDonor           @relation(fields: [donorId], references: [id])
-  units      BloodUnit[]
-  screening  BloodScreening?
+  donor       BloodDonor            @relation(fields: [donorId], references: [id])
+  units       BloodUnit[]
+  screening   BloodScreening?
   separations ComponentSeparation[]
 
   @@index([donorId])
@@ -2471,23 +2490,23 @@ model BloodCrossMatch {
 }
 
 model BloodUnit {
-  id              String          @id @default(uuid())
-  unitNumber      String          @unique
-  donationId      String?
-  bloodGroup      BloodGroupType
-  component       BloodComponent
-  volumeMl        Int
-  collectedAt     DateTime
-  expiresAt       DateTime
-  status          BloodUnitStatus @default(AVAILABLE)
-  storageLocation String?
-  notes           String?
+  id                   String          @id @default(uuid())
+  unitNumber           String          @unique
+  donationId           String?
+  bloodGroup           BloodGroupType
+  component            BloodComponent
+  volumeMl             Int
+  collectedAt          DateTime
+  expiresAt            DateTime
+  status               BloodUnitStatus @default(AVAILABLE)
+  storageLocation      String?
+  notes                String?
   // Reservation (Apr 2026)
-  reservedUntil       DateTime?
+  reservedUntil        DateTime?
   reservedForRequestId String?
-  reservedBy          String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  reservedBy           String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -2867,6 +2886,9 @@ model GrowthRecord {
 model PatientFeedback {
   id             String           @id @default(uuid())
   patientId      String
+  // PRD §3.9 — AI-flow CSAT needs a precise appointment anchor (the triage
+  // summary note-marker approach over-counted unrelated walk-ins).
+  appointmentId  String?
   category       FeedbackCategory
   rating         Int
   nps            Int?
@@ -2879,7 +2901,8 @@ model PatientFeedback {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient     Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
   // ── Back-relation merged from .prisma-models-ops-quality.md ──────────
   aiSentiment FeedbackSentiment?
@@ -2889,6 +2912,7 @@ model PatientFeedback {
   @@index([submittedAt])
   @@index([sentiment])
   @@index([tenantId])
+  @@index([appointmentId])
   @@map("patient_feedback")
 }
 
@@ -3515,7 +3539,7 @@ model PreAuthRequest {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  patient Patient @relation(fields: [patientId], references: [id])
+  patient         Patient           @relation(fields: [patientId], references: [id])
   insuranceClaims InsuranceClaim2[]
 
   @@index([patientId])
@@ -3671,20 +3695,20 @@ model SharedLink {
 
 // ─── SCHEDULED REPORTS (Apr 2026) ──────────────────────
 model ScheduledReport {
-  id           String    @id @default(uuid())
-  name         String
-  reportType   String // DAILY_CENSUS, WEEKLY_REVENUE, MONTHLY_SUMMARY, CUSTOM
-  frequency    String // DAILY, WEEKLY, MONTHLY
-  dayOfWeek    Int? // 0-6 for WEEKLY
-  dayOfMonth   Int? // 1-31 for MONTHLY
-  timeOfDay    String // HH:MM
-  recipients   Json // array of emails
-  config       Json? // report-specific configuration
-  active       Boolean   @default(true)
-  lastRunAt    DateTime?
-  nextRunAt    DateTime?
-  createdBy    String
-  createdAt    DateTime  @default(now())
+  id         String    @id @default(uuid())
+  name       String
+  reportType String // DAILY_CENSUS, WEEKLY_REVENUE, MONTHLY_SUMMARY, CUSTOM
+  frequency  String // DAILY, WEEKLY, MONTHLY
+  dayOfWeek  Int? // 0-6 for WEEKLY
+  dayOfMonth Int? // 1-31 for MONTHLY
+  timeOfDay  String // HH:MM
+  recipients Json // array of emails
+  config     Json? // report-specific configuration
+  active     Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  createdBy  String
+  createdAt  DateTime  @default(now())
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -3757,9 +3781,9 @@ model Partograph {
 
 // ─── ANC POSTNATAL VISIT ────────────────────────────────
 model PostnatalVisit {
-  id                String    @id @default(uuid())
+  id                String   @id @default(uuid())
   ancCaseId         String
-  visitDate         DateTime  @default(now())
+  visitDate         DateTime @default(now())
   weekPostpartum    Int
   motherBP          String?
   motherWeight      Float?
@@ -3770,12 +3794,12 @@ model PostnatalVisit {
   mentalHealth      String? // EPDS score or observations
   babyWeight        Float?
   babyFeeding       String?
-  babyJaundice      Boolean   @default(false)
+  babyJaundice      Boolean  @default(false)
   babyExam          String?
   immunizationGiven String?
   notes             String?
   performedBy       String
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime @default(now())
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -3921,7 +3945,7 @@ model AITriageSession {
   modelVersion         String?
   consentGiven         Boolean?
   consentAt            DateTime?
-  bookingFor           String?        // "SELF" | "CHILD" | "PARENT" | "SIBLING" | "OTHER"
+  bookingFor           String? // "SELF" | "CHILD" | "PARENT" | "SIBLING" | "OTHER"
   dependentPatientId   String?
   handoffChatRoomId    String?
   createdAt            DateTime       @default(now())
@@ -3950,25 +3974,29 @@ enum AIScribeStatus {
 }
 
 model AIScribeSession {
-  id               String         @id @default(uuid())
-  appointmentId    String         @unique
-  doctorId         String
-  patientId        String
-  consentObtained  Boolean        @default(false)
-  consentAt        DateTime?
-  status           AIScribeStatus @default(ACTIVE)
-  transcript       Json           @default("[]")
-  soapDraft        Json?
-  soapFinal        Json?
-  icd10Codes       Json?
-  rxDraft          Json?
-  doctorEdits      Json           @default("[]")
-  signedOffAt      DateTime?
-  signedOffBy      String?
-  audioRetainUntil DateTime?
-  modelVersion     String?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  id                  String         @id @default(uuid())
+  appointmentId       String         @unique
+  doctorId            String
+  patientId           String
+  consentObtained     Boolean        @default(false)
+  consentAt           DateTime?
+  status              AIScribeStatus @default(ACTIVE)
+  transcript          Json           @default("[]")
+  soapDraft           Json?
+  soapFinal           Json?
+  icd10Codes          Json?
+  rxDraft             Json?
+  doctorEdits         Json           @default("[]")
+  signedOffAt         DateTime?
+  signedOffBy         String?
+  audioRetainUntil    DateTime?
+  modelVersion        String?
+  // PRD §4.9 — doctor NPS for the scribe itself (captured post sign-off).
+  doctorNps           Int?
+  doctorRatedAt       DateTime?
+  doctorRatingComment String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -3976,6 +4004,8 @@ model AIScribeSession {
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   doctor      Doctor      @relation(fields: [doctorId], references: [id])
   patient     Patient     @relation(fields: [patientId], references: [id])
+
+  medicationIncidents MedicationIncident[]
 
   @@index([doctorId])
   @@index([status])
@@ -3988,10 +4018,10 @@ model AIScribeSession {
 
 model KnowledgeChunk {
   id           String   @id @default(uuid())
-  documentType String   // "ICD10" | "MEDICINE" | "GUIDELINE" | "PROTOCOL" | "FORMULARY"
+  documentType String // "ICD10" | "MEDICINE" | "GUIDELINE" | "PROTOCOL" | "FORMULARY"
   title        String
   content      String   @db.Text
-  sourceId     String?  // optional reference to Icd10Code.id, Medicine.id, etc.
+  sourceId     String? // optional reference to Icd10Code.id, Medicine.id, etc.
   tags         String[] // for keyword filtering
   language     String   @default("en")
   active       Boolean  @default(true)
@@ -4006,22 +4036,22 @@ model KnowledgeChunk {
 // ─── MEDICATION ADHERENCE SCHEDULES ─────────────────────
 
 model AdherenceSchedule {
-  id              String   @id @default(uuid())
-  patientId       String
-  prescriptionId  String   @unique
-  medications     Json     // [{ name, dosage, frequency, duration, reminderTimes: string[] }]
-  startDate       DateTime @db.Date
-  endDate         DateTime @db.Date
-  active          Boolean  @default(true)
-  remindersSent   Int      @default(0)
-  lastReminderAt  DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  patientId      String
+  prescriptionId String    @unique
+  medications    Json // [{ name, dosage, frequency, duration, reminderTimes: string[] }]
+  startDate      DateTime  @db.Date
+  endDate        DateTime  @db.Date
+  active         Boolean   @default(true)
+  remindersSent  Int       @default(0)
+  lastReminderAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  doseLogs        AdherenceDoseLog[]
+  doseLogs AdherenceDoseLog[]
 
   @@index([patientId])
   @@index([active])
@@ -4030,21 +4060,21 @@ model AdherenceSchedule {
 }
 
 model AdherenceDoseLog {
-  id              String   @id @default(cuid())
-  scheduleId      String
-  patientId       String
-  medicationName  String
-  scheduledAt     DateTime
-  takenAt         DateTime?
-  skipped         Boolean  @default(false)
-  note            String?
-  createdAt       DateTime @default(now())
+  id             String    @id @default(cuid())
+  scheduleId     String
+  patientId      String
+  medicationName String
+  scheduledAt    DateTime
+  takenAt        DateTime?
+  skipped        Boolean   @default(false)
+  note           String?
+  createdAt      DateTime  @default(now())
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
-  schedule        AdherenceSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
-  patient         Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  schedule AdherenceSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  patient  Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@index([scheduleId])
   @@index([patientId])
@@ -4056,18 +4086,18 @@ model AdherenceDoseLog {
 // ─── LAB REPORT AI EXPLANATIONS ─────────────────────────
 
 model LabReportExplanation {
-  id             String   @id @default(uuid())
-  labOrderId     String   @unique
-  patientId      String
-  explanation    String   @db.Text
-  flaggedValues  Json     @default("[]") // [{ parameter, value, flag, plainLanguage }]
-  language       String   @default("en")
-  status         String   @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | SENT
-  approvedBy     String?
-  approvedAt     DateTime?
-  sentAt         DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String    @id @default(uuid())
+  labOrderId    String    @unique
+  patientId     String
+  explanation   String    @db.Text
+  flaggedValues Json      @default("[]") // [{ parameter, value, flag, plainLanguage }]
+  language      String    @default("en")
+  status        String    @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | SENT
+  approvedBy    String?
+  approvedAt    DateTime?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -4128,17 +4158,17 @@ model AbhaLink {
 }
 
 model ConsentArtefact {
-  id         String        @id @default(uuid())
-  patientId  String
-  hiuId      String
-  purpose    String
-  status     ConsentStatus @default(REQUESTED)
-  artefact   Json
-  expiresAt  DateTime
-  grantedAt  DateTime?
-  revokedAt  DateTime?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id        String        @id @default(uuid())
+  patientId String
+  hiuId     String
+  purpose   String
+  status    ConsentStatus @default(REQUESTED)
+  artefact  Json
+  expiresAt DateTime
+  grantedAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -4762,4 +4792,116 @@ model RadiologyReport {
   @@index([radiologistId])
   @@index([tenantId])
   @@map("radiology_reports")
+}
+
+// ─── PRD CLOSURE MODELS (2026-04-24) ───────────────────────────────────
+// Models required to close the remaining PRD gaps:
+//   - PatientDataExport (§ DPDP right-to-portability)
+//   - SnomedConcept     (§3.5.4 / §3.7.1 specialty taxonomy)
+//   - FrontDeskCall     (§3.9 triage-call-volume KPI)
+//   - MedicationIncident (§4.9 scribe med-error KPI)
+// All additive; no data migration needed.
+
+enum PatientDataExportStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum PatientDataExportFormat {
+  JSON
+  FHIR
+  PDF
+}
+
+model PatientDataExport {
+  id           String                  @id @default(uuid())
+  patientId    String
+  format       PatientDataExportFormat
+  status       PatientDataExportStatus @default(QUEUED)
+  filePath     String?
+  fileSize     Int?
+  errorMessage String?                 @db.Text
+  requestedAt  DateTime                @default(now())
+  startedAt    DateTime?
+  readyAt      DateTime?
+  downloadedAt DateTime?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, requestedAt])
+  @@index([status])
+  @@index([tenantId])
+  @@map("patient_data_exports")
+}
+
+// Curated SNOMED-CT subset (~120 concepts) for Indian OPD presentations.
+// Global reference catalogue — NOT tenant-scoped. Mirrors Icd10Code shape.
+model SnomedConcept {
+  id            String   @id
+  term          String
+  synonyms      Json
+  specialtyTags Json
+  redFlagTerms  Json
+  category      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([category])
+  @@index([term])
+  @@map("snomed_concepts")
+}
+
+// Front-desk telephony CDR log — sinks Twilio/Exotel/Ozonetel webhooks so
+// we can honestly compute the §3.9 "front-desk call volume for triage" KPI.
+model FrontDeskCall {
+  id          String   @id @default(uuid())
+  calledAt    DateTime
+  durationSec Int
+  fromPhone   String
+  toPhone     String?
+  category    String? // "TRIAGE" | "BILLING" | "APPT_CHANGE" | "OTHER"
+  disposition String? // "RESOLVED" | "ABANDONED" | "TRANSFERRED"
+  providerId  String?
+  createdAt   DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([calledAt])
+  @@index([category])
+  @@map("front_desk_calls")
+}
+
+// Scribe-assisted-vs-manual medication-error tracking (PRD §4.9).
+// Narrative-first so the incident capture UI stays low-friction.
+model MedicationIncident {
+  id               String    @id @default(uuid())
+  patientId        String
+  prescriptionId   String?
+  reportedByUserId String
+  reportedAt       DateTime  @default(now())
+  severity         String // "NEAR_MISS" | "MINOR" | "MODERATE" | "SEVERE"
+  scribeSessionId  String?
+  narrative        String    @db.Text
+  resolvedAt       DateTime?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  patient        Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  prescription   Prescription?    @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  reportedByUser User             @relation("MedicationIncidentReporter", fields: [reportedByUserId], references: [id])
+  scribeSession  AIScribeSession? @relation(fields: [scribeSessionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([reportedAt])
+  @@index([scribeSessionId])
+  @@index([patientId])
+  @@map("medication_incidents")
 }

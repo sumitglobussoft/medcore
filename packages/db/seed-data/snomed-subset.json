@@ -1,0 +1,963 @@
+{
+  "_meta": {
+    "source": "Curated SNOMED-CT subset for MedCore OPD triage (PRD §3.5.4 + §3.7.1)",
+    "license": "Uses SNOMED-CT conceptIds and Fully Specified Names under the SNOMED International Affiliate Licence. India is a SNOMED International Member Country, so re-use of conceptIds + FSN terms for clinical software deployed within India is permitted. This file contains only a curated subset (<150 concepts) of common OPD presentations — it is NOT the full SNOMED release and must not be redistributed as such. LOCAL- prefixed ids are MedCore-internal, not SNOMED concepts.",
+    "version": 1,
+    "generatedFor": "PRD §3.5.4 / §3.7.1",
+    "reviewedBy": "Clinical Advisory Board (pending sign-off — see docs/clinical-review.md)"
+  },
+  "concepts": [
+    {
+      "conceptId": "25064002",
+      "term": "Headache",
+      "synonyms": ["Cephalgia", "Head pain", "सिरदर्द", "sar dard", "सर दर्द"],
+      "specialtyTags": ["GENERAL_MEDICINE", "NEUROLOGY"],
+      "redFlagTerms": ["thunderclap", "worst of life", "worst headache"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "386661006",
+      "term": "Fever",
+      "synonyms": ["Pyrexia", "Raised temperature", "बुखार", "bukhar", "ज्वर"],
+      "specialtyTags": ["GENERAL_MEDICINE", "INTERNAL_MEDICINE"],
+      "redFlagTerms": ["fever with rash", "fever with seizure", "febrile convulsion"],
+      "category": "constitutional"
+    },
+    {
+      "conceptId": "49727002",
+      "term": "Cough",
+      "synonyms": ["Tussis", "खांसी", "khansi"],
+      "specialtyTags": ["GENERAL_MEDICINE", "PULMONOLOGY"],
+      "redFlagTerms": ["coughing blood", "haemoptysis"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "29857009",
+      "term": "Chest pain",
+      "synonyms": ["Thoracic pain", "Chest discomfort", "सीने में दर्द", "seene mein dard", "chhaati mein dard"],
+      "specialtyTags": ["CARDIOLOGY", "GENERAL_MEDICINE", "PULMONOLOGY"],
+      "redFlagTerms": ["crushing chest", "radiating to arm", "radiating to jaw", "pressure in chest"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "21522001",
+      "term": "Abdominal pain",
+      "synonyms": ["Stomach pain", "Belly pain", "पेट दर्द", "pet dard", "pet mein dard"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY", "GENERAL_SURGERY"],
+      "redFlagTerms": ["severe abdominal pain", "rigid abdomen", "peritonitis"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "161891005",
+      "term": "Backache",
+      "synonyms": ["Back pain", "Dorsalgia", "कमर दर्द", "kamar dard", "peeth mein dard"],
+      "specialtyTags": ["ORTHOPEDICS", "GENERAL_MEDICINE", "PHYSIOTHERAPY"],
+      "redFlagTerms": ["back pain with weakness", "saddle anaesthesia", "cauda equina"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "57676002",
+      "term": "Joint pain",
+      "synonyms": ["Arthralgia", "जोड़ों में दर्द", "jodon mein dard"],
+      "specialtyTags": ["ORTHOPEDICS", "RHEUMATOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["hot swollen joint", "septic arthritis"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "271807003",
+      "term": "Rash",
+      "synonyms": ["Skin rash", "Eruption", "दाने", "chakatte", "khaaj"],
+      "specialtyTags": ["DERMATOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["purpuric rash", "petechiae", "non-blanching rash"],
+      "category": "dermatological"
+    },
+    {
+      "conceptId": "267036007",
+      "term": "Dyspnoea",
+      "synonyms": ["Shortness of breath", "Breathlessness", "SOB", "साँस फूलना", "saans phoolna", "saans lene mein takleef"],
+      "specialtyTags": ["PULMONOLOGY", "CARDIOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["sudden dyspnoea", "cannot speak full sentences", "cyanosis"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "422587007",
+      "term": "Nausea",
+      "synonyms": ["Feeling sick", "Queasy", "जी मिचलाना", "ji michlana", "ulti jaisa"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["nausea with chest pain", "projectile vomiting"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "422400008",
+      "term": "Vomiting",
+      "synonyms": ["Emesis", "Throwing up", "उल्टी", "ulti", "qai"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["vomiting blood", "haematemesis", "coffee ground vomit"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "404640003",
+      "term": "Dizziness",
+      "synonyms": ["Lightheadedness", "Giddiness", "चक्कर आना", "chakkar aana"],
+      "specialtyTags": ["GENERAL_MEDICINE", "NEUROLOGY", "ENT"],
+      "redFlagTerms": ["dizziness with weakness", "dizziness with slurred speech"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "399153001",
+      "term": "Vertigo",
+      "synonyms": ["Spinning sensation", "घूमना"],
+      "specialtyTags": ["ENT", "NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["vertigo with neurological deficit"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "84229001",
+      "term": "Fatigue",
+      "synonyms": ["Tiredness", "Exhaustion", "थकान", "thakaan", "kamzori"],
+      "specialtyTags": ["GENERAL_MEDICINE", "ENDOCRINOLOGY", "INTERNAL_MEDICINE"],
+      "redFlagTerms": ["fatigue with chest pain", "profound fatigue"],
+      "category": "constitutional"
+    },
+    {
+      "conceptId": "80313002",
+      "term": "Palpitations",
+      "synonyms": ["Pounding heart", "Racing heart", "Heart fluttering", "धड़कन बढ़ना", "dil ki dhadkan tez"],
+      "specialtyTags": ["CARDIOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["palpitations with syncope", "palpitations with chest pain"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "66857006",
+      "term": "Haemoptysis",
+      "synonyms": ["Coughing up blood", "Blood in sputum", "खून की खांसी", "khoon wali khansi"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["massive haemoptysis", "frank haemoptysis"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "34436003",
+      "term": "Haematuria",
+      "synonyms": ["Blood in urine", "पेशाब में खून", "peshab mein khoon"],
+      "specialtyTags": ["UROLOGY", "NEPHROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["painless haematuria", "clot retention"],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "2901004",
+      "term": "Melaena",
+      "synonyms": ["Black stool", "Tarry stool", "काला मल"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_SURGERY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["fresh melaena", "melaena with collapse"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "89362005",
+      "term": "Weight loss",
+      "synonyms": ["Unintentional weight loss", "वजन घटना", "vazan kam hona"],
+      "specialtyTags": ["GENERAL_MEDICINE", "ENDOCRINOLOGY", "ONCOLOGY", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["weight loss with night sweats", "rapid weight loss"],
+      "category": "constitutional"
+    },
+    {
+      "conceptId": "63102001",
+      "term": "Visual disturbance",
+      "synonyms": ["Blurred vision", "Vision loss", "नज़र धुंधली", "nazar dhundhli", "aankhon se dikhai nahi"],
+      "specialtyTags": ["OPHTHALMOLOGY", "NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["sudden vision loss", "curtain coming down", "monocular blindness"],
+      "category": "ophthalmic"
+    },
+    {
+      "conceptId": "343087000",
+      "term": "Hearing loss",
+      "synonyms": ["Deafness", "Hypoacusis", "कान से कम सुनाई", "kaan se kam sunai"],
+      "specialtyTags": ["ENT", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["sudden hearing loss"],
+      "category": "ent"
+    },
+    {
+      "conceptId": "77880009",
+      "term": "Nasal congestion",
+      "synonyms": ["Stuffy nose", "Blocked nose", "नाक बंद", "naak band"],
+      "specialtyTags": ["ENT", "GENERAL_MEDICINE"],
+      "redFlagTerms": [],
+      "category": "ent"
+    },
+    {
+      "conceptId": "162397003",
+      "term": "Sore throat",
+      "synonyms": ["Pharyngitis symptom", "Throat pain", "गले में दर्द", "gale mein dard", "galay mein kharash"],
+      "specialtyTags": ["ENT", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["drooling", "cannot swallow saliva", "stridor"],
+      "category": "ent"
+    },
+    {
+      "conceptId": "62315008",
+      "term": "Diarrhoea",
+      "synonyms": ["Loose motions", "Loose stools", "दस्त", "dast", "pet kharab"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["bloody diarrhoea", "severe dehydration"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "14760008",
+      "term": "Constipation",
+      "synonyms": ["Obstipation", "कब्ज", "kabz"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["absolute constipation", "bowel obstruction"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "424416009",
+      "term": "Dysuria",
+      "synonyms": ["Painful urination", "Burning urination", "पेशाब में जलन", "peshab mein jalan"],
+      "specialtyTags": ["UROLOGY", "GENERAL_MEDICINE", "GYNAECOLOGY"],
+      "redFlagTerms": ["dysuria with flank pain", "dysuria with fever"],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "162064005",
+      "term": "Urinary frequency",
+      "synonyms": ["Polyuria", "बार बार पेशाब", "baar baar peshab"],
+      "specialtyTags": ["UROLOGY", "ENDOCRINOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": [],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "71625007",
+      "term": "Syncope",
+      "synonyms": ["Fainting", "Passing out", "बेहोशी", "behoshi"],
+      "specialtyTags": ["CARDIOLOGY", "NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["syncope on exertion", "syncope with palpitations"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "418290006",
+      "term": "Itching",
+      "synonyms": ["Pruritus", "खुजली", "khujli"],
+      "specialtyTags": ["DERMATOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["generalised itching with jaundice"],
+      "category": "dermatological"
+    },
+    {
+      "conceptId": "18165001",
+      "term": "Jaundice",
+      "synonyms": ["Icterus", "Yellow skin", "पीलिया", "piliya"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_MEDICINE", "HEPATOLOGY"],
+      "redFlagTerms": ["jaundice with confusion", "hepatic encephalopathy"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "271594007",
+      "term": "Swelling of ankle",
+      "synonyms": ["Ankle oedema", "Pedal oedema", "टखने में सूजन", "payron mein sujan"],
+      "specialtyTags": ["CARDIOLOGY", "NEPHROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["unilateral leg swelling", "possible DVT"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "267038008",
+      "term": "Oedema",
+      "synonyms": ["Swelling", "Fluid retention", "सूजन", "sujan"],
+      "specialtyTags": ["CARDIOLOGY", "NEPHROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["sudden facial swelling", "angioedema"],
+      "category": "general"
+    },
+    {
+      "conceptId": "3006004",
+      "term": "Anxiety",
+      "synonyms": ["Anxious", "Worry", "घबराहट", "ghabrahat", "bechaini"],
+      "specialtyTags": ["PSYCHIATRY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["panic attack with chest pain"],
+      "category": "psychiatric"
+    },
+    {
+      "conceptId": "35489007",
+      "term": "Depressive disorder",
+      "synonyms": ["Depression", "Low mood", "उदासी", "udaasi"],
+      "specialtyTags": ["PSYCHIATRY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["suicidal thoughts", "want to die", "self harm"],
+      "category": "psychiatric"
+    },
+    {
+      "conceptId": "193462001",
+      "term": "Insomnia",
+      "synonyms": ["Sleeplessness", "Difficulty sleeping", "नींद नहीं आती", "neend nahi aati"],
+      "specialtyTags": ["PSYCHIATRY", "GENERAL_MEDICINE", "NEUROLOGY"],
+      "redFlagTerms": [],
+      "category": "psychiatric"
+    },
+    {
+      "conceptId": "77076000",
+      "term": "Amenorrhoea",
+      "synonyms": ["Missed period", "Absent menses", "मासिक धर्म न आना"],
+      "specialtyTags": ["GYNAECOLOGY", "ENDOCRINOLOGY"],
+      "redFlagTerms": ["amenorrhoea with positive pregnancy test", "possible ectopic"],
+      "category": "gynaecological"
+    },
+    {
+      "conceptId": "64771000",
+      "term": "Dysmenorrhoea",
+      "synonyms": ["Painful periods", "Period pain", "मासिक धर्म में दर्द"],
+      "specialtyTags": ["GYNAECOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["severe dysmenorrhoea with collapse"],
+      "category": "gynaecological"
+    },
+    {
+      "conceptId": "14509009",
+      "term": "Menorrhagia",
+      "synonyms": ["Heavy menstrual bleeding", "Excessive periods"],
+      "specialtyTags": ["GYNAECOLOGY", "HAEMATOLOGY"],
+      "redFlagTerms": ["menorrhagia with collapse", "haemodynamic instability"],
+      "category": "gynaecological"
+    },
+    {
+      "conceptId": "77386006",
+      "term": "Pregnancy",
+      "synonyms": ["Gravid", "Gestation", "गर्भावस्था", "garbhavastha"],
+      "specialtyTags": ["OBSTETRICS", "GYNAECOLOGY"],
+      "redFlagTerms": ["bleeding in pregnancy", "eclampsia", "reduced fetal movements"],
+      "category": "obstetric"
+    },
+    {
+      "conceptId": "289908002",
+      "term": "Reduced fetal movements",
+      "synonyms": ["Decreased fetal movements", "DFM"],
+      "specialtyTags": ["OBSTETRICS"],
+      "redFlagTerms": ["no fetal movement for 12 hours"],
+      "category": "obstetric"
+    },
+    {
+      "conceptId": "47609003",
+      "term": "Vaginal bleeding in pregnancy",
+      "synonyms": ["Antepartum haemorrhage", "APH"],
+      "specialtyTags": ["OBSTETRICS"],
+      "redFlagTerms": ["heavy bleeding in pregnancy", "placental abruption"],
+      "category": "obstetric"
+    },
+    {
+      "conceptId": "386689009",
+      "term": "Paediatric fever",
+      "synonyms": ["Fever in child", "बच्चे को बुखार", "bachche ko bukhar"],
+      "specialtyTags": ["PEDIATRICS", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["febrile seizure", "fever in infant under 3 months", "non-blanching rash"],
+      "category": "paediatric"
+    },
+    {
+      "conceptId": "206525008",
+      "term": "Neonatal jaundice",
+      "synonyms": ["Newborn jaundice", "Neonatal icterus"],
+      "specialtyTags": ["NEONATOLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["jaundice in first 24 hours", "kernicterus risk"],
+      "category": "neonatal"
+    },
+    {
+      "conceptId": "248567005",
+      "term": "Neonatal poor feeding",
+      "synonyms": ["Newborn not feeding", "Baby not latching"],
+      "specialtyTags": ["NEONATOLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["neonatal sepsis", "lethargic newborn"],
+      "category": "neonatal"
+    },
+    {
+      "conceptId": "386617003",
+      "term": "Neonatal respiratory distress",
+      "synonyms": ["Grunting newborn", "Newborn breathing difficulty"],
+      "specialtyTags": ["NEONATOLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["cyanosis in newborn", "apnoea in newborn"],
+      "category": "neonatal"
+    },
+    {
+      "conceptId": "16932000",
+      "term": "Nausea and vomiting",
+      "synonyms": ["N&V", "Sickness"],
+      "specialtyTags": ["GENERAL_MEDICINE", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["projectile vomiting in infant", "bilious vomiting"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "301095005",
+      "term": "Cardiac chest pain",
+      "synonyms": ["Angina", "Ischaemic chest pain"],
+      "specialtyTags": ["CARDIOLOGY"],
+      "redFlagTerms": ["rest angina", "crescendo angina", "unstable angina"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "194828000",
+      "term": "Angina pectoris",
+      "synonyms": ["Angina", "Exertional chest pain"],
+      "specialtyTags": ["CARDIOLOGY"],
+      "redFlagTerms": ["angina at rest", "new onset angina"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "13645005",
+      "term": "Chronic obstructive pulmonary disease",
+      "synonyms": ["COPD", "Chronic bronchitis"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["COPD exacerbation", "cannot complete sentences"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "195967001",
+      "term": "Asthma",
+      "synonyms": ["Bronchial asthma", "दमा", "dama"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE", "PEDIATRICS"],
+      "redFlagTerms": ["silent chest", "peak flow <33%", "asthma attack"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "44054006",
+      "term": "Diabetes mellitus type 2",
+      "synonyms": ["Type 2 diabetes", "T2DM", "मधुमेह", "madhumeh", "sugar"],
+      "specialtyTags": ["ENDOCRINOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["DKA", "HHS", "diabetic ketoacidosis"],
+      "category": "endocrine"
+    },
+    {
+      "conceptId": "46635009",
+      "term": "Diabetes mellitus type 1",
+      "synonyms": ["Type 1 diabetes", "T1DM", "Juvenile diabetes"],
+      "specialtyTags": ["ENDOCRINOLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["DKA", "fruity breath", "kussmaul breathing"],
+      "category": "endocrine"
+    },
+    {
+      "conceptId": "38341003",
+      "term": "Hypertension",
+      "synonyms": ["High blood pressure", "HTN", "उच्च रक्तचाप", "BP high"],
+      "specialtyTags": ["CARDIOLOGY", "GENERAL_MEDICINE", "NEPHROLOGY"],
+      "redFlagTerms": ["hypertensive emergency", "BP over 180/120 with symptoms"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "84114007",
+      "term": "Heart failure",
+      "synonyms": ["CHF", "Cardiac failure"],
+      "specialtyTags": ["CARDIOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["acute pulmonary oedema", "frothy sputum"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "55680006",
+      "term": "Drug overdose",
+      "synonyms": ["Overdose", "OD", "Poisoning"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "PSYCHIATRY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["overdose", "poisoning", "intentional overdose"],
+      "category": "toxicological"
+    },
+    {
+      "conceptId": "125605004",
+      "term": "Fracture of bone",
+      "synonyms": ["Bone fracture", "Broken bone", "हड्डी टूटना", "haddi tootna"],
+      "specialtyTags": ["ORTHOPEDICS", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["open fracture", "neurovascular compromise"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "125670008",
+      "term": "Head injury",
+      "synonyms": ["Traumatic brain injury", "TBI", "सिर पर चोट", "sar par chot"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "NEUROSURGERY", "NEUROLOGY"],
+      "redFlagTerms": ["loss of consciousness after head injury", "vomiting after head injury", "GCS decline"],
+      "category": "trauma"
+    },
+    {
+      "conceptId": "422610005",
+      "term": "Burn injury",
+      "synonyms": ["Burn", "Thermal injury", "जलना", "jalna"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "GENERAL_SURGERY", "PLASTIC_SURGERY"],
+      "redFlagTerms": ["airway burn", "circumferential burn", "inhalation injury"],
+      "category": "trauma"
+    },
+    {
+      "conceptId": "283371005",
+      "term": "Laceration",
+      "synonyms": ["Cut", "Open wound", "चोट"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "GENERAL_SURGERY"],
+      "redFlagTerms": ["arterial bleeding", "spurting bleed"],
+      "category": "trauma"
+    },
+    {
+      "conceptId": "56265001",
+      "term": "Heart disease",
+      "synonyms": ["Cardiac disease", "दिल की बीमारी"],
+      "specialtyTags": ["CARDIOLOGY"],
+      "redFlagTerms": [],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "230690007",
+      "term": "Cerebrovascular accident",
+      "synonyms": ["Stroke", "CVA", "Brain attack", "लकवा", "lakwa"],
+      "specialtyTags": ["NEUROLOGY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["FAST positive", "face droop", "arm weakness", "slurred speech"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "84757009",
+      "term": "Epilepsy",
+      "synonyms": ["Seizure disorder", "मिर्गी", "mirgi"],
+      "specialtyTags": ["NEUROLOGY", "PEDIATRICS"],
+      "redFlagTerms": ["status epilepticus", "continuous seizure"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "37796009",
+      "term": "Migraine",
+      "synonyms": ["Migraine headache", "माइग्रेन"],
+      "specialtyTags": ["NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["migraine with focal deficit", "atypical migraine"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "70704007",
+      "term": "Painful shoulder",
+      "synonyms": ["Shoulder pain", "कंधे में दर्द"],
+      "specialtyTags": ["ORTHOPEDICS", "PHYSIOTHERAPY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["shoulder pain with chest pain"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "30989003",
+      "term": "Knee pain",
+      "synonyms": ["Painful knee", "घुटने में दर्द"],
+      "specialtyTags": ["ORTHOPEDICS", "PHYSIOTHERAPY", "RHEUMATOLOGY"],
+      "redFlagTerms": ["hot swollen knee", "septic knee"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "81680005",
+      "term": "Neck pain",
+      "synonyms": ["Cervicalgia", "गर्दन में दर्द", "gardan mein dard"],
+      "specialtyTags": ["ORTHOPEDICS", "NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["neck stiffness with fever", "meningism"],
+      "category": "musculoskeletal"
+    },
+    {
+      "conceptId": "25907004",
+      "term": "Eye pain",
+      "synonyms": ["Ocular pain", "आंख में दर्द"],
+      "specialtyTags": ["OPHTHALMOLOGY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["eye pain with vision loss", "acute angle closure"],
+      "category": "ophthalmic"
+    },
+    {
+      "conceptId": "9826008",
+      "term": "Red eye",
+      "synonyms": ["Conjunctival injection", "आंख लाल", "aankh laal"],
+      "specialtyTags": ["OPHTHALMOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["red eye with photophobia", "red eye with vision loss"],
+      "category": "ophthalmic"
+    },
+    {
+      "conceptId": "16001004",
+      "term": "Otalgia",
+      "synonyms": ["Ear pain", "Earache", "कान में दर्द", "kaan dard"],
+      "specialtyTags": ["ENT", "PEDIATRICS", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["ear pain with facial weakness", "mastoiditis"],
+      "category": "ent"
+    },
+    {
+      "conceptId": "60862001",
+      "term": "Tinnitus",
+      "synonyms": ["Ringing in ears", "कान में आवाज"],
+      "specialtyTags": ["ENT", "NEUROLOGY"],
+      "redFlagTerms": ["pulsatile tinnitus"],
+      "category": "ent"
+    },
+    {
+      "conceptId": "267102003",
+      "term": "Epistaxis",
+      "synonyms": ["Nosebleed", "Bleeding nose", "नाक से खून", "naak se khoon"],
+      "specialtyTags": ["ENT", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["uncontrolled epistaxis", "posterior epistaxis"],
+      "category": "ent"
+    },
+    {
+      "conceptId": "279043008",
+      "term": "Haemorrhoids",
+      "synonyms": ["Piles", "बवासीर", "bawaseer"],
+      "specialtyTags": ["GENERAL_SURGERY", "GASTROENTEROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["haemorrhoids with heavy bleeding"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "25458004",
+      "term": "Rectal bleeding",
+      "synonyms": ["Haematochezia", "Blood per rectum", "मलद्वार से खून"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_SURGERY"],
+      "redFlagTerms": ["massive PR bleed", "rectal bleeding with hypotension"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "54150009",
+      "term": "Upper respiratory tract infection",
+      "synonyms": ["URTI", "Common cold", "सर्दी जुकाम", "sardi jukam"],
+      "specialtyTags": ["GENERAL_MEDICINE", "ENT", "PEDIATRICS"],
+      "redFlagTerms": [],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "233604007",
+      "term": "Pneumonia",
+      "synonyms": ["Chest infection", "Lung infection", "निमोनिया"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE", "PEDIATRICS"],
+      "redFlagTerms": ["pneumonia with sepsis", "hypoxia <92%"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "56717001",
+      "term": "Tuberculosis",
+      "synonyms": ["TB", "टीबी"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE", "INFECTIOUS_DISEASE"],
+      "redFlagTerms": ["massive haemoptysis", "miliary TB"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "38362002",
+      "term": "Dengue fever",
+      "synonyms": ["Dengue", "Breakbone fever", "डेंगू"],
+      "specialtyTags": ["INFECTIOUS_DISEASE", "GENERAL_MEDICINE", "PEDIATRICS"],
+      "redFlagTerms": ["dengue haemorrhagic fever", "plasma leakage", "platelet crash"],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "61462000",
+      "term": "Malaria",
+      "synonyms": ["Plasmodium infection", "मलेरिया"],
+      "specialtyTags": ["INFECTIOUS_DISEASE", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["cerebral malaria", "severe falciparum"],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "4834000",
+      "term": "Typhoid fever",
+      "synonyms": ["Enteric fever", "टाइफाइड"],
+      "specialtyTags": ["INFECTIOUS_DISEASE", "GENERAL_MEDICINE", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["intestinal perforation"],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "68566005",
+      "term": "Urinary tract infection",
+      "synonyms": ["UTI", "Cystitis", "मूत्र मार्ग संक्रमण"],
+      "specialtyTags": ["UROLOGY", "GENERAL_MEDICINE", "GYNAECOLOGY"],
+      "redFlagTerms": ["pyelonephritis", "UTI with sepsis"],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "47933007",
+      "term": "Acute pyelonephritis",
+      "synonyms": ["Upper UTI", "Kidney infection"],
+      "specialtyTags": ["UROLOGY", "NEPHROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["sepsis", "rigors"],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "90708001",
+      "term": "Kidney stone",
+      "synonyms": ["Renal calculi", "Nephrolithiasis", "गुर्दे की पथरी"],
+      "specialtyTags": ["UROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["obstructed infected system", "anuria"],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "235494005",
+      "term": "Gastro-oesophageal reflux disease",
+      "synonyms": ["GERD", "GORD", "Acid reflux", "Heartburn", "सीने में जलन", "seene mein jalan"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["reflux with dysphagia", "reflux with weight loss"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "13200003",
+      "term": "Peptic ulcer",
+      "synonyms": ["PUD", "Stomach ulcer", "पेट का अल्सर"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["perforated ulcer", "melaena", "haematemesis"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "235595009",
+      "term": "Appendicitis",
+      "synonyms": ["Acute appendicitis", "अपेंडिसाइटिस"],
+      "specialtyTags": ["GENERAL_SURGERY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["perforated appendix", "peritonitis"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "235856003",
+      "term": "Cholelithiasis",
+      "synonyms": ["Gallstones", "पित्त की पथरी"],
+      "specialtyTags": ["GENERAL_SURGERY", "GASTROENTEROLOGY"],
+      "redFlagTerms": ["cholangitis", "charcot triad"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "75694006",
+      "term": "Acute pancreatitis",
+      "synonyms": ["Pancreatitis", "पैंक्रियाज की सूजन"],
+      "specialtyTags": ["GASTROENTEROLOGY", "GENERAL_SURGERY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["severe pancreatitis", "necrotising pancreatitis"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "271737000",
+      "term": "Anaemia",
+      "synonyms": ["Low haemoglobin", "Low Hb", "खून की कमी", "khoon ki kami"],
+      "specialtyTags": ["HAEMATOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["severe anaemia with chest pain", "Hb <7"],
+      "category": "haematological"
+    },
+    {
+      "conceptId": "64572001",
+      "term": "Thyroid disorder",
+      "synonyms": ["Thyroid disease", "थायराइड"],
+      "specialtyTags": ["ENDOCRINOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["thyroid storm", "myxoedema coma"],
+      "category": "endocrine"
+    },
+    {
+      "conceptId": "40930008",
+      "term": "Hypothyroidism",
+      "synonyms": ["Underactive thyroid", "हाइपोथायरायडिज्म"],
+      "specialtyTags": ["ENDOCRINOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["myxoedema coma"],
+      "category": "endocrine"
+    },
+    {
+      "conceptId": "34486009",
+      "term": "Hyperthyroidism",
+      "synonyms": ["Overactive thyroid", "Thyrotoxicosis"],
+      "specialtyTags": ["ENDOCRINOLOGY", "GENERAL_MEDICINE", "CARDIOLOGY"],
+      "redFlagTerms": ["thyroid storm"],
+      "category": "endocrine"
+    },
+    {
+      "conceptId": "66383009",
+      "term": "Gingivitis",
+      "synonyms": ["Gum disease", "मसूढ़ों की बीमारी"],
+      "specialtyTags": ["DENTISTRY"],
+      "redFlagTerms": [],
+      "category": "dental"
+    },
+    {
+      "conceptId": "38199008",
+      "term": "Toothache",
+      "synonyms": ["Dental pain", "दांत दर्द", "daant dard"],
+      "specialtyTags": ["DENTISTRY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["tooth pain with facial swelling", "dental abscess"],
+      "category": "dental"
+    },
+    {
+      "conceptId": "40956001",
+      "term": "Guillain-Barre syndrome",
+      "synonyms": ["GBS", "Ascending paralysis"],
+      "specialtyTags": ["NEUROLOGY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["ascending weakness", "respiratory muscle involvement"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "95281009",
+      "term": "Sudden death",
+      "synonyms": ["Unexpected death"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "CARDIOLOGY"],
+      "redFlagTerms": ["collapse", "no pulse"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "78164000",
+      "term": "Sensory loss",
+      "synonyms": ["Numbness", "Paraesthesia", "सुन्न होना", "sunn hona"],
+      "specialtyTags": ["NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["numbness with weakness", "saddle anaesthesia"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "26544005",
+      "term": "Muscle weakness",
+      "synonyms": ["Weakness", "Myasthenia", "कमजोरी"],
+      "specialtyTags": ["NEUROLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["acute unilateral weakness", "descending weakness"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "162147008",
+      "term": "Productive cough",
+      "synonyms": ["Wet cough", "Cough with sputum", "बलगम वाली खांसी"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["purulent sputum with fever", "blood-stained sputum"],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "11833005",
+      "term": "Dry cough",
+      "synonyms": ["Non-productive cough", "सूखी खांसी"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": [],
+      "category": "respiratory"
+    },
+    {
+      "conceptId": "66071002",
+      "term": "Viral hepatitis",
+      "synonyms": ["Hepatitis", "Liver inflammation"],
+      "specialtyTags": ["GASTROENTEROLOGY", "INFECTIOUS_DISEASE", "HEPATOLOGY"],
+      "redFlagTerms": ["fulminant hepatitis", "encephalopathy"],
+      "category": "gastrointestinal"
+    },
+    {
+      "conceptId": "16114001",
+      "term": "Fever with chills",
+      "synonyms": ["Rigors", "Shivering fever", "कंपकंपी के साथ बुखार"],
+      "specialtyTags": ["GENERAL_MEDICINE", "INFECTIOUS_DISEASE"],
+      "redFlagTerms": ["rigors with hypotension", "sepsis"],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "444749002",
+      "term": "Acute confusion",
+      "synonyms": ["Delirium", "Confusional state", "भ्रम की स्थिति"],
+      "specialtyTags": ["GENERAL_MEDICINE", "PSYCHIATRY", "GERIATRICS", "NEUROLOGY"],
+      "redFlagTerms": ["new acute confusion", "confusion with fever"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "24700007",
+      "term": "Multiple sclerosis",
+      "synonyms": ["MS", "Demyelinating disease"],
+      "specialtyTags": ["NEUROLOGY"],
+      "redFlagTerms": ["MS relapse with visual loss"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "49436004",
+      "term": "Atrial fibrillation",
+      "synonyms": ["AF", "AFib", "Irregular heartbeat"],
+      "specialtyTags": ["CARDIOLOGY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["AF with chest pain", "AF with stroke symptoms"],
+      "category": "cardiac"
+    },
+    {
+      "conceptId": "422504002",
+      "term": "Ischaemic stroke",
+      "synonyms": ["Ischemic stroke", "Brain infarct"],
+      "specialtyTags": ["NEUROLOGY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["FAST positive within 4.5 hours"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "21454007",
+      "term": "Subarachnoid haemorrhage",
+      "synonyms": ["SAH", "Brain bleed"],
+      "specialtyTags": ["NEUROLOGY", "NEUROSURGERY", "EMERGENCY_MEDICINE"],
+      "redFlagTerms": ["thunderclap headache", "worst headache of life", "neck stiffness"],
+      "category": "neurological"
+    },
+    {
+      "conceptId": "LOCAL-VIRAL-FEVER-001",
+      "term": "Viral fever syndrome",
+      "synonyms": ["Viral syndrome", "Viral pyrexia", "वायरल बुखार"],
+      "specialtyTags": ["GENERAL_MEDICINE", "INFECTIOUS_DISEASE"],
+      "redFlagTerms": [],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "LOCAL-POST-COVID-001",
+      "term": "Post-COVID syndrome",
+      "synonyms": ["Long COVID", "Post-acute COVID"],
+      "specialtyTags": ["PULMONOLOGY", "GENERAL_MEDICINE", "CARDIOLOGY"],
+      "redFlagTerms": ["post-COVID dyspnoea", "post-COVID chest pain"],
+      "category": "infectious"
+    },
+    {
+      "conceptId": "LOCAL-HAIR-LOSS-001",
+      "term": "Hair loss",
+      "synonyms": ["Alopecia", "Baldness", "बाल झड़ना"],
+      "specialtyTags": ["DERMATOLOGY"],
+      "redFlagTerms": [],
+      "category": "dermatological"
+    },
+    {
+      "conceptId": "LOCAL-ACNE-001",
+      "term": "Acne",
+      "synonyms": ["Pimples", "Zits", "मुंहासे", "munhase"],
+      "specialtyTags": ["DERMATOLOGY"],
+      "redFlagTerms": [],
+      "category": "dermatological"
+    },
+    {
+      "conceptId": "LOCAL-ED-001",
+      "term": "Erectile dysfunction",
+      "synonyms": ["ED", "Impotence"],
+      "specialtyTags": ["UROLOGY", "ANDROLOGY", "ENDOCRINOLOGY"],
+      "redFlagTerms": [],
+      "category": "genitourinary"
+    },
+    {
+      "conceptId": "LOCAL-INFERTILITY-001",
+      "term": "Infertility",
+      "synonyms": ["Subfertility", "Trouble conceiving"],
+      "specialtyTags": ["GYNAECOLOGY", "UROLOGY", "ENDOCRINOLOGY"],
+      "redFlagTerms": [],
+      "category": "reproductive"
+    },
+    {
+      "conceptId": "LOCAL-SNAKEBITE-001",
+      "term": "Snakebite",
+      "synonyms": ["Snake bite", "साँप का काटना", "saamp ka kaata"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["envenomation", "neurotoxic snakebite", "haemotoxic snakebite"],
+      "category": "toxicological"
+    },
+    {
+      "conceptId": "LOCAL-SCORPION-001",
+      "term": "Scorpion sting",
+      "synonyms": ["बिच्छू का काटना", "bichhu ka kaata"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "PEDIATRICS"],
+      "redFlagTerms": ["scorpion sting with pulmonary oedema"],
+      "category": "toxicological"
+    },
+    {
+      "conceptId": "LOCAL-HEAT-STROKE-001",
+      "term": "Heat stroke",
+      "synonyms": ["Hyperthermia", "लू लगना", "loo lagna"],
+      "specialtyTags": ["EMERGENCY_MEDICINE", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["temperature >40C with altered mental status"],
+      "category": "environmental"
+    },
+    {
+      "conceptId": "LOCAL-IMMUNIZATION-001",
+      "term": "Routine immunisation",
+      "synonyms": ["Vaccination", "Immunization visit", "टीकाकरण", "teekakaran"],
+      "specialtyTags": ["PEDIATRICS", "GENERAL_MEDICINE"],
+      "redFlagTerms": [],
+      "category": "preventive"
+    },
+    {
+      "conceptId": "LOCAL-ANTENATAL-001",
+      "term": "Antenatal check-up",
+      "synonyms": ["ANC visit", "Pregnancy check"],
+      "specialtyTags": ["OBSTETRICS", "GYNAECOLOGY"],
+      "redFlagTerms": [],
+      "category": "obstetric"
+    },
+    {
+      "conceptId": "LOCAL-FAILURE-THRIVE-001",
+      "term": "Failure to thrive",
+      "synonyms": ["FTT", "Poor growth"],
+      "specialtyTags": ["PEDIATRICS", "NEONATOLOGY"],
+      "redFlagTerms": ["severe acute malnutrition"],
+      "category": "paediatric"
+    },
+    {
+      "conceptId": "LOCAL-PANIC-001",
+      "term": "Panic attack",
+      "synonyms": ["Panic episode", "Acute anxiety"],
+      "specialtyTags": ["PSYCHIATRY", "GENERAL_MEDICINE"],
+      "redFlagTerms": ["panic attack with chest pain and dyspnoea"],
+      "category": "psychiatric"
+    }
+  ]
+}

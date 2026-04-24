@@ -1,0 +1,46 @@
+# Shared Maestro config for MedCore patient E2E flows.
+#
+# Maestro lets any flow `import` this file via:
+#
+#     appId: com.medcore.app
+#     env:
+#       PATIENT_EMAIL: patient1@medcore.local
+#       PATIENT_PASSWORD: patient123
+#
+# but we keep the authoritative values here so `run.sh` can inject
+# environment overrides once, and every flow references the same names.
+#
+# Environment variables (override at invocation time):
+#
+#   PATIENT_EMAIL      — email of the seeded patient account to log in as
+#   PATIENT_PASSWORD   — password for that account
+#   MAESTRO_APP_ID     — bundle id; defaults to com.medcore.app
+#
+# Usage from any flow:
+#
+#     appId: ${MAESTRO_APP_ID}
+#     ---
+#     - launchApp
+#     - ...
+#
+# Maestro does NOT support `extends:` / `include:` across flows, so each
+# flow repeats the `appId:` line and reads env via `${PATIENT_EMAIL}`
+# etc. This file is a human-readable reference, not machine-loaded.
+
+appId: com.medcore.app
+
+env:
+  PATIENT_EMAIL: patient1@medcore.local
+  PATIENT_PASSWORD: patient123
+
+# Global timeout tuning — individual flows can override.
+# Maestro's default `assertVisible` timeout is 10s. On a cold Expo dev
+# server the first screen mount can take 20-30s while Metro bundles, so
+# we bump the default here and every flow uses `timeout:` where it
+# matters.
+defaultTimeout: 30000
+
+# Tearing down between flows: Maestro automatically clears app state
+# between top-level flow files when invoked via `maestro test <dir>`,
+# but `run.sh` makes it explicit by calling `maestro -a <appId> stop`
+# before each run.

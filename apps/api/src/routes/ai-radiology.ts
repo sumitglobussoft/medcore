@@ -68,18 +68,51 @@ aiRadiologyRouter.post(
   authorize(Role.DOCTOR, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, modality, bodyPart, imageKeys, studyDate, notes, orderId } =
-        req.body as {
-          patientId: string;
-          modality: RadiologyModality;
-          bodyPart: string;
-          imageKeys: string[];
-          studyDate?: string;
-          notes?: string;
-          orderId?: string;
-        };
+      const {
+        patientId,
+        modality,
+        bodyPart,
+        imageKeys,
+        images: imagesBody,
+        studyDate,
+        notes,
+        orderId,
+      } = req.body as {
+        patientId: string;
+        modality: RadiologyModality;
+        bodyPart: string;
+        imageKeys?: string[];
+        images?: Array<{
+          key: string;
+          filename?: string;
+          contentType?: string;
+          sizeBytes?: number;
+        }>;
+        studyDate?: string;
+        notes?: string;
+        orderId?: string;
+      };
 
-      if (!patientId || !modality || !bodyPart || !Array.isArray(imageKeys) || imageKeys.length === 0) {
+      // Accept either the lightweight `imageKeys` (existing callers) or the
+      // richer `images` array (clients that already know filename /
+      // contentType — enables DICOM parsing downstream).
+      const rawImages: RadiologyImageRef[] =
+        Array.isArray(imagesBody) && imagesBody.length > 0
+          ? imagesBody.map((i) => ({
+              key: String(i.key),
+              filename: i.filename ? String(i.filename) : undefined,
+              contentType: i.contentType ? String(i.contentType) : undefined,
+              sizeBytes: typeof i.sizeBytes === "number" ? i.sizeBytes : undefined,
+              uploadedAt: new Date().toISOString(),
+            }))
+          : Array.isArray(imageKeys)
+          ? imageKeys.map((k) => ({
+              key: String(k),
+              uploadedAt: new Date().toISOString(),
+            }))
+          : [];
+
+      if (!patientId || !modality || !bodyPart || rawImages.length === 0) {
         res.status(400).json({
           success: false,
           data: null,
@@ -104,10 +137,7 @@ aiRadiologyRouter.post(
         return;
       }
 
-      const images: RadiologyImageRef[] = imageKeys.map((k) => ({
-        key: String(k),
-        uploadedAt: new Date().toISOString(),
-      }));
+      const images: RadiologyImageRef[] = rawImages;
 
       const study = await createStudy({
         patientId,

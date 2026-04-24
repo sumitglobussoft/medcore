@@ -1,8 +1,24 @@
 import { z } from "zod";
 
+// PRD §3.5.1 Phase 2 — regional languages.
+// English + Hindi shipped in Phase 1; Tamil, Telugu, Bengali, Marathi,
+// Kannada, Malayalam added in Phase 2. The tuple is the canonical list
+// consumed by Zod, the shared i18n bundle, and the triage UI picker.
+export const TRIAGE_LANGUAGE_CODES = [
+  "en",
+  "hi",
+  "ta",
+  "te",
+  "bn",
+  "mr",
+  "kn",
+  "ml",
+] as const;
+export type TriageLanguageCode = (typeof TRIAGE_LANGUAGE_CODES)[number];
+
 /** Validates the request body for POST /ai/triage/sessions. `consentGiven` must be `true`. */
 export const startTriageSessionSchema = z.object({
-  language: z.enum(["en", "hi"]).default("en"),
+  language: z.enum(TRIAGE_LANGUAGE_CODES).default("en"),
   inputMode: z.enum(["text", "voice"]).default("text"),
   patientId: z.string().uuid().optional(),
   isForDependent: z.boolean().default(false),
@@ -15,7 +31,7 @@ export const startTriageSessionSchema = z.object({
 /** Validates the body for POST /ai/triage/sessions/:id/message. */
 export const triageMessageSchema = z.object({
   message: z.string().min(1).max(2000),
-  language: z.enum(["en", "hi"]).optional(),
+  language: z.enum(TRIAGE_LANGUAGE_CODES).optional(),
 });
 
 /** Validates the body for booking an appointment directly from a completed triage session. */

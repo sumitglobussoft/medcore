@@ -21,6 +21,7 @@
 //     scribe page.
 
 import { logAICall } from "./sarvam-logging";
+import { MEDICAL_WORD_BOOST_LIST } from "./medical-vocabulary";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,20 @@ export interface ASRTranscribeOptions {
    * explicit makes the intent auditable in logs).
    */
   doctorFirst?: boolean;
+  /**
+   * PRD §4.5.2 — Medical-vocabulary LM tuning. When true (default), providers
+   * that support keyword boosting (AssemblyAI `word_boost`, Deepgram
+   * `keywords` once the Deepgram client lands) are passed
+   * `MEDICAL_WORD_BOOST_LIST` so drug names, anatomy, procedures, and Indian
+   * brand names are recognised more reliably.
+   *
+   * Set to `false` as an operator kill-switch if boosting regresses accuracy
+   * on a specific accent — e.g. if an aggressive `word_boost` list starts
+   * false-positive-ing "Dolo" onto homophones during regular conversation.
+   *
+   * Ignored by Sarvam (no documented equivalent hook).
+   */
+  medicalVocabulary?: boolean;
 }
 
 export interface ASRClient {
@@ -117,6 +132,15 @@ export function mapSpeakerLabels<T extends { speaker?: string }>(
 // preserve backward compatibility by emitting one big segment (`startMs=0`,
 // `endMs=0`) with `speaker: undefined` — callers that only read `transcript`
 // see zero behaviour change.
+//
+// PRD §4.5.2 — medical-vocabulary boost is NOT applied here. Sarvam's public
+// `/speech-to-text` endpoint does not document a `word_boost` / `keywords` /
+// custom-LM hook at time of writing (2026-04). The `opts.medicalVocabulary`
+// flag is deliberately ignored for this provider so callers can use the same
+// options object across all three backends without special-casing Sarvam.
+// TODO: revisit when Sarvam exposes a custom-vocabulary hook. If they ship
+// one, import MEDICAL_WORD_BOOST_LIST from ./medical-vocabulary and thread it
+// through the formData payload the same way AssemblyAI/Deepgram do.
 
 const SARVAM_ENDPOINT = "https://api.sarvam.ai/speech-to-text";
 
@@ -274,17 +298,31 @@ class AssemblyAIASRClient implements ASRClient {
       }
 
       // 2. Request transcription.
+      //
+      // PRD §4.5.2 — attach the medical vocabulary as `word_boost` so AssemblyAI's
+      // LM biases toward drug names / anatomy / procedures / Indian brand names.
+      // `boost_param: "high"` is AssemblyAI's documented way to crank all boost
+      // weights up one notch without per-word tuning — appropriate for a domain
+      // list that we've already curated to ~300 clinically-relevant terms.
+      // Gated so ops can flip it off via `medicalVocabulary: false` if it
+      // regresses accuracy on a specific accent.
+      const useMedicalVocabulary = opts.medicalVocabulary !== false;
+      const payload: Record<string, unknown> = {
+        audio_url: uploadUrl,
+        speaker_labels: diarize,
+        language_code: language,
+      };
+      if (useMedicalVocabulary) {
+        payload.word_boost = MEDICAL_WORD_BOOST_LIST;
+        payload.boost_param = "high";
+      }
       const createRes = await fetch(ASSEMBLYAI_TRANSCRIPT, {
         method: "POST",
         headers: {
           authorization: apiKey,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          audio_url: uploadUrl,
-          speaker_labels: diarize,
-          language_code: language,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!createRes.ok) {
         throw new Error(`AssemblyAI transcript request failed: ${createRes.status}`);
@@ -335,6 +373,10 @@ class AssemblyAIASRClient implements ASRClient {
         promptTokens: 0,
         completionTokens: 0,
         latencyMs: Date.now() - t0,
+        metadata: {
+          boostedWords: useMedicalVocabulary ? MEDICAL_WORD_BOOST_LIST.length : 0,
+          boostParam: useMedicalVocabulary ? "high" : null,
+        },
       });
 
       return {
@@ -370,6 +412,11 @@ class AssemblyAIASRClient implements ASRClient {
 //      1000, and run mapSpeakerLabels() to convert numeric ids into DOCTOR/…
 //   4. Add Deepgram-specific error handling: 402 → quota exceeded, 429 → rate
 //      limit; both retryable with exponential backoff on the route layer.
+//   5. PRD §4.5.2 — attach MEDICAL_WORD_BOOST_LIST as repeated `keywords` query
+//      params (one per word, not a comma-joined string — URLSearchParams.append
+//      is the right API) when `opts.medicalVocabulary !== false`. Include the
+//      boosted-word count in the logAICall metadata so ops can confirm tuning
+//      is active, mirroring what the AssemblyAI path does today.
 
 class DeepgramASRClient implements ASRClient {
   readonly provider: ASRProvider = "deepgram";

@@ -306,6 +306,29 @@ router.post(
         return;
       }
 
+      // Tenant-deactivation gate — block login entirely if the owning tenant
+      // has been soft-deactivated via `/api/v1/tenants/:id/deactivate`. We
+      // return the same generic error as a bad password so a deactivated
+      // tenant cannot be probed by email enumeration.
+      if (user.tenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: { active: true },
+        });
+        if (tenant && !tenant.active) {
+          auditLog(req, "LOGIN_FAILED", "user", user.id, {
+            email,
+            reason: "tenant_deactivated",
+          }).catch(console.error);
+          res.status(401).json({
+            success: false,
+            data: null,
+            error: "Invalid email or password",
+          });
+          return;
+        }
+      }
+
       // If 2FA is enabled, do not issue real tokens — return a temp token.
       if (user.twoFactorEnabled && user.twoFactorSecret) {
         const tempToken = await issueTempToken(user.id);
@@ -383,6 +406,26 @@ router.post(
           error: "Invalid or expired refresh token",
         });
         return;
+      }
+
+      // Tenant-deactivation gate — if the user's tenant has been soft
+      // deactivated since this session was issued, refuse to mint a new
+      // token pair. The tenants admin UI advertises "users are signed out
+      // at their next refresh", and this is where that promise is kept.
+      if (stored.user.tenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: stored.user.tenantId },
+          select: { active: true },
+        });
+        if (tenant && !tenant.active) {
+          await prisma.refreshToken.delete({ where: { id: stored.id } }).catch(() => undefined);
+          res.status(401).json({
+            success: false,
+            data: null,
+            error: "Tenant has been deactivated",
+          });
+          return;
+        }
       }
 
       // Delete old token and create new pair

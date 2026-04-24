@@ -169,6 +169,10 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   // Radiology Report Drafting (PRD §7.2, 2026-04-24)
   "RadiologyStudy",
   "RadiologyReport",
+  // PRD closure (2026-04-24) — migration 20260424000004
+  "PatientDataExport",
+  "FrontDeskCall",
+  "MedicationIncident",
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

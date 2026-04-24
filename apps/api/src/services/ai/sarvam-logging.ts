@@ -37,6 +37,14 @@ export function logAICall(opts: {
    * Sarvam outage minutes without grepping for stack traces.
    */
   failover?: boolean;
+  /**
+   * Free-form structured context. Used by e.g. the ASR providers to log the
+   * number of medical-vocabulary terms sent as `word_boost` / `keywords`, so
+   * an operator can verify from logs that PRD §4.5.2 tuning actually fired
+   * without a debugger attached. Kept intentionally open so new features can
+   * attach a handful of call-specific fields without widening this signature.
+   */
+  metadata?: Record<string, unknown>;
 }): void {
   console.log(
     JSON.stringify({

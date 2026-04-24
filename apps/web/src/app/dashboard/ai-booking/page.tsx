@@ -4,6 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+// PRD §3.5.1 Phase 2: 8-language i18n bundle (codes + native display names +
+// symptom-chip translations + UI-chrome strings + BCP-47 converter).
+import {
+  TRIAGE_LANGUAGE_CODES,
+  LANGUAGE_DISPLAY,
+  SYMPTOM_CHIPS,
+  TRIAGE_UI_STRINGS,
+  toSarvamLanguageCode,
+  type TriageLanguageCode,
+} from "@medcore/shared";
 import {
   Bot,
   Send,
@@ -72,31 +82,10 @@ const BOOKING_FOR_OPTIONS: { value: BookingFor; label: string }[] = [
   { value: "OTHER", label: "Someone else" },
 ];
 
-const SYMPTOM_CHIPS_EN = [
-  "Fever",
-  "Cough",
-  "Headache",
-  "Chest pain",
-  "Stomach pain",
-  "Back pain",
-  "Joint pain",
-  "Skin rash",
-  "Difficulty breathing",
-  "Fatigue",
-];
-
-const SYMPTOM_CHIPS_HI = [
-  "बुखार",
-  "खाँसी",
-  "सिरदर्द",
-  "सीने में दर्द",
-  "पेट दर्द",
-  "कमर दर्द",
-  "जोड़ों का दर्द",
-  "त्वचा पर चकत्ते",
-  "साँस लेने में तकलीफ",
-  "थकान",
-];
+// PRD §3.5.1 Phase 2: symptom-chip labels + canonical English complaints live
+// in `@medcore/shared/i18n/triage-symptom-chips`. The `complaint` field is
+// kept English so the downstream LLM prompt stays consistent regardless of
+// the user's display language; only the user-visible `label` is localised.
 
 const hasSpeechRecognition =
   typeof window !== "undefined" &&
@@ -109,7 +98,7 @@ export default function AIBookingPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [language, setLanguage] = useState<"en" | "hi">("en");
+  const [language, setLanguage] = useState<TriageLanguageCode>("en");
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [isEmergency, setIsEmergency] = useState(false);
@@ -184,7 +173,9 @@ export default function AIBookingPage() {
     const SpeechRecognitionAPI =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognitionAPI();
-    recognition.lang = language === "hi" ? "hi-IN" : "en-IN";
+    // PRD §3.5.1 Phase 2: convert app language code → BCP-47 tag for the Web
+    // Speech API. Covers all 8 supported languages.
+    recognition.lang = toSarvamLanguageCode(language);
     recognition.continuous = false;
     recognition.interimResults = false;
 
@@ -433,7 +424,11 @@ export default function AIBookingPage() {
     );
   };
 
-  const symptomChips = language === "hi" ? SYMPTOM_CHIPS_HI : SYMPTOM_CHIPS_EN;
+  // PRD §3.5.1 Phase 2: resolved symptom-chip list for the current language.
+  // Each chip carries a localised `label` (displayed) and a canonical English
+  // `complaint` (sent to the chat so the LLM prompt vocabulary stays stable).
+  const symptomChips = SYMPTOM_CHIPS[language] ?? SYMPTOM_CHIPS.en;
+  const uiStrings = TRIAGE_UI_STRINGS[language] ?? TRIAGE_UI_STRINGS.en;
 
   // ── Emergency screen ──────────────────────────────────
   if (isEmergency) {
@@ -525,14 +520,24 @@ export default function AIBookingPage() {
             )}
 
             <div className="pt-2">
-              <label className="block text-xs font-medium text-gray-600 mb-2">Language</label>
+              <label htmlFor="ai-booking-language" className="block text-xs font-medium text-gray-600 mb-2">
+                {uiStrings.languageLabel}
+              </label>
               <select
+                id="ai-booking-language"
+                aria-label={uiStrings.languagePickerAria}
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as "en" | "hi")}
+                onChange={(e) => setLanguage(e.target.value as TriageLanguageCode)}
                 className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white w-full"
               >
-                <option value="en">English</option>
-                <option value="hi">हिंदी</option>
+                {/* PRD §3.5.1 Phase 2: 8 supported languages, each shown in
+                    its own native script so patients can spot their language
+                    without reading English. */}
+                {TRIAGE_LANGUAGE_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {LANGUAGE_DISPLAY[code].nativeName}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -669,13 +674,19 @@ export default function AIBookingPage() {
             <p className="text-xs text-gray-500">Appointment routing assistant — not a diagnostic tool</p>
           </div>
           <div className="ml-auto flex gap-2">
+            {/* PRD §3.5.1 Phase 2: in-chat language switcher, native-script
+                labels, localised aria-label for screen readers. */}
             <select
+              aria-label={uiStrings.languagePickerAria}
               value={language}
-              onChange={(e) => setLanguage(e.target.value as "en" | "hi")}
+              onChange={(e) => setLanguage(e.target.value as TriageLanguageCode)}
               className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"
             >
-              <option value="en">English</option>
-              <option value="hi">हिंदी</option>
+              {TRIAGE_LANGUAGE_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {LANGUAGE_DISPLAY[code].nativeName}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -753,17 +764,25 @@ export default function AIBookingPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Symptom chips */}
+        {/* Symptom chips — PRD §3.5.1 Phase 2.
+            The chip's button renders the localised `label`, but clicking it
+            inserts the canonical English `complaint` into the input so the
+            LLM prompt stays consistent across all 8 languages. */}
         {sessionId && !isEmergency && !handedOff && (
-          <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+          <div
+            className="px-3 pb-2 flex flex-wrap gap-1.5"
+            role="group"
+            aria-label={uiStrings.symptomChipsLabel}
+            data-testid="symptom-chips"
+          >
             {symptomChips.map((chip) => (
               <button
-                key={chip}
-                onClick={() => setInput(chip)}
+                key={chip.complaint}
+                onClick={() => setInput(chip.complaint)}
                 disabled={loading || starting}
                 className="px-3 py-1 text-xs bg-blue-50 text-blue-700 rounded-full border border-blue-100 hover:bg-blue-100 hover:border-blue-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {chip}
+                {chip.label}
               </button>
             ))}
           </div>
@@ -800,7 +819,7 @@ export default function AIBookingPage() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={language === "hi" ? "अपनी तकलीफ बताएँ..." : "Describe your symptoms..."}
+                  placeholder={uiStrings.inputPlaceholder}
                   rows={1}
                   disabled={loading || starting || !sessionId}
                   className="flex-1 resize-none border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"

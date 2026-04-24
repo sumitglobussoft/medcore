@@ -6,6 +6,17 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import type { SOAPNote } from "@medcore/shared";
+// PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
+// page exposes the selected language as the `language_code` the ASR client
+// forwards to Sarvam, so the doctor can transcribe regional-language
+// consultations without a config change.
+import {
+  TRIAGE_LANGUAGE_CODES,
+  LANGUAGE_DISPLAY,
+  ASSEMBLYAI_SUPPORTED_TRIAGE_LANGUAGES,
+  toSarvamLanguageCode,
+  type TriageLanguageCode,
+} from "@medcore/shared";
 import {
   Mic,
   MicOff,
