@@ -493,6 +493,70 @@ async function main() {
                 resolvedAt: dayOffset < -5 ? addDays(date, randomInt(2, 5)) : null,
               },
             });
+
+            // Issue #82: also seed the V2 row with a realistic insurer +
+            // diagnosis so the Insurance Claims page (which reads from
+            // InsuranceClaim2) doesn't show every row as "MOCK TPA / —".
+            // The migration script keeps backfilling pre-V2 history; this
+            // adds NEW rows that the page will show alongside historical
+            // legacy data.
+            const realInsurers = [
+              { name: "Star Health and Allied Insurance", tpa: "STAR_HEALTH" as const },
+              { name: "ICICI Lombard General Insurance", tpa: "ICICI_LOMBARD" as const },
+              { name: "HDFC ERGO General Insurance", tpa: "MEDI_ASSIST" as const },
+              { name: "Bajaj Allianz General Insurance", tpa: "PARAMOUNT" as const },
+              { name: "Niva Bupa Health Insurance", tpa: "VIDAL" as const },
+              { name: "Care Health Insurance", tpa: "FHPL" as const },
+            ];
+            const ins = realInsurers[randomInt(0, realInsurers.length - 1)];
+            const diagnoses = [
+              { dx: "Essential hypertension", icd: "I10" },
+              { dx: "Type 2 diabetes mellitus", icd: "E11" },
+              { dx: "Acute upper respiratory infection", icd: "J06.9" },
+              { dx: "Asthma", icd: "J45.9" },
+              { dx: "Lower back pain", icd: "M54.5" },
+            ];
+            const dx = diagnoses[randomInt(0, diagnoses.length - 1)];
+            const v2Status =
+              dayOffset < -5
+                ? Math.random() > 0.1
+                  ? ("SETTLED" as const)
+                  : ("DENIED" as const)
+                : dayOffset < -2
+                  ? ("APPROVED" as const)
+                  : ("SUBMITTED" as const);
+            const approved = ["APPROVED", "SETTLED"].includes(v2Status)
+              ? Math.round(totalAmount * (Math.random() > 0.2 ? 1 : 0.8))
+              : null;
+            try {
+              await prisma.insuranceClaim2.create({
+                data: {
+                  billId: invoice.id,
+                  patientId: p.patientId,
+                  tpaProvider: ins.tpa,
+                  providerClaimRef: `${ins.tpa}-${randomInt(100000, 999999)}`,
+                  insurerName: ins.name,
+                  policyNumber:
+                    patientData.insurancePolicyNumber ||
+                    `POL${randomInt(100000, 999999)}`,
+                  diagnosis: dx.dx,
+                  icd10Codes: [dx.icd],
+                  amountClaimed: totalAmount,
+                  amountApproved: approved,
+                  status: v2Status,
+                  submittedAt: date,
+                  approvedAt:
+                    v2Status === "APPROVED" || v2Status === "SETTLED"
+                      ? addDays(date, randomInt(2, 5))
+                      : null,
+                  settledAt:
+                    v2Status === "SETTLED" ? addDays(date, randomInt(5, 8)) : null,
+                  createdBy: "SEED",
+                },
+              });
+            } catch {
+              // Ignore unique-collision on (billId,…) — seed is best effort.
+            }
           }
 
           invoiceSeq++;

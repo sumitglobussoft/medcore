@@ -2,10 +2,15 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
+
+// Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
+const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
 
 interface LabTest {
   id: string;
@@ -70,13 +75,25 @@ export default function LabOrderPage({
   params: Promise<{ orderId: string }>;
 }) {
   const { orderId } = use(params);
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const confirm = useConfirm();
   const [order, setOrder] = useState<LabOrder | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Issue #90: redirect RECEPTION away from lab detail / result-entry form.
   useEffect(() => {
+    if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
+      toast.error("Lab orders & results are restricted to clinical staff.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
+
+  useEffect(() => {
+    if (user && !LAB_ALLOWED.has(user.role)) return;
     load();
-  }, [orderId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, user]);
 
   async function load() {
     setLoading(true);

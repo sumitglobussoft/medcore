@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { useTranslation } from "@/lib/i18n";
@@ -132,6 +133,10 @@ export default function EmergencyPage() {
     disposition: "",
     outcomeNotes: "",
   });
+  const [closeErrors, setCloseErrors] = useState<FieldErrorMap>({});
+  // Issue #88: surface a banner when /emergency/cases/active or /stats fails
+  // so the page does not get stuck on an empty board with no feedback.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const canRegister =
     user?.role === "ADMIN" ||
@@ -179,17 +184,42 @@ export default function EmergencyPage() {
 
   async function loadData() {
     setLoading(true);
+    setLoadError(null);
     try {
-      const [activeRes, statsRes] = await Promise.all([
+      // Issue #88: previously used Promise.all so a single failure rejected
+      // both, and we swallowed the error silently — leaving the board stuck
+      // on "Loading…" forever with no toast. Use Promise.allSettled instead
+      // so partial failure still surfaces the half that worked, and report
+      // the failure inline.
+      const [activeRes, statsRes] = await Promise.allSettled([
         api.get<{ data: EmergencyCase[] }>("/emergency/cases/active"),
         api.get<{ data: EmergencyStats }>("/emergency/stats"),
       ]);
-      setCases(activeRes.data);
-      setStats(statsRes.data);
-    } catch {
-      // empty
+      if (activeRes.status === "fulfilled") {
+        setCases(activeRes.value.data);
+      }
+      if (statsRes.status === "fulfilled") {
+        setStats(statsRes.value.data);
+      }
+      const failures = [activeRes, statsRes].filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected"
+      );
+      if (failures.length > 0) {
+        const msg =
+          failures[0].reason instanceof Error
+            ? failures[0].reason.message
+            : "Failed to load ER board";
+        setLoadError(msg);
+        toast.error(msg);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load ER board";
+      setLoadError(msg);
+      toast.error(msg);
+    } finally {
+      // Always unset loading — the bug was a missed branch leaving it true.
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   async function loadDoctors() {
@@ -305,17 +335,35 @@ export default function EmergencyPage() {
 
   async function submitClose() {
     if (!selectedCase) return;
+    // Issue #88: client-side parity with the zod schema — disposition and
+    // outcomeNotes are both required to close an ER case.
+    const errs: FieldErrorMap = {};
+    if (!closeForm.disposition.trim()) errs.disposition = "Disposition is required";
+    if (!closeForm.outcomeNotes.trim()) errs.outcomeNotes = "Outcome notes are required";
+    if (Object.keys(errs).length > 0) {
+      setCloseErrors(errs);
+      toast.error("Disposition and outcome notes are required");
+      return;
+    }
+    setCloseErrors({});
     try {
       await api.patch(`/emergency/cases/${selectedCase.id}/close`, {
         status: closeForm.status,
-        disposition: closeForm.disposition || undefined,
-        outcomeNotes: closeForm.outcomeNotes || undefined,
+        disposition: closeForm.disposition,
+        outcomeNotes: closeForm.outcomeNotes,
       });
       setSelectedCase(null);
       setCloseForm({ status: "DISCHARGED", disposition: "", outcomeNotes: "" });
       loadData();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Close failed");
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setCloseErrors(fields);
+        const first = Object.values(fields)[0];
+        toast.error(first || "Please fix the highlighted fields");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Close failed");
+      }
     }
   }
 
@@ -337,6 +385,12 @@ export default function EmergencyPage() {
       filter: (c) => c.status === "ADMITTED",
     },
   ];
+
+  // Issue #88: KPI count must match the column count exactly. The stats
+  // endpoint counts WAITING + TRIAGED together, which contradicted the
+  // "Waiting" column (filters status === "WAITING"). Source the KPI from the
+  // same `cases` array the columns iterate so the two never disagree.
+  const waitingKpiCount = cases.filter((c) => c.status === "WAITING").length;
 
   return (
     <div>
@@ -367,7 +421,9 @@ export default function EmergencyPage() {
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm">
             <p className="text-xs text-gray-500">Waiting</p>
-            <p className="text-2xl font-bold">{stats.totalWaiting}</p>
+            <p data-testid="waiting-kpi" className="text-2xl font-bold">
+              {waitingKpiCount}
+            </p>
           </div>
           {(
             [
@@ -403,8 +459,27 @@ export default function EmergencyPage() {
       )}
 
       {/* Columns */}
+      {loadError && !loading && (
+        <div
+          data-testid="er-load-error"
+          role="alert"
+          className="mb-4 rounded-lg border-l-4 border-red-500 bg-red-50 p-3 text-sm text-red-900"
+        >
+          <p className="font-semibold">Could not load ER board</p>
+          <p className="text-xs">{loadError}</p>
+          <button
+            onClick={loadData}
+            className="mt-2 rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div
+          data-testid="er-loading"
+          className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm"
+        >
           Loading...
         </div>
       ) : (
@@ -885,25 +960,66 @@ export default function EmergencyPage() {
                     </option>
                     <option value="DECEASED">Deceased</option>
                   </select>
-                  <input
-                    placeholder="Disposition (e.g. Home, Ward-3, Other hospital)"
-                    value={closeForm.disposition}
-                    onChange={(e) =>
-                      setCloseForm({ ...closeForm, disposition: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
-                  <textarea
-                    rows={3}
-                    placeholder="Outcome notes"
-                    value={closeForm.outcomeNotes}
-                    onChange={(e) =>
-                      setCloseForm({ ...closeForm, outcomeNotes: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
-                  />
+                  <div>
+                    <input
+                      data-testid="close-disposition"
+                      aria-invalid={!!closeErrors.disposition}
+                      placeholder="Disposition (e.g. Home, Ward-3, Other hospital) *"
+                      value={closeForm.disposition}
+                      onChange={(e) => {
+                        setCloseForm({ ...closeForm, disposition: e.target.value });
+                        if (closeErrors.disposition)
+                          setCloseErrors((p) => {
+                            const n = { ...p };
+                            delete n.disposition;
+                            return n;
+                          });
+                      }}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                        closeErrors.disposition ? "border-red-500 bg-red-50" : ""
+                      }`}
+                    />
+                    {closeErrors.disposition && (
+                      <p
+                        data-testid="error-disposition"
+                        className="mt-1 text-xs text-red-600"
+                      >
+                        {closeErrors.disposition}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <textarea
+                      rows={3}
+                      data-testid="close-outcome-notes"
+                      aria-invalid={!!closeErrors.outcomeNotes}
+                      placeholder="Outcome notes *"
+                      value={closeForm.outcomeNotes}
+                      onChange={(e) => {
+                        setCloseForm({ ...closeForm, outcomeNotes: e.target.value });
+                        if (closeErrors.outcomeNotes)
+                          setCloseErrors((p) => {
+                            const n = { ...p };
+                            delete n.outcomeNotes;
+                            return n;
+                          });
+                      }}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                        closeErrors.outcomeNotes ? "border-red-500 bg-red-50" : ""
+                      }`}
+                    />
+                    {closeErrors.outcomeNotes && (
+                      <p
+                        data-testid="error-outcome-notes"
+                        className="mt-1 text-xs text-red-600"
+                      >
+                        {closeErrors.outcomeNotes}
+                      </p>
+                    )}
+                  </div>
                   <button
                     onClick={submitClose}
+                    data-testid="close-case-btn"
                     className="w-full rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900"
                   >
                     Close Case

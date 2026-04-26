@@ -14,6 +14,8 @@ import {
   crossMatchRecordSchema,
   donorDeferralSchema,
   componentSeparationSchema,
+  RBC_COMPATIBILITY as SHARED_RBC_COMPATIBILITY,
+  PLASMA_COMPATIBILITY as SHARED_PLASMA_COMPATIBILITY,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -78,17 +80,12 @@ async function generateRequestNumber(): Promise<string> {
   return "BR" + String(next).padStart(6, "0");
 }
 
-// ABO/Rh compatibility (recipient -> list of donor blood groups for RBC)
-const RBC_COMPATIBILITY: Record<string, string[]> = {
-  A_POS: ["A_POS", "A_NEG", "O_POS", "O_NEG"],
-  A_NEG: ["A_NEG", "O_NEG"],
-  B_POS: ["B_POS", "B_NEG", "O_POS", "O_NEG"],
-  B_NEG: ["B_NEG", "O_NEG"],
-  AB_POS: ["A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG", "O_POS", "O_NEG"],
-  AB_NEG: ["A_NEG", "B_NEG", "AB_NEG", "O_NEG"],
-  O_POS: ["O_POS", "O_NEG"],
-  O_NEG: ["O_NEG"],
-};
+// Issue #93 (2026-04-26): ABO/Rh compatibility now lives in
+// `@medcore/shared/abo-compatibility` so the frontend issue-unit screen
+// can render a warning banner using the exact same matrix that the API
+// gates with. We keep a local alias so the rest of this file reads as
+// before.
+const RBC_COMPATIBILITY: Record<string, string[]> = SHARED_RBC_COMPATIBILITY;
 
 // ───────────────────────────────────────────────────────
 // DONORS
@@ -694,7 +691,11 @@ router.post(
   validate(issueBloodSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { unitIds } = req.body;
+      const { unitIds, overrideAboMismatch, clinicalReason } = req.body as {
+        unitIds: string[];
+        overrideAboMismatch?: boolean;
+        clinicalReason?: string;
+      };
 
       const request = await prisma.bloodRequest.findUnique({
         where: { id: req.params.id },
@@ -712,6 +713,13 @@ router.post(
 
       const compatibleGroups =
         RBC_COMPATIBILITY[request.bloodGroup] || [request.bloodGroup];
+
+      // Issue #93 (2026-04-26): collect ABO mismatches first instead of
+      // failing on the first one. The UI surfaces a yellow banner and
+      // allows the operator to override with a clinical reason ≥10
+      // chars; without those fields the API rejects with a 400 + the
+      // list of mismatched units so the UI can highlight them.
+      const mismatches: Array<{ unitNumber: string; bloodGroup: string }> = [];
 
       for (const u of units) {
         if (u.status !== "AVAILABLE") {
@@ -731,13 +739,35 @@ router.post(
           return;
         }
         if (!compatibleGroups.includes(u.bloodGroup)) {
+          mismatches.push({
+            unitNumber: u.unitNumber,
+            bloodGroup: u.bloodGroup,
+          });
+        }
+      }
+
+      if (mismatches.length > 0) {
+        if (
+          !overrideAboMismatch ||
+          !clinicalReason ||
+          clinicalReason.trim().length < 10
+        ) {
           res.status(400).json({
             success: false,
             data: null,
-            error: `Unit ${u.unitNumber} incompatible blood group`,
+            error: `ABO mismatch on ${mismatches.length} unit(s). To override, set overrideAboMismatch=true and provide clinicalReason (≥10 chars).`,
+            mismatches,
+            recipientGroup: request.bloodGroup,
           });
           return;
         }
+        // Override accepted — emit a separate audit row so reviewers can
+        // find emergency exceptions quickly.
+        auditLog(req, "BLOOD_ABO_OVERRIDE", "blood_request", request.id, {
+          mismatches,
+          recipientGroup: request.bloodGroup,
+          clinicalReason,
+        }).catch(console.error);
       }
 
       const updated = await prisma.$transaction(async (tx) => {
@@ -943,16 +973,8 @@ router.get(
 // COMPATIBILITY MATRIX
 // ───────────────────────────────────────────────────────
 
-const PLASMA_COMPATIBILITY: Record<string, string[]> = {
-  A_POS: ["A_POS", "A_NEG", "AB_POS", "AB_NEG"],
-  A_NEG: ["A_POS", "A_NEG", "AB_POS", "AB_NEG"],
-  B_POS: ["B_POS", "B_NEG", "AB_POS", "AB_NEG"],
-  B_NEG: ["B_POS", "B_NEG", "AB_POS", "AB_NEG"],
-  AB_POS: ["AB_POS", "AB_NEG"],
-  AB_NEG: ["AB_POS", "AB_NEG"],
-  O_POS: ["O_POS", "O_NEG", "A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG"],
-  O_NEG: ["O_POS", "O_NEG", "A_POS", "A_NEG", "B_POS", "B_NEG", "AB_POS", "AB_NEG"],
-};
+// Issue #93 (2026-04-26): plasma compatibility lives in shared too.
+const PLASMA_COMPATIBILITY: Record<string, string[]> = SHARED_PLASMA_COMPATIBILITY;
 
 router.get(
   "/compatibility-matrix",

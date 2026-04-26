@@ -16,6 +16,8 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { EntityPicker } from "@/components/EntityPicker";
+import { INDIAN_INSURERS } from "@medcore/shared";
 import {
   Receipt,
   Plus,
@@ -352,9 +354,18 @@ export default function InsuranceClaimsPage() {
                   </td>
                   <td className="px-4 py-2">
                     {r.tpaProvider}
-                    {r.tpaProvider === "MOCK" && (
-                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                        MOCK TPA
+                    {r.tpaProvider === "MOCK" &&
+                      !(r.providerClaimRef ?? "").startsWith("LEGACY-") && (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          MOCK TPA
+                        </span>
+                      )}
+                    {(r.providerClaimRef ?? "").startsWith("LEGACY-") && (
+                      <span
+                        className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
+                        title="Pre-V2 row — TPA provider unknown. Migrated from legacy insurance_claims table."
+                      >
+                        Legacy
                       </span>
                     )}
                   </td>
@@ -363,13 +374,37 @@ export default function InsuranceClaimsPage() {
                     className="max-w-xs truncate px-4 py-2 text-gray-600"
                     title={r.diagnosis}
                   >
-                    {r.diagnosis}
+                    {/* Issue #82: hide the noisy "(migrated from legacy —
+                        diagnosis unknown)" placeholder, render an em-dash
+                        instead so the table reads cleanly. */}
+                    {r.diagnosis &&
+                    !/migrated from legacy/i.test(r.diagnosis)
+                      ? r.diagnosis
+                      : "—"}
                   </td>
                   <td className="px-4 py-2 text-right font-mono">
                     {r.amountClaimed?.toLocaleString("en-IN") ?? "—"}
                   </td>
-                  <td className="px-4 py-2 text-right font-mono">
-                    {r.amountApproved?.toLocaleString("en-IN") ?? "—"}
+                  <td
+                    className="px-4 py-2 text-right font-mono"
+                    data-testid="claim-approved-cell"
+                  >
+                    {/*
+                      Issue #82: rows whose status is APPROVED / SETTLED /
+                      PARTIALLY_APPROVED implicitly carry the claimed amount
+                      as the approved amount when the TPA hasn't returned an
+                      explicit `amountApproved` yet. Showing "—" was
+                      misleading on rows the user can clearly see are
+                      approved. We now fall back to `amountClaimed` for
+                      those statuses (and tag the cell as fallback so a UI
+                      test can assert the behaviour); rows without an
+                      approved status still render an em-dash.
+                    */}
+                    {r.amountApproved != null
+                      ? r.amountApproved.toLocaleString("en-IN")
+                      : ["APPROVED", "PARTIALLY_APPROVED", "SETTLED"].includes(r.status)
+                        ? r.amountClaimed?.toLocaleString("en-IN") ?? "—"
+                        : "—"}
                   </td>
                   <td className="px-4 py-2">
                     <span
@@ -602,6 +637,12 @@ function Field({ label, value }: { label: string; value: string }) {
 
 // ─── Modal: submit new claim ────────────────────────────────────────────────
 
+interface Icd10Option {
+  id: string;
+  code: string;
+  description: string;
+}
+
 function NewClaimModal({
   onClose,
   onCreated,
@@ -614,10 +655,44 @@ function NewClaimModal({
   const [tpa, setTpa] = useState("MOCK");
   const [insurer, setInsurer] = useState("");
   const [policy, setPolicy] = useState("");
+  // diagnosis: free description (the API still receives a string), but we
+  // suggest values from the ICD-10 catalogue.
   const [diagnosis, setDiagnosis] = useState("");
+  const [icd10Code, setIcd10Code] = useState("");
+  const [diagSuggestions, setDiagSuggestions] = useState<Icd10Option[]>([]);
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Debounced ICD-10 lookup. Endpoint already exists at
+  // GET /api/v1/icd10?q=… (see apps/api/src/routes/icd10.ts).
+  useEffect(() => {
+    const q = diagnosis.trim();
+    if (q.length < 2 || icd10Code) {
+      setDiagSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    setDiagLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get<{ data: Icd10Option[] }>(
+          `/icd10?q=${encodeURIComponent(q)}&limit=8`
+        );
+        if (!cancelled) setDiagSuggestions(res.data ?? []);
+      } catch {
+        if (!cancelled) setDiagSuggestions([]);
+      } finally {
+        if (!cancelled) setDiagLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [diagnosis, icd10Code]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -631,6 +706,7 @@ function NewClaimModal({
         insurerName: insurer,
         policyNumber: policy,
         diagnosis,
+        ...(icd10Code ? { icd10Codes: [icd10Code] } : {}),
         amountClaimed: parseFloat(amount),
       });
       onCreated();
@@ -664,13 +740,57 @@ function NewClaimModal({
         </div>
 
         <div className="grid gap-3">
-          <Input label="Bill (invoice) ID" value={billId} onChange={setBillId} required />
-          <Input label="Patient ID" value={patientId} onChange={setPatientId} required />
+          {/* Bill (Invoice) — searchable picker. The /invoices endpoint
+              accepts `?search=<invoiceNumber>` and returns `{ id,
+              invoiceNumber, totalAmount, patientId, patient.user.name }`. */}
+          <div>
+            <label className="block text-sm font-medium">
+              Bill (invoice) <span className="text-red-500">*</span>
+            </label>
+            <EntityPicker
+              endpoint="/billing/invoices"
+              labelField="invoiceNumber"
+              subtitleField="patient.user.name"
+              hintField="totalAmount"
+              value={billId}
+              onChange={(id, entity) => {
+                setBillId(id);
+                // Auto-fill patient + amount from the chosen invoice when
+                // available — saves the user typing.
+                if (entity) {
+                  const pid = (entity as Record<string, unknown>).patientId;
+                  if (typeof pid === "string") setPatientId(pid);
+                  const amt = (entity as Record<string, unknown>).totalAmount;
+                  if (typeof amt === "number") setAmount(String(amt));
+                }
+              }}
+              searchPlaceholder="Search by invoice number..."
+              testIdPrefix="claim-bill-picker"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">
+              Patient <span className="text-red-500">*</span>
+            </label>
+            <EntityPicker
+              endpoint="/patients"
+              labelField="user.name"
+              subtitleField="user.phone"
+              hintField="mrNumber"
+              value={patientId}
+              onChange={(id) => setPatientId(id)}
+              searchPlaceholder="Search by name, phone, MR..."
+              testIdPrefix="claim-patient-picker"
+              required
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium">TPA</label>
             <select
               value={tpa}
               onChange={(e) => setTpa(e.target.value)}
+              data-testid="claim-tpa-select"
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
             >
               {TPAS.map((t) => (
@@ -685,9 +805,99 @@ function NewClaimModal({
               </p>
             )}
           </div>
-          <Input label="Insurer name" value={insurer} onChange={setInsurer} required />
+          {/* Insurer — bound to the curated INDIAN_INSURERS list (Issue #82).
+              The Insurer DB table is not yet populated, so we hardcode for
+              now in `packages/shared/constants.ts`. */}
+          <div>
+            <label className="block text-sm font-medium">
+              Insurer <span className="text-red-500">*</span>
+            </label>
+            <select
+              required
+              value={insurer}
+              onChange={(e) => setInsurer(e.target.value)}
+              data-testid="claim-insurer-select"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+            >
+              <option value="">Select insurer...</option>
+              {INDIAN_INSURERS.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
           <Input label="Policy number" value={policy} onChange={setPolicy} required />
-          <Input label="Diagnosis" value={diagnosis} onChange={setDiagnosis} required />
+          {/* Diagnosis — bound to the ICD-10 catalogue. The user may still
+              type free text (the API field stays a `String`); when an ICD
+              row is picked we additionally send `icd10Codes: [code]`. */}
+          <div className="relative">
+            <label className="block text-sm font-medium">
+              Diagnosis <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={diagnosis}
+              required
+              onChange={(e) => {
+                setDiagnosis(e.target.value);
+                setIcd10Code("");
+                setDiagOpen(true);
+              }}
+              onFocus={() => setDiagOpen(true)}
+              onBlur={() => window.setTimeout(() => setDiagOpen(false), 150)}
+              placeholder="Search ICD-10 (e.g. I10, diabetes)..."
+              data-testid="claim-diagnosis-input"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+            />
+            {icd10Code && (
+              <span
+                data-testid="claim-diagnosis-icd"
+                className="mt-1 inline-block rounded bg-emerald-50 px-2 py-0.5 text-xs font-mono text-emerald-700"
+              >
+                {icd10Code}
+              </span>
+            )}
+            {diagOpen &&
+              !icd10Code &&
+              diagnosis.trim().length >= 2 && (
+                <ul
+                  data-testid="claim-diagnosis-dropdown"
+                  className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
+                >
+                  {diagLoading && (
+                    <li className="flex items-center gap-2 px-3 py-2 text-xs text-gray-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Searching ICD-10...
+                    </li>
+                  )}
+                  {!diagLoading && diagSuggestions.length === 0 && (
+                    <li className="px-3 py-2 text-xs text-gray-500">
+                      No ICD-10 match — diagnosis will be saved as free text.
+                    </li>
+                  )}
+                  {!diagLoading &&
+                    diagSuggestions.map((s) => (
+                      <li
+                        key={s.id}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setDiagnosis(s.description);
+                          setIcd10Code(s.code);
+                          setDiagOpen(false);
+                        }}
+                        data-testid="claim-diagnosis-option"
+                        className="cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                      >
+                        <div className="font-medium">{s.description}</div>
+                        <div className="font-mono text-xs text-gray-500">
+                          {s.code}
+                        </div>
+                      </li>
+                    ))}
+                </ul>
+              )}
+          </div>
           <Input
             label="Amount claimed (INR)"
             value={amount}

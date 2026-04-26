@@ -364,6 +364,15 @@ complaintsRouter.get(
 );
 
 // GET /api/v1/complaints/stats
+//
+// Issue #92 (2026-04-26): "Critical Open" must be ⊆ "Total Open" so the
+// dashboard cannot show 7 critical-open while total-open=5. We define a
+// single base set OPEN = { complaints whose status ∈ (OPEN, UNDER_REVIEW,
+// ESCALATED) }. Both `byStatus.OPEN_TOTAL` (the headline tile) and
+// `criticalOpen` are derived from this same set, plus we expose the
+// individual byStatus.OPEN bucket for any consumer that wants the raw
+// status='OPEN' count. Critical-open uses the same OPEN set filtered by
+// priority so it can never exceed it by construction.
 complaintsRouter.get(
   "/stats",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -375,6 +384,7 @@ complaintsRouter.get(
           priority: true,
           createdAt: true,
           resolvedAt: true,
+          assignedTo: true,
         },
       });
 
@@ -395,8 +405,18 @@ complaintsRouter.get(
       let totalResolutionMs = 0;
       let resolvedCount = 0;
       let overdueCount = 0;
+      let overdueUnassignedCount = 0;
       const now = Date.now();
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+      const overdue200hMs = 200 * 60 * 60 * 1000;
+
+      // Single base set used for both Total Open and Critical Open.
+      const OPEN_STATUSES: ReadonlyArray<string> = [
+        "OPEN",
+        "UNDER_REVIEW",
+        "ESCALATED",
+      ];
+      const openSet = all.filter((c) => OPEN_STATUSES.includes(c.status));
 
       for (const c of all) {
         byStatus[c.status] = (byStatus[c.status] || 0) + 1;
@@ -413,12 +433,24 @@ complaintsRouter.get(
         ) {
           overdueCount++;
         }
+        if (
+          OPEN_STATUSES.includes(c.status) &&
+          !c.assignedTo &&
+          now - new Date(c.createdAt).getTime() > overdue200hMs
+        ) {
+          overdueUnassignedCount++;
+        }
       }
 
       const avgResolutionHours =
         resolvedCount > 0
           ? +(totalResolutionMs / resolvedCount / (60 * 60 * 1000)).toFixed(1)
           : 0;
+
+      // Total Open and Critical Open share the same base set so the
+      // invariant Critical ⊆ Total is impossible to violate.
+      const totalOpen = openSet.length;
+      const criticalOpen = openSet.filter((c) => c.priority === "CRITICAL").length;
 
       res.json({
         success: true,
@@ -428,9 +460,14 @@ complaintsRouter.get(
           byPriority,
           avgResolutionHours,
           overdueCount,
-          criticalOpen: all.filter(
-            (c) => c.priority === "CRITICAL" && c.status !== "RESOLVED" && c.status !== "CLOSED"
-          ).length,
+          // New tile: complaints overdue >200h AND unassigned (drives the
+          // red banner on the dashboard). Frontend shows a banner whenever
+          // this count > 0.
+          overdueUnassignedCount,
+          // totalOpen is the union of OPEN+UNDER_REVIEW+ESCALATED (the
+          // "actionable" backlog). Use this for the Open tile.
+          totalOpen,
+          criticalOpen,
         },
         error: null,
       });

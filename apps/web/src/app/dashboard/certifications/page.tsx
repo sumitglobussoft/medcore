@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { EntityPicker } from "@/components/EntityPicker";
 import { Award, Plus, AlertTriangle, X } from "lucide-react";
 
 interface Cert {
@@ -236,12 +237,20 @@ export default function CertificationsPage() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium">Staff User ID</label>
-                <input
+                <label className="text-sm font-medium">Staff member</label>
+                {/* Issue #84: replace raw "paste a UUID" input with the
+                    shared <EntityPicker>. Endpoint /auth/users accepts
+                    `?search=` and returns `{ id, name, role }`. */}
+                <EntityPicker
+                  endpoint="/chat/users"
+                  labelField="name"
+                  subtitleField="role"
+                  hintField="email"
                   value={form.userId}
-                  onChange={(e) => setForm({ ...form, userId: e.target.value })}
-                  placeholder="user UUID"
-                  className="w-full border rounded px-3 py-2 text-sm"
+                  onChange={(id) => setForm({ ...form, userId: id })}
+                  searchPlaceholder="Search by name, email..."
+                  testIdPrefix="cert-user-picker"
+                  required
                 />
               </div>
               <div>

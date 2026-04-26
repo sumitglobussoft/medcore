@@ -525,13 +525,17 @@ export default function DashboardPage() {
               color="bg-secondary"
               href="/dashboard/patients"
             />
-            <StatCard
-              title={t("dashboard.home.kpi.todayRevenue")}
-              value={money(data.todayRevenue)}
-              icon={TrendingUp}
-              color="bg-emerald-600"
-              href="/dashboard/reports"
-            />
+            {/* Issue #90: "Today's Revenue" KPI is ADMIN-only — RECEPTION
+                must not see financial figures on the home dashboard. */}
+            {isAdmin && (
+              <StatCard
+                title={t("dashboard.home.kpi.todayRevenue")}
+                value={money(data.todayRevenue)}
+                icon={TrendingUp}
+                color="bg-emerald-600"
+                href="/dashboard/reports"
+              />
+            )}
             <StatCard
               title={t("dashboard.home.kpi.bedsOccupied")}
               value={`${fmt(data.bedsOccupied)}/${fmt(data.totalBeds)}`}

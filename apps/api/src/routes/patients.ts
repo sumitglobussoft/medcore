@@ -929,10 +929,15 @@ router.get(
           where: { patientId, paymentStatus: "PAID" },
           _sum: { totalAmount: true },
         }),
+        // Issue #85: previously this only counted chronic conditions with
+        // status ACTIVE/RELAPSED. The Patient 360 "Problem List" card,
+        // backed by GET /ehr/patients/:id/problem-list, treats CONTROLLED
+        // as active too — so the KPI tile read 0 while the card showed 7.
+        // Aligning the include set fixes the mismatch.
         prisma.chronicCondition.count({
           where: {
             patientId,
-            status: { in: ["ACTIVE", "RELAPSED"] },
+            status: { in: ["ACTIVE", "RELAPSED", "CONTROLLED"] },
           },
         }),
         prisma.patientAllergy.count({

@@ -94,7 +94,9 @@ const hasSpeechRecognition =
 // ─── Component ───────────────────────────────────────────
 
 export default function AIBookingPage() {
-  const { token } = useAuthStore();
+  // Issue #84: also pull `user` so the booking-confirmed CTA can show
+  // "Start Consultation" only for staff roles.
+  const { token, user } = useAuthStore();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -451,6 +453,16 @@ export default function AIBookingPage() {
 
   // ── Booking confirmation ──────────────────────────────
   if (step === "done" && bookingDone && bookedAppointment) {
+    // Issue #84: "Start Consultation" used to be a no-op (or the button
+    // didn't exist on this branch). Wire it to /dashboard/queue with the
+    // newly-booked appointment pre-filtered so the doctor can land on it
+    // immediately. Doctors actually call the consultation/start API from
+    // there; the patient-facing flow keeps the "Book another" CTA.
+    const isStaff = ["DOCTOR", "ADMIN", "RECEPTION"].includes(user?.role ?? "");
+    const apptId: string | undefined = bookedAppointment?.id;
+    const queueHref = apptId
+      ? `/dashboard/queue?appointmentId=${encodeURIComponent(apptId)}`
+      : "/dashboard/queue";
     return (
       <div className="min-h-screen bg-green-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
@@ -463,12 +475,23 @@ export default function AIBookingPage() {
             <p className="text-sm text-gray-600"><span className="font-medium">Time:</span> {selectedSlot?.startTime}</p>
             <p className="text-sm text-gray-600"><span className="font-medium">Token:</span> #{bookedAppointment.tokenNumber}</p>
           </div>
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-2 mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-          >
-            <RefreshCw className="w-4 h-4" /> Book another
-          </button>
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">
+            {isStaff && (
+              <a
+                href={queueHref}
+                data-testid="ai-booking-start-consultation"
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              >
+                <Stethoscope className="w-4 h-4" /> Start Consultation
+              </a>
+            )}
+            <button
+              onClick={handleReset}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            >
+              <RefreshCw className="w-4 h-4" /> Book another
+            </button>
+          </div>
         </div>
       </div>
     );

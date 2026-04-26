@@ -12,7 +12,9 @@ export interface EditablePatient {
   id: string;
   mrNumber: string;
   gender: string | null;
-  dateOfBirth?: string | null;
+  // Accept Date too — the merged-after-save payload sometimes lands as a
+  // Date instance, see isoDateInput() comment for the full story.
+  dateOfBirth?: string | Date | null;
   bloodGroup: string | null;
   address: string | null;
   emergencyContactName?: string | null;
@@ -38,10 +40,32 @@ const BLOOD_GROUPS = [
   "O-",
 ] as const;
 
-function isoDateInput(v: string | null | undefined): string {
+/**
+ * Coerce whatever `dateOfBirth` shape we got (string from JSON, Date object
+ * from a stale cache, or null) into the `YYYY-MM-DD` string the
+ * `<input type="date">` element requires.
+ *
+ * Issue #85: the original implementation only handled strings — when the
+ * parent merged the patched record back into local state the field could
+ * arrive as a Date instance (or a full ISO timestamp like
+ * `2024-05-12T00:00:00.000Z` whose `.toISOString()` would then be passed
+ * verbatim, and `<input type="date" value="2024-05-12T00:00:00.000Z">` is
+ * silently rejected by the browser, blanking the field). We now normalise
+ * via UTC date-parts to dodge IST-vs-UTC midnight slippage and accept
+ * both shapes.
+ */
+function isoDateInput(v: string | Date | null | undefined): string {
   if (!v) return "";
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return "";
+    const y = v.getUTCFullYear();
+    const m = String(v.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(v.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(v);
   // Accept either a full ISO timestamp or a YYYY-MM-DD string.
-  const trimmed = v.length >= 10 ? v.slice(0, 10) : v;
+  const trimmed = s.length >= 10 ? s.slice(0, 10) : s;
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : "";
 }
 

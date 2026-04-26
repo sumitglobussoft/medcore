@@ -35,21 +35,87 @@ export const mergePatientSchema = z.object({
   otherPatientId: z.string().uuid(),
 });
 
-export const recordVitalsSchema = z.object({
-  appointmentId: z.string().uuid(),
-  patientId: z.string().uuid(),
-  bloodPressureSystolic: z.number().int().min(50).max(300).optional(),
-  bloodPressureDiastolic: z.number().int().min(30).max(200).optional(),
-  temperature: z.number().min(0).max(120).optional(),
-  temperatureUnit: z.enum(["F", "C"]).optional(),
-  weight: z.number().min(0.5).max(500).optional(),
-  height: z.number().min(20).max(300).optional(),
-  pulseRate: z.number().int().min(20).max(300).optional(),
-  spO2: z.number().int().min(0).max(100).optional(),
-  respiratoryRate: z.number().int().min(5).max(80).optional(),
-  painScale: z.number().int().min(0).max(10).optional(),
-  notes: z.string().optional(),
-});
+// Clinically-sensible vital sign ranges — adult inpatient bounds.
+// Anything outside these ranges is rejected as data-entry error.
+// Issue #91 (Apr 2026): reject impossible values like -50 systolic, 999°F, 500 bpm.
+export const VITALS_RANGES = {
+  bloodPressureSystolic: { min: 60, max: 260 },
+  bloodPressureDiastolic: { min: 30, max: 180 },
+  temperatureF: { min: 90, max: 110 },
+  temperatureC: { min: 32, max: 43 },
+  pulseRate: { min: 30, max: 220 },
+  spO2: { min: 50, max: 100 },
+  weight: { min: 0.5, max: 300 },
+  height: { min: 20, max: 250 },
+  respiratoryRate: { min: 5, max: 80 },
+  painScale: { min: 0, max: 10 },
+} as const;
+
+export const recordVitalsSchema = z
+  .object({
+    appointmentId: z.string().uuid(),
+    patientId: z.string().uuid(),
+    bloodPressureSystolic: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 60 mmHg")
+      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 260 mmHg")
+      .optional(),
+    bloodPressureDiastolic: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 30 mmHg")
+      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 180 mmHg")
+      .optional(),
+    // Temperature bounds depend on the unit. We use a permissive numeric range
+    // here and validate the unit-specific bounds in the .superRefine() below
+    // so the user gets a clear "out of range for °F/°C" message.
+    temperature: z.number().optional(),
+    temperatureUnit: z.enum(["F", "C"]).optional(),
+    weight: z
+      .number()
+      .min(VITALS_RANGES.weight.min, "Weight must be at least 0.5 kg")
+      .max(VITALS_RANGES.weight.max, "Weight must be at most 300 kg")
+      .optional(),
+    height: z
+      .number()
+      .min(VITALS_RANGES.height.min, "Height must be at least 20 cm")
+      .max(VITALS_RANGES.height.max, "Height must be at most 250 cm")
+      .optional(),
+    pulseRate: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.pulseRate.min, "Pulse must be at least 30 bpm")
+      .max(VITALS_RANGES.pulseRate.max, "Pulse must be at most 220 bpm")
+      .optional(),
+    spO2: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.spO2.min, "SpO2 must be at least 50%")
+      .max(VITALS_RANGES.spO2.max, "SpO2 must be at most 100%")
+      .optional(),
+    respiratoryRate: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.respiratoryRate.min, "Respiratory rate must be at least 5/min")
+      .max(VITALS_RANGES.respiratoryRate.max, "Respiratory rate must be at most 80/min")
+      .optional(),
+    painScale: z.number().int().min(0).max(10).optional(),
+    notes: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.temperature === undefined) return;
+    const unit = data.temperatureUnit ?? "F";
+    const range =
+      unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
+    if (data.temperature < range.min || data.temperature > range.max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["temperature"],
+        message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+      });
+    }
+  });
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;
 export type UpdatePatientInput = z.infer<typeof updatePatientSchema>;

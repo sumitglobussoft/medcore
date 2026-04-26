@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Scissors } from "lucide-react";
@@ -40,11 +41,39 @@ interface Surgery {
   durationMin?: number | null;
   actualStartAt?: string | null;
   actualEndAt?: string | null;
-  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "POSTPONED";
+  status:
+    | "SCHEDULED"
+    | "IN_PROGRESS"
+    | "COMPLETED"
+    | "CANCELLED"
+    | "POSTPONED"
+    | "MISSED_SCHEDULE";
   cost?: number | null;
   patient: { id: string; mrNumber?: string; user: { name: string; phone?: string } };
   surgeon: { id: string; user: { name: string } };
   ot: { id: string; name: string };
+}
+
+// Issue #86: surface a surgery start failure with the underlying reason.
+// The API may return either a flat `error` string ("Pre-op checklist
+// incomplete") or zod-style `details: [{field, message}]` (past-dated
+// scheduledAt). Either way we want the user to see *what* went wrong.
+function startErrorMessage(err: unknown): string {
+  const fields = extractFieldErrors(err);
+  if (fields) {
+    const first = Object.values(fields)[0];
+    if (first) return first;
+  }
+  if (err && typeof err === "object") {
+    const payload = (err as { payload?: unknown }).payload as
+      | { missing?: string[]; error?: string }
+      | undefined;
+    if (payload?.missing && Array.isArray(payload.missing) && payload.missing.length > 0) {
+      return `Pre-op checklist incomplete: ${payload.missing.join(", ")}`;
+    }
+    if (payload?.error) return payload.error;
+  }
+  return err instanceof Error ? err.message : "Start failed";
 }
 
 type Tab = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
@@ -55,7 +84,22 @@ const STATUS_COLORS: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-700",
   CANCELLED: "bg-red-100 text-red-700",
   POSTPONED: "bg-gray-100 text-gray-700",
+  MISSED_SCHEDULE: "bg-orange-100 text-orange-700",
 };
+
+// Issue #86: a SCHEDULED surgery whose scheduledAt is in the past should be
+// shown to the user as MISSED_SCHEDULE. We do NOT mutate the database from a
+// read; the canonical state remains SCHEDULED so a doctor can still Start it
+// (back-dated start is a real operational case for emergencies). This is a
+// view-time tag only.
+const STALE_GRACE_MIN = 30;
+function effectiveStatus(s: Pick<Surgery, "status" | "scheduledAt">): Surgery["status"] {
+  if (s.status !== "SCHEDULED") return s.status;
+  const scheduled = new Date(s.scheduledAt).getTime();
+  if (Number.isNaN(scheduled)) return s.status;
+  if (Date.now() - scheduled > STALE_GRACE_MIN * 60 * 1000) return "MISSED_SCHEDULE";
+  return s.status;
+}
 
 export default function SurgeryPage() {
   const { user } = useAuthStore();
@@ -84,6 +128,11 @@ export default function SurgeryPage() {
     diagnosis: "",
     cost: "",
   });
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  // Issue #86: client-side parity with the schedule schema's past-date guard.
+  // datetime-local doesn't accept seconds, so we round to the next minute.
+  const minScheduledAt = new Date(Date.now()).toISOString().slice(0, 16);
 
   const canSchedule = user?.role === "DOCTOR" || user?.role === "ADMIN";
 
@@ -137,12 +186,20 @@ export default function SurgeryPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setScheduleError(null);
     if (!selectedPatient) {
       toast.error("Select a patient");
       return;
     }
     if (!form.scheduledAt) {
       toast.error("Select scheduled date/time");
+      return;
+    }
+    // Issue #86: block past-dated submissions before they hit the API.
+    const scheduledMs = new Date(form.scheduledAt).getTime();
+    if (Number.isFinite(scheduledMs) && scheduledMs < Date.now() - 5 * 60 * 1000) {
+      setScheduleError("Scheduled date/time cannot be in the past");
+      toast.error("Scheduled date/time cannot be in the past");
       return;
     }
     try {
@@ -176,7 +233,14 @@ export default function SurgeryPage() {
       });
       loadSurgeries();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Scheduling failed");
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        const msg = Object.values(fields)[0] || "Scheduling failed";
+        setScheduleError(msg);
+        toast.error(msg);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Scheduling failed");
+      }
     }
   }
 
@@ -185,7 +249,9 @@ export default function SurgeryPage() {
       await api.patch(`/surgery/${id}/start`, {});
       loadSurgeries();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Start failed");
+      // Issue #86: previously this lost detail when the API returned
+      // missing-checklist items or zod validation, so the user saw nothing.
+      toast.error(startErrorMessage(err));
     }
   }
 
@@ -288,66 +354,71 @@ export default function SurgeryPage() {
               </tr>
             </thead>
             <tbody>
-              {surgeries.map((s) => (
-                <tr key={s.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">
-                    <Link
-                      href={`/dashboard/surgery/${s.id}`}
-                      className="text-primary hover:underline"
-                    >
-                      {s.caseNumber}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{s.patient.user.name}</p>
-                    <p className="text-xs text-gray-500">{s.patient.mrNumber}</p>
-                  </td>
-                  <td className="px-4 py-3 text-sm">{s.surgeon.user.name}</td>
-                  <td className="px-4 py-3 text-sm">{s.ot.name}</td>
-                  <td className="px-4 py-3 text-sm">{s.procedure}</td>
-                  <td className="px-4 py-3 text-sm">
-                    {new Date(s.scheduledAt).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {s.durationMin ? `${s.durationMin} min` : "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[s.status]}`}
-                    >
-                      {s.status.replace("_", " ")}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      {s.status === "SCHEDULED" && canSchedule && (
-                        <>
+              {surgeries.map((s) => {
+                const effective = effectiveStatus(s);
+                return (
+                  <tr key={s.id} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/dashboard/surgery/${s.id}`}
+                        className="text-primary hover:underline"
+                      >
+                        {s.caseNumber}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{s.patient.user.name}</p>
+                      <p className="text-xs text-gray-500">{s.patient.mrNumber}</p>
+                    </td>
+                    <td className="px-4 py-3 text-sm">{s.surgeon.user.name}</td>
+                    <td className="px-4 py-3 text-sm">{s.ot.name}</td>
+                    <td className="px-4 py-3 text-sm">{s.procedure}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {new Date(s.scheduledAt).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {s.durationMin ? `${s.durationMin} min` : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        data-testid={`surgery-status-${s.id}`}
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[effective] || STATUS_COLORS[s.status]}`}
+                      >
+                        {effective.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        {s.status === "SCHEDULED" && canSchedule && (
+                          <>
+                            <button
+                              onClick={() => startSurgery(s.id)}
+                              data-testid={`start-surgery-${s.id}`}
+                              className="rounded bg-yellow-500 px-2 py-1 text-xs text-white hover:bg-yellow-600"
+                            >
+                              Start
+                            </button>
+                            <button
+                              onClick={() => cancelSurgery(s.id)}
+                              className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                        {s.status === "IN_PROGRESS" && canSchedule && (
                           <button
-                            onClick={() => startSurgery(s.id)}
-                            className="rounded bg-yellow-500 px-2 py-1 text-xs text-white hover:bg-yellow-600"
+                            onClick={() => completeSurgery(s.id)}
+                            className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
                           >
-                            Start
+                            Complete
                           </button>
-                          <button
-                            onClick={() => cancelSurgery(s.id)}
-                            className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      )}
-                      {s.status === "IN_PROGRESS" && canSchedule && (
-                        <button
-                          onClick={() => completeSurgery(s.id)}
-                          className="rounded bg-green-500 px-2 py-1 text-xs text-white hover:bg-green-600"
-                        >
-                          Complete
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -465,13 +536,27 @@ export default function SurgeryPage() {
                 <label className="mb-1 block text-sm font-medium">Scheduled At</label>
                 <input
                   type="datetime-local"
+                  data-testid="schedule-surgery-at"
+                  aria-invalid={!!scheduleError}
+                  min={minScheduledAt}
                   value={form.scheduledAt}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, scheduledAt: e.target.value }))
-                  }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, scheduledAt: e.target.value }));
+                    if (scheduleError) setScheduleError(null);
+                  }}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    scheduleError ? "border-red-500 bg-red-50" : ""
+                  }`}
                   required
                 />
+                {scheduleError && (
+                  <p
+                    data-testid="error-scheduled-at"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {scheduleError}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">

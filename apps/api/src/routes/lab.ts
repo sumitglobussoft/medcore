@@ -104,8 +104,11 @@ router.patch(
 // ───────────────────────────────────────────────────────
 
 // GET /api/v1/lab/orders?patientId=&status=
+// RBAC (issue #90): RECEPTION must NOT see lab orders / clinical data.
+// PATIENT path enforced inline below.
 router.get(
   "/orders",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -166,8 +169,10 @@ router.get(
 );
 
 // GET /api/v1/lab/orders/:id — full detail
+// RBAC (issue #90): RECEPTION excluded.
 router.get(
   "/orders/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const order = await prisma.labOrder.findUnique({
@@ -500,8 +505,10 @@ router.post(
 );
 
 // GET /api/v1/lab/results/:orderItemId
+// RBAC (issue #90): RECEPTION excluded — clinical lab results.
 router.get(
   "/results/:orderItemId",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const results = await prisma.labResult.findMany({
@@ -858,8 +865,10 @@ router.get(
 // RESULT TRENDS
 // ───────────────────────────────────────────────────────
 
+// RBAC (issue #90): RECEPTION excluded — clinical lab trends.
 router.get(
   "/results/trends",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId, testId, parameter } = req.query as Record<
@@ -908,8 +917,10 @@ router.get(
 // LAB REPORT PAYLOAD (client generates PDF)
 // ───────────────────────────────────────────────────────
 
+// RBAC (issue #90): RECEPTION excluded — clinical lab report payload.
 router.get(
   "/orders/:id/report",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const order = await prisma.labOrder.findUnique({
@@ -980,8 +991,10 @@ router.get(
 // DELTA CHECK
 // GET /api/v1/lab/results/:orderItemId/delta-check
 // ───────────────────────────────────────────────────────
+// RBAC (issue #90): RECEPTION excluded — clinical delta-check exposes values.
 router.get(
   "/results/:orderItemId/delta-check",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const orderItem = await prisma.labOrderItem.findUnique({
@@ -1081,8 +1094,10 @@ router.patch(
   }
 );
 
+// RBAC (issue #90): RECEPTION excluded — pending lab results worklist.
 router.get(
   "/results/pending-verification",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.LAB_TECH),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const results = await prisma.labResult.findMany({
@@ -1334,8 +1349,10 @@ router.get(
 );
 
 // GET /api/v1/lab/orders/:id/pdf
+// RBAC (issue #90): RECEPTION excluded — lab report PDF.
 router.get(
   "/orders/:id/pdf",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.LAB_TECH, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const html = await generateLabReportHTML(req.params.id);

@@ -239,7 +239,9 @@ router.post(
 );
 
 // GET /api/v1/prescriptions — list prescriptions
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// RBAC (issue #90): RECEPTION must NOT see prescriptions / clinical
+// diagnoses. PATIENT path is enforced inline below.
+router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId, doctorId, page = "1", limit = "20" } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
@@ -294,8 +296,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/prescriptions/:id
+// RBAC (issue #90): RECEPTION excluded — clinical prescription detail.
 router.get(
   "/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const prescription = await prisma.prescription.findUnique({
@@ -331,8 +335,10 @@ router.get(
 );
 
 // GET /api/v1/prescriptions/:id/pdf — render prescription as printable HTML
+// RBAC (issue #90): RECEPTION excluded.
 router.get(
   "/:id/pdf",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // ?format=pdf -> real server-rendered PDF buffer (application/pdf).
@@ -367,9 +373,10 @@ router.get(
 );
 
 // POST /api/v1/prescriptions/:id/print — mark as printed
+// RBAC (issue #90): RECEPTION removed (was DOCTOR/ADMIN/RECEPTION).
 router.post(
   "/:id/print",
-  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  authorize(Role.DOCTOR, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const updated = await prisma.prescription.update({
@@ -387,9 +394,10 @@ router.post(
 );
 
 // POST /api/v1/prescriptions/:id/share — record sharing via WhatsApp/Email/SMS
+// RBAC (issue #90): RECEPTION removed.
 router.post(
   "/:id/share",
-  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION),
+  authorize(Role.DOCTOR, Role.ADMIN),
   validate(sharePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -628,8 +636,10 @@ router.delete(
 );
 
 // GET /api/v1/prescriptions/:id/leaflets — leaflets for all medicines in prescription
+// RBAC (issue #90): RECEPTION excluded — leaflet payload exposes diagnosis.
 router.get(
   "/:id/leaflets",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rx = await prisma.prescription.findUnique({

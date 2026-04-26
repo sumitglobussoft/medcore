@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+
+// Issue #89: DOCTOR must NOT manipulate ambulance trips. Restricted to
+// operational/dispatch roles. NURSE included since on-call nurses dispatch.
+const AMBULANCE_ALLOWED = new Set(["ADMIN", "RECEPTION", "NURSE"]);
 import {
   Ambulance as AmbulanceIcon,
   Plus,
@@ -14,6 +19,33 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
+
+// Issue #87 — client-side mirror of the server zod constraints in
+// packages/shared/src/validation/phase4-ops.ts. Keeping these aligned with
+// the schema is enforced by the integration tests; if the regex drifts we
+// want the form to fail in the same way the API does.
+const PHONE_RE = /^[+\d][\d\s().+-]{7,19}$/;
+function isValidPhone(v: string): boolean {
+  if (!v) return true; // optional fields treat empty as undefined
+  if (!PHONE_RE.test(v)) return false;
+  return v.replace(/\D/g, "").length >= 7;
+}
+
+/**
+ * Pull `details: [{field, message}]` out of an api error payload (Express
+ * errorHandler shape) and project onto a flat `{ field: message }` map for
+ * inline rendering. Falls back to a generic toast when the payload is
+ * unstructured.
+ */
+function extractFieldErrors(err: unknown): Record<string, string> {
+  const payload = (err as { payload?: { details?: Array<{ field: string; message: string }> } })?.payload;
+  if (!payload?.details || !Array.isArray(payload.details)) return {};
+  const map: Record<string, string> = {};
+  for (const d of payload.details) {
+    if (d?.field) map[d.field] = d.message;
+  }
+  return map;
+}
 
 interface Ambulance {
   id: string;
@@ -70,7 +102,8 @@ const TRIP_STAGES = [
 type Tab = "active" | "all";
 
 export default function AmbulancePage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("active");
   const [ambulances, setAmbulances] = useState<Ambulance[]>([]);
@@ -80,12 +113,20 @@ export default function AmbulancePage() {
   const [showDispatch, setShowDispatch] = useState(false);
   const [completing, setCompleting] = useState<Trip | null>(null);
 
+  // Issue #89: DOCTOR must not be able to manipulate trips by direct URL.
+  useEffect(() => {
+    if (!isLoading && user && !AMBULANCE_ALLOWED.has(user.role)) {
+      toast.error("Ambulance dispatch is restricted to Admin, Reception, and Nurse.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
+
   const canManage = user?.role === "ADMIN";
+  // Issue #89: DOCTOR removed from canDispatch (was a footgun).
   const canDispatch =
     user?.role === "ADMIN" ||
     user?.role === "NURSE" ||
-    user?.role === "RECEPTION" ||
-    user?.role === "DOCTOR";
+    user?.role === "RECEPTION";
 
   async function load() {
     setLoading(true);
@@ -110,9 +151,19 @@ export default function AmbulancePage() {
   async function tripAction(trip: Trip, action: string, body?: unknown) {
     try {
       await api.patch(`/ambulance/trips/${trip.id}/${action}`, body);
-      load();
+      // Issue #87: every trip transition can change fleet status — refetch
+      // both lists so the fleet card reflects ON_TRIP / AVAILABLE live.
+      await load();
+      return true;
     } catch (err) {
-      toast.error((err as Error).message);
+      // Show the first field-level message if the server returned one,
+      // otherwise the generic error.
+      const fieldErrs = extractFieldErrors(err);
+      const firstField = Object.keys(fieldErrs)[0];
+      toast.error(
+        firstField ? `${firstField}: ${fieldErrs[firstField]}` : (err as Error).message
+      );
+      return false;
     }
   }
 
@@ -400,8 +451,9 @@ export default function AmbulancePage() {
           trip={completing}
           onClose={() => setCompleting(null)}
           onSaved={async (data) => {
-            await tripAction(completing, "complete", data);
-            setCompleting(null);
+            const ok = await tripAction(completing, "complete", data);
+            if (ok) setCompleting(null);
+            return ok;
           }}
         />
       )}
@@ -426,8 +478,24 @@ function AddAmbulanceModal({
     paramedicName: "",
   });
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function validateLocal(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!form.vehicleNumber.trim()) e.vehicleNumber = "Vehicle number is required";
+    if (form.driverPhone && !isValidPhone(form.driverPhone)) {
+      e.driverPhone = "Enter a valid phone number";
+    }
+    return e;
+  }
 
   async function save() {
+    const localErrs = validateLocal();
+    if (Object.keys(localErrs).length > 0) {
+      setErrors(localErrs);
+      return;
+    }
+    setErrors({});
     setSaving(true);
     try {
       await api.post("/ambulance", {
@@ -441,7 +509,12 @@ function AddAmbulanceModal({
       });
       onSaved();
     } catch (err) {
-      toast.error((err as Error).message);
+      const fieldErrs = extractFieldErrors(err);
+      if (Object.keys(fieldErrs).length > 0) {
+        setErrors(fieldErrs);
+      } else {
+        toast.error((err as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -498,7 +571,24 @@ function AddAmbulanceModal({
             className="w-full rounded border p-2"
             value={form.driverPhone}
             onChange={(e) => setForm({ ...form, driverPhone: e.target.value })}
+            data-testid="ambulance-driverPhone"
           />
+          {errors.driverPhone && (
+            <p
+              data-testid="error-driverPhone"
+              className="text-xs text-red-600"
+            >
+              {errors.driverPhone}
+            </p>
+          )}
+          {errors.vehicleNumber && (
+            <p
+              data-testid="error-vehicleNumber"
+              className="text-xs text-red-600"
+            >
+              {errors.vehicleNumber}
+            </p>
+          )}
           <input
             placeholder="Paramedic name"
             className="w-full rounded border p-2"
@@ -546,6 +636,7 @@ function DispatchModal({
   const [patientSearch, setPatientSearch] = useState("");
   const [patients, setPatients] = useState<Patient[]>([]);
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   async function searchPatients() {
     try {
@@ -558,11 +649,23 @@ function DispatchModal({
     }
   }
 
+  function validateLocal(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!form.ambulanceId) e.ambulanceId = "Select an ambulance";
+    if (!form.pickupAddress.trim()) e.pickupAddress = "Pickup address is required";
+    if (form.callerPhone && !isValidPhone(form.callerPhone)) {
+      e.callerPhone = "Enter a valid phone number";
+    }
+    return e;
+  }
+
   async function save() {
-    if (!form.ambulanceId) {
-      toast.error("Select an ambulance");
+    const localErrs = validateLocal();
+    if (Object.keys(localErrs).length > 0) {
+      setErrors(localErrs);
       return;
     }
+    setErrors({});
     setSaving(true);
     try {
       await api.post("/ambulance/trips", {
@@ -576,7 +679,12 @@ function DispatchModal({
       });
       onSaved();
     } catch (err) {
-      toast.error((err as Error).message);
+      const fieldErrs = extractFieldErrors(err);
+      if (Object.keys(fieldErrs).length > 0) {
+        setErrors(fieldErrs);
+      } else {
+        toast.error((err as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -647,8 +755,17 @@ function DispatchModal({
               onChange={(e) =>
                 setForm({ ...form, callerPhone: e.target.value })
               }
+              data-testid="trip-callerPhone"
             />
           </div>
+          {errors.callerPhone && (
+            <p
+              data-testid="error-callerPhone"
+              className="text-xs text-red-600"
+            >
+              {errors.callerPhone}
+            </p>
+          )}
           <input
             placeholder="Pickup address"
             className="w-full rounded border p-2"
@@ -656,7 +773,16 @@ function DispatchModal({
             onChange={(e) =>
               setForm({ ...form, pickupAddress: e.target.value })
             }
+            data-testid="trip-pickupAddress"
           />
+          {errors.pickupAddress && (
+            <p
+              data-testid="error-pickupAddress"
+              className="text-xs text-red-600"
+            >
+              {errors.pickupAddress}
+            </p>
+          )}
           <input
             placeholder="Drop address (optional)"
             className="w-full rounded border p-2"
@@ -697,11 +823,82 @@ function CompleteTripModal({
 }: {
   trip: Trip;
   onClose: () => void;
-  onSaved: (data: { distanceKm?: number; cost?: number; notes?: string }) => void;
+  onSaved: (data: {
+    actualEndTime: string;
+    finalDistance: number;
+    finalCost: number;
+    notes: string;
+  }) => Promise<boolean | void>;
 }) {
-  const [distanceKm, setDistanceKm] = useState("");
-  const [cost, setCost] = useState("");
+  // Default the end-time to now so the form is filled-in by default but the
+  // user can override; we still send it as ISO to the API.
+  const [actualEndTime, setActualEndTime] = useState(() => {
+    const d = new Date();
+    // datetime-local needs YYYY-MM-DDTHH:mm in local time, no seconds.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+  const [finalDistance, setFinalDistance] = useState("");
+  const [finalCost, setFinalCost] = useState("");
   const [notes, setNotes] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  function validateLocal(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!actualEndTime) e.actualEndTime = "actualEndTime is required";
+    const dist = Number(finalDistance);
+    if (!finalDistance) {
+      e.finalDistance = "finalDistance is required";
+    } else if (Number.isNaN(dist)) {
+      e.finalDistance = "finalDistance must be a number";
+    } else if (dist <= 0) {
+      e.finalDistance = "finalDistance must be greater than 0";
+    }
+    const c = Number(finalCost);
+    if (finalCost === "") {
+      e.finalCost = "finalCost is required";
+    } else if (Number.isNaN(c)) {
+      e.finalCost = "finalCost must be a number";
+    } else if (c < 0) {
+      e.finalCost = "finalCost cannot be negative";
+    }
+    if (!notes.trim()) e.notes = "notes is required";
+    return e;
+  }
+
+  async function submit() {
+    const localErrs = validateLocal();
+    if (Object.keys(localErrs).length > 0) {
+      setErrors(localErrs);
+      return;
+    }
+    setErrors({});
+    setSaving(true);
+    try {
+      // datetime-local gives us a local-time string with no zone — let the
+      // browser convert to UTC ISO so the API receives a valid Date.parse-able
+      // value.
+      const iso = new Date(actualEndTime).toISOString();
+      const ok = await onSaved({
+        actualEndTime: iso,
+        finalDistance: Number(finalDistance),
+        finalCost: Number(finalCost),
+        notes: notes.trim(),
+      });
+      // If the submit failed at the API layer, parent surfaced the toast;
+      // we leave the modal open so the user can retry.
+      if (ok === false) setSaving(false);
+    } catch (err) {
+      const fieldErrs = extractFieldErrors(err);
+      if (Object.keys(fieldErrs).length > 0) {
+        setErrors(fieldErrs);
+      } else {
+        toast.error((err as Error).message);
+      }
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -711,43 +908,76 @@ function CompleteTripModal({
           <button onClick={onClose} className="text-gray-400">✕</button>
         </div>
         <div className="space-y-3">
+          <label className="block text-xs text-gray-600">
+            Actual end time
+            <input
+              type="datetime-local"
+              className="mt-1 w-full rounded border p-2"
+              value={actualEndTime}
+              onChange={(e) => setActualEndTime(e.target.value)}
+              data-testid="complete-actualEndTime"
+            />
+          </label>
+          {errors.actualEndTime && (
+            <p data-testid="error-actualEndTime" className="text-xs text-red-600">
+              {errors.actualEndTime}
+            </p>
+          )}
           <input
             type="number"
-            placeholder="Distance (km)"
+            min={0}
+            step="0.1"
+            placeholder="Final distance (km)"
             className="w-full rounded border p-2"
-            value={distanceKm}
-            onChange={(e) => setDistanceKm(e.target.value)}
+            value={finalDistance}
+            onChange={(e) => setFinalDistance(e.target.value)}
+            data-testid="complete-finalDistance"
           />
+          {errors.finalDistance && (
+            <p data-testid="error-finalDistance" className="text-xs text-red-600">
+              {errors.finalDistance}
+            </p>
+          )}
           <input
             type="number"
-            placeholder="Cost (₹)"
+            min={0}
+            step="0.01"
+            placeholder="Final cost (₹)"
             className="w-full rounded border p-2"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
+            value={finalCost}
+            onChange={(e) => setFinalCost(e.target.value)}
+            data-testid="complete-finalCost"
           />
+          {errors.finalCost && (
+            <p data-testid="error-finalCost" className="text-xs text-red-600">
+              {errors.finalCost}
+            </p>
+          )}
           <textarea
             placeholder="Notes"
             className="w-full rounded border p-2"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            data-testid="complete-notes"
           />
+          {errors.notes && (
+            <p data-testid="error-notes" className="text-xs text-red-600">
+              {errors.notes}
+            </p>
+          )}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded border px-4 py-2 text-sm">
             Cancel
           </button>
           <button
-            onClick={() =>
-              onSaved({
-                distanceKm: distanceKm ? Number(distanceKm) : undefined,
-                cost: cost ? Number(cost) : undefined,
-                notes: notes || undefined,
-              })
-            }
-            className="rounded bg-green-600 px-4 py-2 text-sm text-white"
+            onClick={submit}
+            disabled={saving}
+            data-testid="complete-submit"
+            className="rounded bg-green-600 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
-            Complete
+            {saving ? "Completing..." : "Complete"}
           </button>
         </div>
       </div>

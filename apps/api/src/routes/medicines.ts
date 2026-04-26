@@ -178,6 +178,55 @@ router.patch(
   }
 );
 
+// DELETE /api/v1/medicines/:id — delete medicine (Issue #85).
+// Only ADMIN may delete from the catalog; FK-protected so any prescription
+// rows still pointing at this row will surface as a 409 from Prisma which we
+// translate to a clean message.
+router.delete(
+  "/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const medicine = await prisma.medicine.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, name: true },
+      });
+      if (!medicine) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Medicine not found" });
+        return;
+      }
+
+      try {
+        await prisma.medicine.delete({ where: { id: req.params.id } });
+      } catch (err: unknown) {
+        const code = (err as { code?: string }).code;
+        if (code === "P2003") {
+          // FK violation — medicine is in use somewhere (prescriptions,
+          // pharmacy stock, …). Tell the caller in plain English.
+          res.status(409).json({
+            success: false,
+            data: null,
+            error:
+              "Cannot delete: medicine is referenced by prescriptions or stock records.",
+          });
+          return;
+        }
+        throw err;
+      }
+
+      auditLog(req, "MEDICINE_DELETE", "medicine", medicine.id, {
+        name: medicine.name,
+      }).catch(console.error);
+
+      res.json({ success: true, data: { id: medicine.id }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // POST /api/v1/medicines/interactions — add drug interaction
 router.post(
   "/interactions",

@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
-import { Droplet, Plus, Search, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Droplet,
+  Plus,
+  Search,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
+import {
+  isAboCompatible,
+  aboMismatchReason,
+  prettyBloodGroup as sharedPrettyGroup,
+} from "@medcore/shared";
 
 const BLOOD_GROUPS = [
   "A_POS",
@@ -173,15 +185,50 @@ export default function BloodBankPage() {
     }
   }
 
+  // Issue #93 (2026-04-26): operator-supplied clinical reason for an ABO
+  // mismatch override. Required (≥10 chars) when at least one selected
+  // unit is incompatible with the recipient.
+  const [aboOverrideReason, setAboOverrideReason] = useState("");
+
+  // Reset the reason whenever the match modal closes/reopens.
+  useEffect(() => {
+    if (!matchingRequest) setAboOverrideReason("");
+  }, [matchingRequest]);
+
+  // Mismatched unit numbers among the currently selected units (for the
+  // yellow warning banner inside the match modal).
+  const selectedMismatches = useMemo(() => {
+    if (!matchingRequest) return [] as Array<{ unitNumber: string; bloodGroup: string }>;
+    const recipient = matchingRequest.bloodGroup;
+    return matchUnits
+      .filter((u) => selectedMatchIds.has(u.id))
+      .filter((u) => !isAboCompatible(u.bloodGroup, recipient, "RBC"))
+      .map((u) => ({ unitNumber: u.unitNumber, bloodGroup: u.bloodGroup }));
+  }, [matchingRequest, matchUnits, selectedMatchIds]);
+
   async function issueUnits() {
     if (!matchingRequest) return;
+    const needsOverride = selectedMismatches.length > 0;
+    if (needsOverride && aboOverrideReason.trim().length < 10) {
+      toast.error(
+        "ABO mismatch detected — provide a clinical reason (≥10 characters) to override."
+      );
+      return;
+    }
     try {
       await api.post(`/bloodbank/requests/${matchingRequest.id}/issue`, {
         unitIds: Array.from(selectedMatchIds),
+        ...(needsOverride
+          ? {
+              overrideAboMismatch: true,
+              clinicalReason: aboOverrideReason.trim(),
+            }
+          : {}),
       });
       setMatchingRequest(null);
       setMatchUnits([]);
       setSelectedMatchIds(new Set());
+      setAboOverrideReason("");
       load();
     } catch (err) {
       toast.error((err as Error).message);
@@ -660,10 +707,18 @@ export default function BloodBankPage() {
               )}
               {matchUnits.map((u) => {
                 const checked = selectedMatchIds.has(u.id);
+                const incompatible = !isAboCompatible(
+                  u.bloodGroup,
+                  matchingRequest.bloodGroup,
+                  "RBC"
+                );
                 return (
                   <label
                     key={u.id}
-                    className="flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50"
+                    data-testid={`abo-unit-${u.unitNumber}`}
+                    className={`flex cursor-pointer items-center gap-3 rounded border p-3 hover:bg-gray-50 ${
+                      incompatible ? "border-yellow-400 bg-yellow-50" : ""
+                    }`}
                   >
                     <input
                       type="checkbox"
@@ -678,15 +733,58 @@ export default function BloodBankPage() {
                     <div className="flex-1">
                       <div className="font-mono text-xs">{u.unitNumber}</div>
                       <div className="text-xs text-gray-500">
-                        {prettyGroup(u.bloodGroup)} • {prettyComponent(u.component)} •{" "}
-                        {u.volumeMl}ml • exp{" "}
+                        {prettyGroup(u.bloodGroup)} •{" "}
+                        {prettyComponent(u.component)} • {u.volumeMl}ml • exp{" "}
                         {new Date(u.expiresAt).toLocaleDateString()}
                       </div>
+                      {incompatible && (
+                        <div className="mt-1 inline-flex items-center gap-1 rounded bg-yellow-100 px-2 py-0.5 text-[11px] font-semibold text-yellow-800">
+                          <AlertTriangle size={12} /> ABO mismatch with{" "}
+                          {sharedPrettyGroup(matchingRequest.bloodGroup)}
+                        </div>
+                      )}
                     </div>
                   </label>
                 );
               })}
             </div>
+
+            {/* Issue #93 (2026-04-26): yellow banner appears once at least
+                one selected unit is incompatible. The clinical-reason
+                input is REQUIRED before Issue can be clicked. */}
+            {selectedMismatches.length > 0 && (
+              <div
+                data-testid="abo-mismatch-warning"
+                className="mt-4 rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-900"
+              >
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle size={16} />
+                  ABO mismatch on {selectedMismatches.length} unit
+                  {selectedMismatches.length === 1 ? "" : "s"}
+                </div>
+                <p className="mt-1 text-xs">
+                  {aboMismatchReason(
+                    selectedMismatches[0].bloodGroup,
+                    matchingRequest.bloodGroup,
+                    "RBC"
+                  )}
+                  . Issuing requires a documented clinical reason for the
+                  override (audited).
+                </p>
+                <label className="mt-2 block text-xs font-medium text-yellow-900">
+                  Clinical reason (required, ≥10 chars)
+                </label>
+                <textarea
+                  data-testid="abo-override-reason"
+                  value={aboOverrideReason}
+                  onChange={(e) => setAboOverrideReason(e.target.value)}
+                  rows={2}
+                  className="mt-1 w-full rounded border border-yellow-300 bg-white px-2 py-1 text-sm"
+                  placeholder="e.g. Massive haemorrhage, no compatible O- in stock, attending Dr Rao authorised emergency override"
+                />
+              </div>
+            )}
+
             <div className="mt-5 flex justify-end gap-2">
               <button
                 onClick={() => setMatchingRequest(null)}
@@ -702,7 +800,12 @@ export default function BloodBankPage() {
                 Reserve {selectedMatchIds.size} Unit(s) (24h)
               </button>
               <button
-                disabled={selectedMatchIds.size === 0}
+                data-testid="abo-issue-button"
+                disabled={
+                  selectedMatchIds.size === 0 ||
+                  (selectedMismatches.length > 0 &&
+                    aboOverrideReason.trim().length < 10)
+                }
                 onClick={issueUnits}
                 className="rounded bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
               >

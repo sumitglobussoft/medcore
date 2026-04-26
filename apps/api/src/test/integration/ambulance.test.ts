@@ -140,7 +140,12 @@ describeIfDB("Ambulance API (integration)", () => {
     const c = await request(app)
       .patch(`/api/v1/ambulance/trips/${trip.id}/complete`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ distanceKm: 12.5, cost: 500 });
+      .send({
+        actualEndTime: new Date().toISOString(),
+        finalDistance: 12.5,
+        finalCost: 500,
+        notes: "Patient delivered",
+      });
     expect([200, 201]).toContain(c.status);
     expect(c.body.data?.status).toBe("COMPLETED");
 
@@ -179,7 +184,12 @@ describeIfDB("Ambulance API (integration)", () => {
     await request(app)
       .patch(`/api/v1/ambulance/trips/${tripRes.body.data.id}/complete`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ distanceKm: 10 });
+      .send({
+        actualEndTime: new Date().toISOString(),
+        finalDistance: 10,
+        finalCost: 0,
+        notes: "Trip ended",
+      });
 
     const res = await request(app)
       .post(`/api/v1/ambulance/trips/${tripRes.body.data.id}/bill`)

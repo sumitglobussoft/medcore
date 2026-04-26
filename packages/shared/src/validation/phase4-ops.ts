@@ -126,8 +126,14 @@ export const bloodRequestSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Issue #93 (2026-04-26): operators can override an ABO mismatch only by
+// supplying a clinical reason ≥10 chars (audit trail). Without this
+// field the API rejects the issue with a 400 and the UI shows a yellow
+// warning banner.
 export const issueBloodSchema = z.object({
   unitIds: z.array(z.string().uuid()).min(1),
+  overrideAboMismatch: z.boolean().optional(),
+  clinicalReason: z.string().min(10).max(500).optional(),
 });
 
 export const crossMatchSchema = z.object({
@@ -141,13 +147,33 @@ export const crossMatchSchema = z.object({
 // AMBULANCE
 // ───────────────────────────────────────────────────────
 
+// India-centric phone validator. Permissive enough to accept landlines and
+// numbers entered with spaces/dashes/parens, but strict enough to reject
+// gibberish ("aaaaa", "12", "phone-number"). Reused by ambulance create,
+// trip request, and complete-trip schemas (Issue #87).
+const AMBULANCE_PHONE_RE = /^[+\d][\d\s().+-]{7,19}$/;
+export const ambulancePhoneSchema = z
+  .string()
+  .trim()
+  .min(7, "Phone number must be at least 7 digits")
+  .max(20, "Phone number is too long")
+  .regex(AMBULANCE_PHONE_RE, "Enter a valid phone number")
+  .refine((v) => v.replace(/\D/g, "").length >= 7, {
+    message: "Enter a valid phone number",
+  });
+
+const optionalPhone = z
+  .union([ambulancePhoneSchema, z.literal("")])
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
+
 export const createAmbulanceSchema = z.object({
   vehicleNumber: z.string().min(1),
   make: z.string().optional(),
   model: z.string().optional(),
   type: z.string().min(1),
   driverName: z.string().optional(),
-  driverPhone: z.string().optional(),
+  driverPhone: optionalPhone,
   paramedicName: z.string().optional(),
   lastServiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   nextServiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -162,7 +188,7 @@ export const tripRequestSchema = z.object({
   ambulanceId: z.string().uuid(),
   patientId: z.string().uuid().optional(),
   callerName: z.string().optional(),
-  callerPhone: z.string().optional(),
+  callerPhone: optionalPhone,
   pickupAddress: z.string().min(1),
   pickupLat: z.number().optional(),
   pickupLng: z.number().optional(),
@@ -175,15 +201,43 @@ export const tripRequestSchema = z.object({
 
 export const updateTripStatusSchema = z.object({
   status: z.enum(AMBULANCE_TRIP_STATUSES),
-  distanceKm: z.number().nonnegative().optional(),
-  cost: z.number().nonnegative().optional(),
+  distanceKm: z
+    .number({ invalid_type_error: "distanceKm must be a number" })
+    .nonnegative("distanceKm cannot be negative")
+    .optional(),
+  cost: z
+    .number({ invalid_type_error: "cost must be a number" })
+    .nonnegative("cost cannot be negative")
+    .optional(),
   notes: z.string().optional(),
 });
 
+// Issue #87: completing a trip MUST capture actual distance, cost, end time,
+// and a notes field. Missing/blank/negative values are rejected with clear
+// field-level errors so the UI can render inline error hints.
 export const completeTripSchema = z.object({
-  distanceKm: z.number().nonnegative().optional(),
-  cost: z.number().nonnegative().optional(),
-  notes: z.string().optional(),
+  actualEndTime: z
+    .string({ required_error: "actualEndTime is required" })
+    .min(1, "actualEndTime is required")
+    .refine((v) => !Number.isNaN(Date.parse(v)), {
+      message: "actualEndTime must be a valid ISO date-time",
+    }),
+  finalDistance: z
+    .number({
+      required_error: "finalDistance is required",
+      invalid_type_error: "finalDistance must be a number",
+    })
+    .positive("finalDistance must be greater than 0"),
+  finalCost: z
+    .number({
+      required_error: "finalCost is required",
+      invalid_type_error: "finalCost must be a number",
+    })
+    .nonnegative("finalCost cannot be negative"),
+  notes: z
+    .string({ required_error: "notes is required" })
+    .trim()
+    .min(1, "notes is required"),
 });
 
 // ───────────────────────────────────────────────────────

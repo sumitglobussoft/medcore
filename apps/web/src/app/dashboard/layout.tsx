@@ -207,7 +207,7 @@ const navByRole: Record<
     { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
     { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
     { href: "/dashboard/pharmacy-forecast", label: "Pharmacy Forecast", icon: FlaskRound },
-    { href: "/dashboard/letters", label: "AI Letters", icon: FileText },
+    { href: "/dashboard/ai-letters", label: "AI Letters", icon: FileText },
     { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
     { href: "/dashboard/ai-radiology", label: "AI Radiology", icon: ScanLine },
     { href: "/dashboard/adherence", label: "Adherence", icon: BellIcon },
@@ -244,7 +244,7 @@ const navByRole: Record<
     { href: "/dashboard/predictions", label: "No-Show Predictions", icon: TrendingUp },
     { href: "/dashboard/er-triage", label: "ER Triage", icon: Siren },
     { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
-    { href: "/dashboard/letters", label: "AI Letters", icon: FileText },
+    { href: "/dashboard/ai-letters", label: "AI Letters", icon: FileText },
     { href: "/dashboard/ai-radiology", label: "AI Radiology", icon: ScanLine },
     { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
   ],
@@ -270,7 +270,8 @@ const navByRole: Record<
     { href: "/dashboard/telemedicine", label: "Telemedicine", icon: Video },
     { href: "/dashboard/emergency", label: "Emergency", icon: Siren },
     { href: "/dashboard/ambulance", label: "Ambulance", icon: Ambulance },
-    { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
+    // Issue #90: Reports/Today's Revenue is ADMIN-only. Removed from
+    // RECEPTION nav so they can't reach the financial KPI tile.
     { href: "/dashboard/feedback", label: "Feedback", icon: Star },
     { href: "/dashboard/complaints", label: "Complaints", icon: AlertTriangle },
     { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },

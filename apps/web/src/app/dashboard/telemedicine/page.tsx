@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { toast } from "@/lib/toast";
 import { createTelemedicineSchema } from "@medcore/shared";
 import Link from "next/link";
 import {
@@ -233,7 +234,12 @@ export default function TelemedicinePage() {
       setFormErrors({});
       loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Schedule failed");
+      // Issue #93 (2026-04-26): replace native alert() with a toast so
+      // browser automation can read the error and so we don't violate
+      // the no-native-dialogs rule. Server returns a 400 with a clear
+      // message for past-date scheduling.
+      const msg = err instanceof Error ? err.message : "Schedule failed";
+      toast.error(msg);
     }
   }
 

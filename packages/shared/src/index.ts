@@ -29,3 +29,4 @@ export * from "./types/ai";
 export * from "./validation/ai";
 export * from "./i18n/triage-symptom-chips";
 export * from "./validation/marketing";
+export * from "./abo-compatibility";

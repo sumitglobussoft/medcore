@@ -44,13 +44,17 @@ function vulnerabilityRank(flags: {
   return rank;
 }
 
-// GET /api/v1/queue/:doctorId?date=YYYY-MM-DD — get doctor's queue for a date
-// Public endpoint for token display
+// GET /api/v1/queue/:doctorId?date=YYYY-MM-DD&dedupePatient=1
+// Public endpoint for token display.
+// `dedupePatient=1` collapses repeat patients to a single entry — the most
+// recent appointment per patientId (Issue #91 Apr 2026: Anita Deshpande
+// appearing 3x in the vitals queue). The full multi-row form remains the
+// default so the consultation queue is unaffected.
 router.get(
   "/:doctorId",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { date } = req.query;
+      const { date, dedupePatient } = req.query;
       const dateObj = date ? new Date(date as string) : new Date();
       dateObj.setHours(0, 0, 0, 0);
 
@@ -111,10 +115,22 @@ router.get(
         return x.a.tokenNumber - y.a.tokenNumber;
       });
 
-      const queue = enriched.map(({ a, flags }, idx) => {
+      // Dedupe-per-patient mode: keep the highest-priority entry (already
+      // sorted), drop later occurrences of the same patientId.
+      const enrichedFinal = (() => {
+        if (dedupePatient !== "1" && dedupePatient !== "true") return enriched;
+        const seen = new Set<string>();
+        return enriched.filter((e) => {
+          if (seen.has(e.a.patientId)) return false;
+          seen.add(e.a.patientId);
+          return true;
+        });
+      })();
+
+      const queue = enrichedFinal.map(({ a, flags }, idx) => {
         let estimatedWaitMinutes = 0;
         if (a.status === "BOOKED" || a.status === "CHECKED_IN") {
-          const ahead = enriched
+          const ahead = enrichedFinal
             .slice(0, idx)
             .filter(
               ({ a: ap }) =>

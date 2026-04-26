@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
 import {
   ArrowLeft,
@@ -81,7 +82,21 @@ const STATUS_COLORS: Record<string, string> = {
   COMPLETED: "bg-green-100 text-green-700",
   CANCELLED: "bg-red-100 text-red-700",
   POSTPONED: "bg-gray-100 text-gray-700",
+  MISSED_SCHEDULE: "bg-orange-100 text-orange-700",
 };
+
+// Issue #86: a SCHEDULED surgery whose scheduledAt is > 30 min in the past
+// should display as MISSED_SCHEDULE in the UI even though the database row
+// is still SCHEDULED (no enum migration). The doctor can still Start it for
+// late-running emergencies — this is purely a labelling fix.
+const STALE_GRACE_MIN = 30;
+function effectiveSurgeryStatus(s: { status: string; scheduledAt: string }): string {
+  if (s.status !== "SCHEDULED") return s.status;
+  const t = new Date(s.scheduledAt).getTime();
+  if (Number.isNaN(t)) return s.status;
+  if (Date.now() - t > STALE_GRACE_MIN * 60 * 1000) return "MISSED_SCHEDULE";
+  return s.status;
+}
 
 export default function SurgeryDetailPage() {
   const params = useParams<{ id: string }>();
@@ -105,10 +120,19 @@ export default function SurgeryDetailPage() {
         postOpNotes: res.data.postOpNotes || "",
         diagnosis: res.data.diagnosis || "",
       });
-    } catch {
+    } catch (err) {
+      // Issue #86: previously this swallowed every error and rendered "not
+      // found" — masking 503/RSC/server errors. Toast the underlying message
+      // and keep `surgery` null so the not-found block renders.
       setSurgery(null);
+      const msg = err instanceof Error ? err.message : "Failed to load surgery";
+      // Skip the toast for plain 404s — the inline "not found" view is enough.
+      if ((err as { status?: number })?.status !== 404) {
+        toast.error(msg);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [params.id]);
 
   useEffect(() => {
@@ -132,7 +156,20 @@ export default function SurgeryDetailPage() {
       await api.patch(`/surgery/${surgery.id}/start`, {});
       loadSurgery();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Start failed");
+      // Issue #86: surface zod field errors AND the `missing` checklist array
+      // so the user sees what blocked the start instead of a silent failure.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        toast.error(Object.values(fields)[0] || "Start failed");
+        return;
+      }
+      const payload = (err as { payload?: { missing?: string[]; error?: string } })
+        ?.payload;
+      if (payload?.missing && Array.isArray(payload.missing) && payload.missing.length > 0) {
+        toast.error(`Pre-op checklist incomplete: ${payload.missing.join(", ")}`);
+        return;
+      }
+      toast.error(payload?.error || (err instanceof Error ? err.message : "Start failed"));
     }
   }
 
@@ -199,11 +236,17 @@ export default function SurgeryDetailPage() {
           <p className="text-sm text-gray-500">{surgery.procedure}</p>
         </div>
         <div className="flex items-center gap-3">
-          <span
-            className={`rounded-full px-3 py-1 text-sm font-medium ${STATUS_COLORS[surgery.status]}`}
-          >
-            {surgery.status.replace("_", " ")}
-          </span>
+          {(() => {
+            const eff = effectiveSurgeryStatus(surgery);
+            return (
+              <span
+                data-testid="surgery-detail-status"
+                className={`rounded-full px-3 py-1 text-sm font-medium ${STATUS_COLORS[eff] || STATUS_COLORS[surgery.status]}`}
+              >
+                {eff.replace("_", " ")}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
@@ -259,7 +302,7 @@ export default function SurgeryDetailPage() {
             <p className="mt-2 text-xs text-gray-600">{surgery.ot.equipment}</p>
           )}
           <p className="mt-2 text-xs text-gray-500">
-            Daily Rate: ₹{surgery.ot.dailyRate}
+            Daily Rate: ₹{surgery.ot?.dailyRate ?? "—"}
           </p>
         </div>
       </div>
@@ -422,7 +465,13 @@ export default function SurgeryDetailPage() {
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-500">OT Daily Rate</span>
-            <span>₹{surgery.ot.dailyRate.toFixed(2)}</span>
+            <span>
+              {/* Issue #86: harden null deref — historically threw inside RSC
+                  render when an OT had no dailyRate, surfacing as a 503. */}
+              {surgery.ot && typeof surgery.ot.dailyRate === "number"
+                ? `₹${surgery.ot.dailyRate.toFixed(2)}`
+                : "—"}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">Procedure Cost</span>

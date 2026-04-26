@@ -53,6 +53,31 @@ router.post(
     try {
       const { patientId, doctorId, scheduledAt, chiefComplaint, fee } = req.body;
 
+      // Issue #93 (2026-04-26): silently accepting a back-dated session
+      // was producing nonsense "expired immediately" rooms. Reject any
+      // scheduledAt strictly before now (allow a small 60s grace so a
+      // user clicking Submit at exactly the chosen minute isn't fighting
+      // the wall clock). Returns 400 + clear message that the UI shows
+      // as a toast.
+      const scheduledDate = new Date(scheduledAt);
+      if (Number.isNaN(scheduledDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "scheduledAt is not a valid ISO date",
+        });
+        return;
+      }
+      if (scheduledDate.getTime() < Date.now() - 60_000) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error:
+            "Cannot schedule a telemedicine session in the past. Pick a date/time in the future.",
+        });
+        return;
+      }
+
       const patient = await prisma.patient.findUnique({ where: { id: patientId } });
       if (!patient) {
         res.status(404).json({ success: false, data: null, error: "Patient not found" });

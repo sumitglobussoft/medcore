@@ -17,6 +17,48 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// Issue #87 — Single source of truth for ambulance fleet status.
+// If any trip on the ambulance is still active (anything other than COMPLETED
+// or CANCELLED), the ambulance must read as ON_TRIP in the fleet view; once
+// every trip is closed, it returns to AVAILABLE.
+//
+// NOTE: the prisma `AmbulanceStatus` enum has no `IN_USE` value (only
+// AVAILABLE | ON_TRIP | MAINTENANCE | OUT_OF_SERVICE), so we use ON_TRIP as
+// the "in-use" marker. This helper is idempotent — calling it twice in a row
+// produces the same row. MAINTENANCE / OUT_OF_SERVICE are sticky and never
+// flipped automatically by this helper.
+export async function recomputeAmbulanceStatus(
+  ambulanceId: string
+): Promise<"AVAILABLE" | "ON_TRIP" | "MAINTENANCE" | "OUT_OF_SERVICE" | null> {
+  const ambulance = await prisma.ambulance.findUnique({
+    where: { id: ambulanceId },
+    select: { id: true, status: true },
+  });
+  if (!ambulance) return null;
+  // Don't override sticky operational states.
+  if (
+    ambulance.status === "MAINTENANCE" ||
+    ambulance.status === "OUT_OF_SERVICE"
+  ) {
+    return ambulance.status;
+  }
+  const activeTrip = await prisma.ambulanceTrip.findFirst({
+    where: {
+      ambulanceId,
+      status: { notIn: ["COMPLETED", "CANCELLED"] },
+    },
+    select: { id: true },
+  });
+  const target: "AVAILABLE" | "ON_TRIP" = activeTrip ? "ON_TRIP" : "AVAILABLE";
+  if (ambulance.status !== target) {
+    await prisma.ambulance.update({
+      where: { id: ambulanceId },
+      data: { status: target },
+    });
+  }
+  return target;
+}
+
 async function generateTripNumber(): Promise<string> {
   const last = await prisma.ambulanceTrip.findFirst({
     orderBy: { createdAt: "desc" },
@@ -87,7 +129,8 @@ router.get(
 
 router.post(
   "/trips",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   validate(tripRequestSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -144,6 +187,10 @@ router.post(
         return t;
       });
 
+      // Defensive recompute outside the txn — keeps fleet status in sync even
+      // if a concurrent mutation slipped in. Idempotent.
+      await recomputeAmbulanceStatus(req.body.ambulanceId);
+
       auditLog(req, "AMBULANCE_TRIP_CREATE", "ambulance_trip", trip.id, {
         tripNumber,
       }).catch(console.error);
@@ -181,13 +228,15 @@ router.get(
 
 router.patch(
   "/trips/:id/dispatch",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { dispatchedAt: new Date(), status: "DISPATCHED" },
       });
+      await recomputeAmbulanceStatus(trip.ambulanceId);
       auditLog(req, "TRIP_DISPATCH", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -200,13 +249,15 @@ router.patch(
 
 router.patch(
   "/trips/:id/arrived",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { arrivedAt: new Date(), status: "ARRIVED_SCENE" },
       });
+      await recomputeAmbulanceStatus(trip.ambulanceId);
       auditLog(req, "TRIP_ARRIVED_SCENE", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -219,13 +270,15 @@ router.patch(
 
 router.patch(
   "/trips/:id/enroute",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: { status: "EN_ROUTE_HOSPITAL" },
       });
+      await recomputeAmbulanceStatus(trip.ambulanceId);
       auditLog(req, "TRIP_EN_ROUTE_MARK", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -238,7 +291,8 @@ router.patch(
 
 router.patch(
   "/trips/:id/complete",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   validate(completeTripSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -252,14 +306,17 @@ router.patch(
         return;
       }
 
+      // Issue #87: completeTripSchema mandates actualEndTime, finalDistance,
+      // finalCost, notes. Map onto persisted columns (distanceKm/cost/notes/
+      // completedAt). Empty payloads are already rejected by the validator.
       const trip = await prisma.$transaction(async (tx) => {
         const t = await tx.ambulanceTrip.update({
           where: { id: req.params.id },
           data: {
             status: "COMPLETED",
-            completedAt: new Date(),
-            distanceKm: req.body.distanceKm,
-            cost: req.body.cost,
+            completedAt: new Date(req.body.actualEndTime),
+            distanceKm: req.body.finalDistance,
+            cost: req.body.finalCost,
             notes: req.body.notes,
           },
         });
@@ -272,9 +329,13 @@ router.patch(
         return t;
       });
 
+      // Idempotent — handles the rare case of multiple active trips on the
+      // same ambulance (we still want the fleet view to be honest).
+      await recomputeAmbulanceStatus(existing.ambulanceId);
+
       auditLog(req, "TRIP_COMPLETE", "ambulance_trip", trip.id, {
-        distanceKm: req.body.distanceKm,
-        cost: req.body.cost,
+        distanceKm: req.body.finalDistance,
+        cost: req.body.finalCost,
       }).catch(console.error);
 
       res.json({ success: true, data: trip, error: null });
@@ -286,7 +347,8 @@ router.patch(
 
 router.patch(
   "/trips/:id/cancel",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const existing = await prisma.ambulanceTrip.findUnique({
@@ -310,6 +372,8 @@ router.patch(
         });
         return t;
       });
+
+      await recomputeAmbulanceStatus(existing.ambulanceId);
 
       auditLog(req, "TRIP_CANCEL", "ambulance_trip", trip.id).catch(
         console.error
@@ -439,7 +503,8 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 
 router.patch(
   "/trips/:id/location",
-  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN, Role.DOCTOR),
+  // RBAC (issue #89): DOCTOR removed from ambulance write/dispatch paths.
+  authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { pickupLat, pickupLng, dropLat, dropLng } = req.body as {

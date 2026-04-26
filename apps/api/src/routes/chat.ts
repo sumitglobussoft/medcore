@@ -25,14 +25,39 @@ router.get(
   "/users",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #84: support `?search=` and `?limit=` so the shared
+      // EntityPicker can drive this endpoint to back the Certifications
+      // "pick a staff member" picker. Default behaviour (no params) is
+      // unchanged — full active staff list, alpha-sorted.
+      const q =
+        typeof req.query.search === "string" ? req.query.search.trim() : "";
+      const limitNum = Number.parseInt(
+        typeof req.query.limit === "string" ? req.query.limit : "",
+        10
+      );
+      const take =
+        Number.isFinite(limitNum) && limitNum > 0 && limitNum <= 100
+          ? limitNum
+          : undefined;
+
       const users = await prisma.user.findMany({
         where: {
           id: { not: req.user!.userId },
           role: { not: "PATIENT" },
           isActive: true,
+          ...(q.length >= 1
+            ? {
+                OR: [
+                  { name: { contains: q, mode: "insensitive" } },
+                  { email: { contains: q, mode: "insensitive" } },
+                  { phone: { contains: q } },
+                ],
+              }
+            : {}),
         },
         select: { id: true, name: true, email: true, role: true },
         orderBy: { name: "asc" },
+        ...(take ? { take } : {}),
       });
       res.json({ success: true, data: users, error: null });
     } catch (err) {

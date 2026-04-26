@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
-import { Search, Plus, Pill, X } from "lucide-react";
+import { Search, Plus, Pill, X, Pencil, Trash2 } from "lucide-react";
 
 interface Medicine {
   id: string;
@@ -42,12 +43,17 @@ const CATEGORIES = [
 
 export default function MedicinesPage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [selected, setSelected] = useState<Medicine | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  // Issue #85: edit/delete support — `editing` is the row currently being
+  // edited (null = creating new); switching the modal between create/edit
+  // reuses the same form fields.
+  const [editing, setEditing] = useState<Medicine | null>(null);
   const [form, setForm] = useState({
     name: "",
     genericName: "",
@@ -59,6 +65,43 @@ export default function MedicinesPage() {
   });
 
   const isAdmin = user?.role === "ADMIN";
+  const isDoctor = user?.role === "DOCTOR";
+  // Edit allowed for ADMIN + DOCTOR (matches API PATCH guard); delete is
+  // ADMIN-only.
+  const canEdit = isAdmin || isDoctor;
+  const canDelete = isAdmin;
+
+  function openEdit(m: Medicine) {
+    setEditing(m);
+    setForm({
+      name: m.name ?? "",
+      genericName: m.genericName ?? "",
+      form: m.form ?? "",
+      strength: m.strength ?? "",
+      category: m.category ?? "",
+      rxRequired: !!m.rxRequired,
+      manufacturer: m.manufacturer ?? "",
+    });
+    setShowAdd(true);
+  }
+
+  async function handleDelete(m: Medicine) {
+    const ok = await confirm({
+      title: `Delete ${m.name}?`,
+      message: "This catalog entry will be removed permanently.",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/medicines/${m.id}`);
+      toast.success(`${m.name} deleted`);
+      // Refresh list + close any open detail modal that might have shown the row.
+      if (selected?.id === m.id) setSelected(null);
+      load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete medicine");
+    }
+  }
 
   useEffect(() => {
     load();
@@ -98,15 +141,23 @@ export default function MedicinesPage() {
       return;
     }
     try {
-      await api.post("/medicines", {
+      const payload = {
         ...form,
         genericName: form.genericName || undefined,
         form: form.form || undefined,
         strength: form.strength || undefined,
         category: form.category || undefined,
         manufacturer: form.manufacturer.trim(),
-      });
+      };
+      if (editing) {
+        await api.patch(`/medicines/${editing.id}`, payload);
+        toast.success("Medicine updated");
+      } else {
+        await api.post("/medicines", payload);
+        toast.success("Medicine created");
+      }
       setShowAdd(false);
+      setEditing(null);
       setForm({
         name: "",
         genericName: "",
@@ -118,7 +169,7 @@ export default function MedicinesPage() {
       });
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create medicine");
+      toast.error(err instanceof Error ? err.message : "Failed to save medicine");
     }
   }
 
@@ -178,44 +229,81 @@ export default function MedicinesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {medicines.map((m) => (
-            <button
+            // Issue #85: card wrapper is now a <div>, not a <button>, so we
+            // can place real <button> children for Edit / Delete without
+            // nesting interactive elements (which would prevent the inner
+            // clicks from firing). The clickable detail surface is still
+            // the card body — wrapped as its own button so keyboard focus
+            // is preserved.
+            <div
               key={m.id}
-              onClick={() => openDetail(m)}
-              className="rounded-xl bg-white p-4 text-left shadow-sm hover:shadow"
+              data-testid="medicine-card"
+              data-medicine-id={m.id}
+              className="rounded-xl bg-white p-4 shadow-sm hover:shadow"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2">
-                  <Pill size={16} className="text-primary" />
-                  <div>
-                    <h3 className="font-semibold">{m.name}</h3>
-                    {m.genericName && (
-                      <p className="text-xs text-gray-500">
-                        {m.genericName}
-                      </p>
-                    )}
+              <button
+                type="button"
+                onClick={() => openDetail(m)}
+                className="block w-full text-left"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <Pill size={16} className="text-primary" />
+                    <div>
+                      <h3 className="font-semibold">{m.name}</h3>
+                      {m.genericName && (
+                        <p className="text-xs text-gray-500">
+                          {m.genericName}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  {m.rxRequired && (
+                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
+                      Rx
+                    </span>
+                  )}
                 </div>
-                {m.rxRequired && (
-                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
-                    Rx
+                <p className="mt-2 text-sm text-gray-600">
+                  {[m.form, m.strength].filter(Boolean).join(" · ") || "—"}
+                </p>
+                <p
+                  className="mt-1 text-xs text-gray-500"
+                  data-testid="medicine-manufacturer"
+                >
+                  Mfg: {m.manufacturer || "—"}
+                </p>
+                {m.category && (
+                  <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    {m.category}
                   </span>
                 )}
-              </div>
-              <p className="mt-2 text-sm text-gray-600">
-                {[m.form, m.strength].filter(Boolean).join(" · ") || "—"}
-              </p>
-              <p
-                className="mt-1 text-xs text-gray-500"
-                data-testid="medicine-manufacturer"
-              >
-                Mfg: {m.manufacturer || "—"}
-              </p>
-              {m.category && (
-                <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                  {m.category}
-                </span>
+              </button>
+              {(canEdit || canDelete) && (
+                <div className="mt-3 flex items-center justify-end gap-1 border-t border-gray-100 pt-2">
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(m)}
+                      data-testid="medicine-edit"
+                      className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                    >
+                      <Pencil size={12} /> Edit
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(m)}
+                      data-testid="medicine-delete"
+                      className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  )}
+                </div>
               )}
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -302,7 +390,9 @@ export default function MedicinesPage() {
             onSubmit={createMedicine}
             className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
           >
-            <h2 className="mb-4 text-lg font-semibold">Add Medicine</h2>
+            <h2 className="mb-4 text-lg font-semibold">
+              {editing ? `Edit ${editing.name}` : "Add Medicine"}
+            </h2>
             <div className="space-y-3">
               <div>
                 <label className="mb-1 block text-sm font-medium">Name</label>
@@ -395,16 +485,20 @@ export default function MedicinesPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setShowAdd(false)}
+                onClick={() => {
+                  setShowAdd(false);
+                  setEditing(null);
+                }}
                 className="rounded-lg border px-4 py-2 text-sm"
               >
                 Cancel
               </button>
               <button
                 type="submit"
+                data-testid="medicine-save"
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
               >
-                Create
+                {editing ? "Save changes" : "Create"}
               </button>
             </div>
           </form>

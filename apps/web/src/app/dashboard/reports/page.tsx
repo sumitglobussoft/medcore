@@ -60,8 +60,10 @@ export default function ReportsPage() {
   const [selectedRun, setSelectedRun] = useState<ReportRun | null>(null);
   const [typeFilter, setTypeFilter] = useState("");
 
+  // Issue #90: Reports surface "Today's Revenue" + collection KPIs. RECEPTION
+  // must NOT see financial KPIs — this page is now ADMIN-only.
   useEffect(() => {
-    if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") {
+    if (user && user.role !== "ADMIN") {
       router.push("/dashboard");
       return;
     }

@@ -27,6 +27,30 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+// Issue #86 (Apr 2026): SCHEDULED surgeries whose scheduledAt is more than
+// 30 minutes in the past should be reported as MISSED_SCHEDULE on read.
+// The database enum doesn't include MISSED_SCHEDULE (no schema change for
+// this fix) so we expose the derived flag as `effectiveStatus` and a boolean
+// `isStaleSchedule` on every surgery payload. Frontend uses these to badge
+// the row without needing to recompute the wall-clock comparison.
+const STALE_SCHEDULE_GRACE_MS = 30 * 60 * 1000;
+function withStaleFlags<T extends { status: string; scheduledAt: Date | string }>(
+  s: T
+): T & { effectiveStatus: string; isStaleSchedule: boolean } {
+  let isStale = false;
+  if (s.status === "SCHEDULED") {
+    const ms = new Date(s.scheduledAt).getTime();
+    if (Number.isFinite(ms) && Date.now() - ms > STALE_SCHEDULE_GRACE_MS) {
+      isStale = true;
+    }
+  }
+  return {
+    ...s,
+    effectiveStatus: isStale ? "MISSED_SCHEDULE" : s.status,
+    isStaleSchedule: isStale,
+  };
+}
+
 // Generate next case number like SRG000001
 async function nextCaseNumber(): Promise<string> {
   const last = await prisma.surgery.findFirst({
@@ -284,7 +308,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
     res.json({
       success: true,
-      data: surgeries,
+      data: surgeries.map((s) => withStaleFlags(s)),
       error: null,
       meta: { page: parseInt(page as string), limit: take, total },
     });
@@ -322,7 +346,7 @@ router.get(
         return;
       }
 
-      res.json({ success: true, data: surgery, error: null });
+      res.json({ success: true, data: withStaleFlags(surgery), error: null });
     } catch (err) {
       next(err);
     }

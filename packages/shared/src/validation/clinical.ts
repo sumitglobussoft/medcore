@@ -39,12 +39,22 @@ export const updateOTSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+// Issue #86 (Apr 2026): block scheduling surgeries in the past at the API
+// boundary. Frontend mirrors the same constraint as a `min` on the
+// datetime-local input. 5-minute clock-skew tolerance lets a "now" submission
+// succeed without the user racing the clock.
 export const scheduleSurgerySchema = z.object({
   patientId: z.string().uuid(),
   surgeonId: z.string().uuid(),
   otId: z.string().uuid(),
-  procedure: z.string().min(1),
-  scheduledAt: z.string().datetime(),
+  procedure: z.string().min(1, "Procedure is required"),
+  scheduledAt: z
+    .string()
+    .datetime({ message: "Scheduled date/time must be ISO-8601" })
+    .refine(
+      (s) => new Date(s).getTime() >= Date.now() - 5 * 60 * 1000,
+      "Scheduled date/time cannot be in the past"
+    ),
   durationMin: z.number().int().min(0).optional(),
   anaesthesiologist: z.string().optional(),
   assistants: z.string().optional(),

@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { EntityPicker } from "@/components/EntityPicker";
 import { Bell, Trash2, Plus, Clock, Calendar, Pill } from "lucide-react";
 
 interface MedicationItem {
@@ -36,6 +39,7 @@ function formatDate(iso: string) {
 
 export default function AdherencePage() {
   const { user } = useAuthStore();
+  const confirm = useConfirm();
   const [schedules, setSchedules] = useState<AdherenceSchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,12 +136,18 @@ export default function AdherencePage() {
   }
 
   async function handleUnenroll(scheduleId: string) {
-    if (!confirm("Remove this medication reminder schedule?")) return;
+    // Issue #84 / repo standard: no native window.confirm — use the in-DOM
+    // ConfirmDialog so browser automation can drive it.
+    const ok = await confirm({
+      title: "Remove this medication reminder schedule?",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete<{ data: AdherenceSchedule }>(`/ai/adherence/${scheduleId}`);
       setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
     } catch (err: any) {
-      alert(err.message ?? "Failed to unenroll");
+      toast.error(err.message ?? "Failed to unenroll");
     }
   }
 
@@ -208,14 +218,22 @@ export default function AdherencePage() {
           <form onSubmit={handleEnroll} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Prescription ID
+                Prescription
               </label>
-              <input
-                type="text"
+              {/* Issue #84: replace raw UUID input with the shared
+                  EntityPicker. The /prescriptions endpoint returns
+                  `{ id, diagnosis, doctor.user.name, createdAt, ... }`. */}
+              <EntityPicker
+                endpoint="/prescriptions"
+                searchParam="search"
+                labelField="diagnosis"
+                subtitleField="doctor.user.name"
+                hintField="createdAt"
                 value={enrollPrescriptionId}
-                onChange={(e) => setEnrollPrescriptionId(e.target.value)}
-                placeholder="e.g. 6a4f2b..."
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(id) => setEnrollPrescriptionId(id)}
+                searchPlaceholder="Search prescription by diagnosis..."
+                testIdPrefix="adherence-rx-picker"
+                required
               />
             </div>
 

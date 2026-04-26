@@ -715,8 +715,13 @@ export default function PatientDetailPage() {
             </button>
           )}
           {isDoctor && (
+            // Issue #84: button used to link to a non-existent
+            // /dashboard/consultations route (404). Doctors actually start
+            // consultations from the live queue, so route there with the
+            // patient pre-filtered.
             <Link
-              href={`/dashboard/consultations?patientId=${id}`}
+              href={`/dashboard/queue?patientId=${id}`}
+              data-testid="patient-start-consultation"
               className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
             >
               <Stethoscope size={14} /> Start Consultation

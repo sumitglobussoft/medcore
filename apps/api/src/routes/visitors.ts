@@ -209,6 +209,15 @@ router.get(
 );
 
 // GET /api/v1/visitors/stats/daily
+//
+// Issue #92/#93 (2026-04-26): Previously totalToday and currentInside were
+// computed from two independent queries — totalToday filtered by today's
+// checkInAt window, currentInside counted everyone with checkOutAt=null
+// across all time. So a stale visitor from yesterday could appear in
+// "Currently Inside" while "Today's Visitors" was 0, which made no sense
+// (Inside should be a subset of Today's). We now derive currentInside as
+// `today.filter(v => v.checkOutAt === null).length`, which by construction
+// makes Inside ⊆ Today.
 router.get(
   "/stats/daily",
   authorize(Role.ADMIN, Role.RECEPTION),
@@ -223,8 +232,14 @@ router.get(
         where: { checkInAt: { gte: start, lte: end } },
         select: { purpose: true, checkOutAt: true },
       });
-      const active = await prisma.visitor.count({
-        where: { checkOutAt: null },
+
+      // Derive Currently Inside from today's set so it can never desync
+      // from totalToday. Visitors who checked in yesterday and never
+      // checked out are stale-data anomalies (likely a missed checkout)
+      // and are surfaced separately as `staleActive` for ops cleanup.
+      const currentInside = today.filter((v) => v.checkOutAt === null).length;
+      const staleActive = await prisma.visitor.count({
+        where: { checkOutAt: null, checkInAt: { lt: start } },
       });
 
       const byPurpose: Record<string, number> = {
@@ -242,7 +257,8 @@ router.get(
         success: true,
         data: {
           totalToday: today.length,
-          currentInside: active,
+          currentInside,
+          staleActive,
           byPurpose,
         },
         error: null,

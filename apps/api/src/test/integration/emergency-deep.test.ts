@@ -193,7 +193,9 @@ describeIfDB("Emergency API — deep edges", () => {
     const res = await request(app)
       .patch(`/api/v1/emergency/cases/${ec.id}/close`)
       .set("Authorization", `Bearer ${doctor}`)
-      .send({ status, disposition: status });
+      // Issue #88: disposition AND outcomeNotes are now both required by the
+      // schema (used to be optional, which led to silent empty closes).
+      .send({ status, disposition: status, outcomeNotes: `Closed as ${status}` });
     expect(res.status).toBe(200);
     expect(res.body.data?.closedAt).toBeTruthy();
   });
@@ -203,7 +205,11 @@ describeIfDB("Emergency API — deep edges", () => {
     const res = await request(app)
       .patch(`/api/v1/emergency/cases/${ec.id}/close`)
       .set("Authorization", `Bearer ${doctor}`)
-      .send({ status: "WAITING" });
+      .send({
+        status: "WAITING",
+        disposition: "n/a",
+        outcomeNotes: "n/a",
+      });
     expect(res.status).toBe(400);
   });
 
@@ -211,8 +217,29 @@ describeIfDB("Emergency API — deep edges", () => {
     const res = await request(app)
       .patch(`/api/v1/emergency/cases/00000000-0000-0000-0000-000000000000/close`)
       .set("Authorization", `Bearer ${doctor}`)
-      .send({ status: "DISCHARGED" });
+      .send({
+        status: "DISCHARGED",
+        disposition: "Home",
+        outcomeNotes: "Discharged",
+      });
     expect(res.status).toBe(404);
+  });
+
+  it("close missing disposition → 400 with field-level error", async () => {
+    // Issue #88: regression test that bare "Validation failed" toast no longer
+    // happens; the API surfaces a per-field detail entry the frontend uses.
+    const { ec } = await mkCase();
+    const res = await request(app)
+      .patch(`/api/v1/emergency/cases/${ec.id}/close`)
+      .set("Authorization", `Bearer ${doctor}`)
+      .send({ status: "DISCHARGED" });
+    expect(res.status).toBe(400);
+    expect(res.body.details).toBeTruthy();
+    const fields = (res.body.details as Array<{ field: string }>).map(
+      (d) => d.field
+    );
+    expect(fields).toContain("disposition");
+    expect(fields).toContain("outcomeNotes");
   });
 
   // ─── MLC ──────────────────────────────────────────────────

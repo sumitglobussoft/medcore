@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
+
+// Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
+// access; ADMIN + RECEPTION are the operational roles.
+const BILLING_ALLOWED = new Set(["ADMIN", "RECEPTION", "PATIENT"]);
 import {
   Printer,
   Receipt,
@@ -70,8 +75,17 @@ function overdueClass(days: number) {
 }
 
 export default function BillingPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const { t } = useTranslation();
+
+  // Issue #89: redirect DOCTORs (or any non-allowed role) away.
+  useEffect(() => {
+    if (!isLoading && user && !BILLING_ALLOWED.has(user.role)) {
+      toast.error("Billing is restricted to Admin, Reception, and Patients.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [outstanding, setOutstanding] = useState<OutstandingRow[]>([]);
   const [loading, setLoading] = useState(true);

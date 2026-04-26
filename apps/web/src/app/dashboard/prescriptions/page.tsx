@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -10,6 +11,11 @@ import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
 import { EmptyState } from "@/components/EmptyState";
 import { FileText } from "lucide-react";
+
+// Issue #90: RECEPTION must NOT see prescriptions / clinical diagnoses.
+// PHARMACIST + NURSE keep read access (dispensing + admin); PATIENT keeps
+// own-data view.
+const RX_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "PHARMACIST", "PATIENT"]);
 
 interface PrescriptionRecord {
   id: string;
@@ -48,8 +54,17 @@ interface Template {
 }
 
 export default function PrescriptionsPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const { t } = useTranslation();
+
+  // Issue #90: redirect RECEPTION (and any non-clinical role) away.
+  useEffect(() => {
+    if (!isLoading && user && !RX_ALLOWED.has(user.role)) {
+      toast.error("Prescriptions are restricted to clinical staff.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);

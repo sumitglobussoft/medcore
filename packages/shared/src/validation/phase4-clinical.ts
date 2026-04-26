@@ -86,11 +86,21 @@ export const assignEmergencyDoctorSchema = z.object({
   attendingDoctorId: z.string().uuid(),
 });
 
+// Issue #88 (Apr 2026): closing an ER case requires both a disposition string
+// and outcome notes (audit trail + clinical handoff). They were previously
+// optional which let nurses save with empty fields and just a generic
+// "Validation failed" toast on the UI.
 export const updateEmergencyStatusSchema = z.object({
   status: z.enum(EMERGENCY_STATUS),
   attendingDoctorId: z.string().uuid().optional(),
-  disposition: z.string().optional(),
-  outcomeNotes: z.string().optional(),
+  disposition: z
+    .string({ required_error: "Disposition is required" })
+    .trim()
+    .min(1, "Disposition is required"),
+  outcomeNotes: z
+    .string({ required_error: "Outcome notes are required" })
+    .trim()
+    .min(1, "Outcome notes are required"),
 });
 
 export const mlcDetailsSchema = z.object({

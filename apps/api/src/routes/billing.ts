@@ -266,17 +266,31 @@ router.post(
 );
 
 // GET /api/v1/billing/invoices
+// RBAC (issue #89): DOCTOR must NOT see all invoices. Restricted to financial
+// roles + PATIENT (PATIENT only sees their own — handled inline below).
 router.get(
   "/invoices",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, status, page = "1", limit = "20" } = req.query;
+      const { patientId, status, page = "1", limit = "20", search } = req.query;
       const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
       const take = Math.min(parseInt(limit as string), 100);
 
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
       if (status) where.paymentStatus = status;
+      // Issue #82: support `?search=<invoiceNumber|patient name>` so the
+      // EntityPicker on the Insurance Claims modal can find an invoice by
+      // typing. Falls through to no-op when search is missing/empty.
+      const q = typeof search === "string" ? search.trim() : "";
+      if (q.length >= 1) {
+        where.OR = [
+          { invoiceNumber: { contains: q, mode: "insensitive" } },
+          { patient: { user: { name: { contains: q, mode: "insensitive" } } } },
+          { patient: { mrNumber: { contains: q, mode: "insensitive" } } },
+        ];
+      }
 
       // Patients can only see their own invoices
       if (req.user!.role === "PATIENT") {
@@ -362,8 +376,11 @@ router.get(
 );
 
 // GET /api/v1/billing/invoices/:id
+// RBAC (issue #89): DOCTOR must NOT see invoice detail. PATIENT allowed for
+// own-record access (further checked at object level by upstream consumers).
 router.get(
   "/invoices/:id",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const invoice = await prisma.invoice.findUnique({
@@ -501,9 +518,11 @@ router.patch(
 );
 
 // GET /api/v1/billing/reports/daily — daily collection summary
+// RBAC (issue #90): RECEPTION must NOT see "Today's Revenue" / collection
+// totals. Restricted to ADMIN.
 router.get(
   "/reports/daily",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { date } = req.query;
@@ -563,8 +582,10 @@ router.get(
 );
 
 // POST /api/v1/billing/pay-online — create Razorpay order for an invoice
+// RBAC (issue #89): DOCTOR excluded.
 router.post(
   "/pay-online",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { invoiceId } = req.body;
@@ -632,8 +653,10 @@ router.post(
 );
 
 // POST /api/v1/billing/verify-payment — verify Razorpay payment and record it
+// RBAC (issue #89): DOCTOR excluded.
 router.post(
   "/verify-payment",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { razorpayOrderId, razorpayPaymentId, razorpaySignature, invoiceId } =
@@ -1482,8 +1505,10 @@ router.post(
 // ─── OUTSTANDING REPORTS ──────────────────────────────────
 
 // GET /api/v1/billing/patients/:patientId/outstanding
+// RBAC (issue #89): DOCTOR excluded; PATIENT path enforced inline.
 router.get(
   "/patients/:patientId/outstanding",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.params;
@@ -1611,9 +1636,10 @@ router.get(
 );
 
 // GET /api/v1/billing/reports/revenue?from=&to=&groupBy=day|month&doctorId=
+// RBAC (issue #90): ADMIN-only revenue series. RECEPTION removed.
 router.get(
   "/reports/revenue",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -1837,8 +1863,10 @@ router.post(
 );
 
 // GET /api/v1/billing/advances?patientId=
+// RBAC (issue #89): DOCTOR excluded; PATIENT path enforced inline.
 router.get(
   "/advances",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { patientId } = req.query as Record<string, string | undefined>;
@@ -2229,8 +2257,10 @@ router.post(
 );
 
 // GET /api/v1/billing/invoices/:id/tax-breakdown — GST (CGST + SGST) breakdown
+// RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/invoices/:id/tax-breakdown",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const inv = await prisma.invoice.findUnique({ where: { id: req.params.id } });
@@ -2267,8 +2297,10 @@ router.get(
 );
 
 // GET /api/v1/billing/invoices/:id/pdf
+// RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/invoices/:id/pdf",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // `?format=pdf` -> real PDF, default -> legacy HTML print view.

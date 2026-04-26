@@ -2,11 +2,16 @@
 
 import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { Plus, FlaskConical } from "lucide-react";
+
+// Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
+// Clinical roles + LAB_TECH + PATIENT (own data).
+const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
 
 interface LabTest {
   id: string;
@@ -71,8 +76,17 @@ const FLAG_COLORS: Record<string, string> = {
 };
 
 export default function LabPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const { t } = useTranslation();
+
+  // Issue #90: redirect RECEPTION away — clinical-data exposure.
+  useEffect(() => {
+    if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
+      toast.error("Lab orders & results are restricted to clinical staff.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
   const [tab, setTab] = useState<Tab>("orders");
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);

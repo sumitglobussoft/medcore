@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Wallet, Plus, X } from "lucide-react";
+
+// Issue #89: DOCTOR must NOT see Expenses (₹9.29 lakh staff-salary leak).
+// Restricted to ADMIN + RECEPTION (financial roles).
+const ALLOWED_ROLES = new Set(["ADMIN", "RECEPTION"]);
 
 interface ExpenseRecord {
   id: string;
@@ -66,7 +71,8 @@ function today() {
 }
 
 export default function ExpensesPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const confirm = useConfirm();
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -76,10 +82,19 @@ export default function ExpensesPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showAdd, setShowAdd] = useState(false);
 
+  // Issue #89: redirect away if role is not financial. Toast — no native alert.
   useEffect(() => {
+    if (!isLoading && user && !ALLOWED_ROLES.has(user.role)) {
+      toast.error("Expenses is restricted to Admin and Reception.");
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
+
+  useEffect(() => {
+    if (user && !ALLOWED_ROLES.has(user.role)) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, categoryFilter]);
+  }, [from, to, categoryFilter, user]);
 
   async function load() {
     setLoading(true);

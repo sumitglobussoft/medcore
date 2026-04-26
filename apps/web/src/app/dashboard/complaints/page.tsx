@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 
 interface Complaint {
   id: string;
@@ -34,6 +35,11 @@ interface Stats {
   byPriority: Record<string, number>;
   avgResolutionHours: number;
   overdueCount: number;
+  // Issue #92 (2026-04-26): server now exposes totalOpen (union of
+  // OPEN+UNDER_REVIEW+ESCALATED) so Critical Open ⊆ Total Open by
+  // construction. overdueUnassignedCount drives the red banner.
+  totalOpen?: number;
+  overdueUnassignedCount?: number;
   criticalOpen: number;
 }
 
@@ -82,6 +88,7 @@ function formatSla(due: Date, now: number): { text: string; overdue: boolean; pc
 }
 
 export default function ComplaintsPage() {
+  const confirm = useConfirm();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
@@ -199,6 +206,20 @@ export default function ComplaintsPage() {
     }
   }
 
+  // Issue #92 (2026-04-26): Review action used to fire a silent state
+  // change. Wrap it in the shared ConfirmDialog so a misclick can't
+  // change a complaint's status without operator acknowledgement.
+  async function reviewWithConfirm(id: string, ticketNumber: string) {
+    const ok = await confirm({
+      title: "Mark this complaint as Under Review?",
+      message: `Ticket ${ticketNumber} will move from Open to Under Review. The customer-facing SLA clock keeps running until resolution.`,
+      confirmLabel: "Mark Reviewed",
+      cancelLabel: "Cancel",
+    });
+    if (!ok) return;
+    await changeStatus(id, "UNDER_REVIEW");
+  }
+
   async function resolveSubmit() {
     if (!resolveId) return;
     try {
@@ -254,17 +275,47 @@ export default function ComplaintsPage() {
         </button>
       </div>
 
-      {/* Stats */}
+      {/* Issue #92 banner — overdue + unassigned complaints (>200h) */}
+      {stats?.overdueUnassignedCount && stats.overdueUnassignedCount > 0 ? (
+        <div
+          data-testid="complaints-overdue-banner"
+          className="mb-4 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800"
+        >
+          <span className="text-lg">⚠</span>
+          <div>
+            <p className="font-semibold">
+              {stats.overdueUnassignedCount} complaint
+              {stats.overdueUnassignedCount === 1 ? "" : "s"} overdue (&gt;200h)
+              and unassigned
+            </p>
+            <p className="text-xs text-red-700">
+              Assign these to an owner to restart the SLA clock or escalate to
+              the Medical Director.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Stats — Issue #92: Open KPI uses stats.totalOpen (union of
+          OPEN+UNDER_REVIEW+ESCALATED) so Critical Open ⊆ Total Open is
+          enforced at the source. Falls back to byStatus.OPEN for older
+          servers that haven't deployed the stats fix yet. */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-xl bg-white p-4 shadow-sm">
-          <p className="text-xs text-gray-500">Open</p>
-          <p className="text-2xl font-bold text-yellow-600">
-            {stats?.byStatus.OPEN || 0}
+          <p className="text-xs text-gray-500">Total Open</p>
+          <p
+            data-testid="complaints-total-open"
+            className="text-2xl font-bold text-yellow-600"
+          >
+            {stats?.totalOpen ?? stats?.byStatus.OPEN ?? 0}
           </p>
         </div>
         <div className="rounded-xl bg-white p-4 shadow-sm">
           <p className="text-xs text-gray-500">Critical Open</p>
-          <p className="text-2xl font-bold text-red-600">
+          <p
+            data-testid="complaints-critical-open"
+            className="text-2xl font-bold text-red-600"
+          >
             {stats?.criticalOpen || 0}
           </p>
         </div>
@@ -520,7 +571,10 @@ export default function ComplaintsPage() {
                         <div className="flex gap-2">
                           {c.status === "OPEN" && (
                             <button
-                              onClick={() => changeStatus(c.id, "UNDER_REVIEW")}
+                              data-testid={`complaint-review-${c.ticketNumber}`}
+                              onClick={() =>
+                                reviewWithConfirm(c.id, c.ticketNumber)
+                              }
                               className="rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600"
                             >
                               Review

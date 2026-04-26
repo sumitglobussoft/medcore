@@ -3,6 +3,35 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
+
+// Issue #91 (Apr 2026): clinically sensible ranges, mirrored from
+// packages/shared/src/validation/patient.ts VITALS_RANGES.
+const RANGE = {
+  bloodPressureSystolic: { min: 60, max: 260, label: "BP Systolic", unit: "mmHg" },
+  bloodPressureDiastolic: { min: 30, max: 180, label: "BP Diastolic", unit: "mmHg" },
+  temperatureF: { min: 90, max: 110, label: "Temperature", unit: "°F" },
+  temperatureC: { min: 32, max: 43, label: "Temperature", unit: "°C" },
+  pulseRate: { min: 30, max: 220, label: "Pulse", unit: "bpm" },
+  spO2: { min: 50, max: 100, label: "SpO2", unit: "%" },
+  weight: { min: 0.5, max: 300, label: "Weight", unit: "kg" },
+  height: { min: 20, max: 250, label: "Height", unit: "cm" },
+  respiratoryRate: { min: 5, max: 80, label: "Respiratory rate", unit: "/min" },
+} as const;
+
+function rangeError(
+  raw: string,
+  bounds: { min: number; max: number; unit: string },
+  isInt = false
+): string | null {
+  if (!raw) return null;
+  const n = isInt ? parseInt(raw, 10) : parseFloat(raw);
+  if (Number.isNaN(n)) return "Enter a number";
+  if (n < bounds.min || n > bounds.max) {
+    return `Must be ${bounds.min}–${bounds.max} ${bounds.unit}`;
+  }
+  return null;
+}
 
 interface QueuePatient {
   tokenNumber: number;
@@ -38,6 +67,7 @@ export default function VitalsPage() {
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+  const [serverFieldErrors, setServerFieldErrors] = useState<FieldErrorMap>({});
 
   // Patient baseline + last-recorded change summary
   const [baseline, setBaseline] = useState<{
@@ -115,6 +145,52 @@ export default function VitalsPage() {
   if (!isNaN(tempF) && tempF >= 100.4) flags.push("Fever");
   if (!isNaN(tempF) && tempF < 95) flags.push("Hypothermia");
 
+  // ── Issue #91: client-side range validation (mirrors API) ─────────────
+  const tempBounds =
+    form.temperatureUnit === "C" ? RANGE.temperatureC : RANGE.temperatureF;
+  const clientErrors: FieldErrorMap = {
+    bloodPressureSystolic:
+      rangeError(form.bloodPressureSystolic, RANGE.bloodPressureSystolic, true) ?? "",
+    bloodPressureDiastolic:
+      rangeError(form.bloodPressureDiastolic, RANGE.bloodPressureDiastolic, true) ?? "",
+    temperature: rangeError(form.temperature, tempBounds) ?? "",
+    pulseRate: rangeError(form.pulseRate, RANGE.pulseRate, true) ?? "",
+    spO2: rangeError(form.spO2, RANGE.spO2, true) ?? "",
+    weight: rangeError(form.weight, RANGE.weight) ?? "",
+    height: rangeError(form.height, RANGE.height) ?? "",
+    respiratoryRate: rangeError(form.respiratoryRate, RANGE.respiratoryRate, true) ?? "",
+  };
+  // Cross-check: diastolic must not exceed systolic when both filled.
+  if (
+    !isNaN(sys) &&
+    !isNaN(dia) &&
+    !clientErrors.bloodPressureSystolic &&
+    !clientErrors.bloodPressureDiastolic &&
+    dia >= sys
+  ) {
+    clientErrors.bloodPressureDiastolic = "Diastolic must be lower than systolic";
+  }
+  const fieldErrors: FieldErrorMap = {};
+  for (const [k, v] of Object.entries(clientErrors)) if (v) fieldErrors[k] = v;
+  // Server errors take precedence so the user sees what the API rejected.
+  for (const [k, v] of Object.entries(serverFieldErrors)) fieldErrors[k] = v;
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+
+  // ── Issue #91: critical-vitals banner trigger ─────────────────────────
+  // Show an in-DOM red banner (above the form) whenever any of:
+  //   SpO2 < 90, temp > 102.5°F, pulse < 40 or > 150, systolic > 200.
+  const criticalReasons: string[] = [];
+  if (!isNaN(spo2) && spo2 > 0 && spo2 < 90)
+    criticalReasons.push(`SpO2 ${spo2}% (critical < 90)`);
+  if (!isNaN(tempF) && tempF > 102.5)
+    criticalReasons.push(`Temp ${tempF.toFixed(1)}°F (high fever > 102.5)`);
+  if (!isNaN(pulse) && pulse > 0 && pulse < 40)
+    criticalReasons.push(`Pulse ${pulse} bpm (critical bradycardia < 40)`);
+  if (!isNaN(pulse) && pulse > 150)
+    criticalReasons.push(`Pulse ${pulse} bpm (critical tachycardia > 150)`);
+  if (!isNaN(sys) && sys > 200)
+    criticalReasons.push(`Systolic ${sys} mmHg (hypertensive crisis > 200)`);
+
   useEffect(() => {
     api
       .get<{ data: Doctor[] }>("/doctors")
@@ -142,7 +218,16 @@ export default function VitalsPage() {
     e.preventDefault();
     if (!selectedPatient) return;
 
+    // Block submit if any client-side range errors. The fieldErrors map
+    // already merges client + last-server messages, so the user can see them
+    // below each field without us re-toasting.
+    if (hasFieldErrors) {
+      toast.error("Please fix the highlighted vitals before saving");
+      return;
+    }
+
     setSaving(true);
+    setServerFieldErrors({});
     try {
       const res = await api.post<{
         data: {
@@ -202,7 +287,14 @@ export default function VitalsPage() {
       });
       if (selectedDoctor) loadQueue(selectedDoctor);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save vitals");
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setServerFieldErrors(fields);
+        const first = Object.values(fields)[0];
+        toast.error(first || "Please fix the highlighted vitals");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed to save vitals");
+      }
     }
     setSaving(false);
   }
@@ -301,6 +393,28 @@ export default function VitalsPage() {
                   </div>
                 )}
 
+              {/* Critical-vitals banner — Issue #91 */}
+              {criticalReasons.length > 0 && (
+                <div
+                  data-testid="critical-vitals-banner"
+                  role="alert"
+                  className="mb-4 rounded-lg border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-900"
+                >
+                  <p className="mb-1 font-semibold">
+                    Critical vitals — escalate immediately
+                  </p>
+                  <ul className="list-disc pl-5 text-xs">
+                    {criticalReasons.map((r) => (
+                      <li key={r}>{r}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-xs italic">
+                    Notify the attending doctor before the patient leaves the
+                    triage area.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -313,21 +427,41 @@ export default function VitalsPage() {
                   </label>
                   <input
                     type="number"
+                    data-testid="vitals-bp-systolic"
+                    aria-invalid={!!fieldErrors.bloodPressureSystolic}
+                    min={RANGE.bloodPressureSystolic.min}
+                    max={RANGE.bloodPressureSystolic.max}
                     value={form.bloodPressureSystolic}
-                    onChange={(e) =>
-                      setForm({ ...form, bloodPressureSystolic: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setForm({ ...form, bloodPressureSystolic: e.target.value });
+                      if (serverFieldErrors.bloodPressureSystolic)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.bloodPressureSystolic;
+                          return n;
+                        });
+                    }}
                     className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                      form.bloodPressureSystolic &&
-                      baselineDeviation(
-                        "bpSystolic",
-                        parseFloat(form.bloodPressureSystolic)
-                      )
-                        ? "border-red-400 bg-red-50"
-                        : ""
+                      fieldErrors.bloodPressureSystolic
+                        ? "border-red-500 bg-red-50"
+                        : form.bloodPressureSystolic &&
+                            baselineDeviation(
+                              "bpSystolic",
+                              parseFloat(form.bloodPressureSystolic)
+                            )
+                          ? "border-red-400 bg-red-50"
+                          : ""
                     }`}
                     placeholder="120"
                   />
+                  {fieldErrors.bloodPressureSystolic && (
+                    <p
+                      data-testid="error-bp-systolic"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.bloodPressureSystolic}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -340,21 +474,41 @@ export default function VitalsPage() {
                   </label>
                   <input
                     type="number"
+                    data-testid="vitals-bp-diastolic"
+                    aria-invalid={!!fieldErrors.bloodPressureDiastolic}
+                    min={RANGE.bloodPressureDiastolic.min}
+                    max={RANGE.bloodPressureDiastolic.max}
                     value={form.bloodPressureDiastolic}
-                    onChange={(e) =>
-                      setForm({ ...form, bloodPressureDiastolic: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setForm({ ...form, bloodPressureDiastolic: e.target.value });
+                      if (serverFieldErrors.bloodPressureDiastolic)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.bloodPressureDiastolic;
+                          return n;
+                        });
+                    }}
                     className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                      form.bloodPressureDiastolic &&
-                      baselineDeviation(
-                        "bpDiastolic",
-                        parseFloat(form.bloodPressureDiastolic)
-                      )
-                        ? "border-red-400 bg-red-50"
-                        : ""
+                      fieldErrors.bloodPressureDiastolic
+                        ? "border-red-500 bg-red-50"
+                        : form.bloodPressureDiastolic &&
+                            baselineDeviation(
+                              "bpDiastolic",
+                              parseFloat(form.bloodPressureDiastolic)
+                            )
+                          ? "border-red-400 bg-red-50"
+                          : ""
                     }`}
                     placeholder="80"
                   />
+                  {fieldErrors.bloodPressureDiastolic && (
+                    <p
+                      data-testid="error-bp-diastolic"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.bloodPressureDiastolic}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 flex items-center justify-between text-sm font-medium">
@@ -387,13 +541,33 @@ export default function VitalsPage() {
                   <input
                     type="number"
                     step="0.1"
+                    data-testid="vitals-temperature"
+                    aria-invalid={!!fieldErrors.temperature}
+                    min={tempBounds.min}
+                    max={tempBounds.max}
                     value={form.temperature}
-                    onChange={(e) =>
-                      setForm({ ...form, temperature: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, temperature: e.target.value });
+                      if (serverFieldErrors.temperature)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.temperature;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.temperature ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder={form.temperatureUnit === "F" ? "98.6" : "37.0"}
                   />
+                  {fieldErrors.temperature && (
+                    <p
+                      data-testid="error-temperature"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.temperature}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -401,13 +575,33 @@ export default function VitalsPage() {
                   </label>
                   <input
                     type="number"
+                    data-testid="vitals-pulse"
+                    aria-invalid={!!fieldErrors.pulseRate}
+                    min={RANGE.pulseRate.min}
+                    max={RANGE.pulseRate.max}
                     value={form.pulseRate}
-                    onChange={(e) =>
-                      setForm({ ...form, pulseRate: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, pulseRate: e.target.value });
+                      if (serverFieldErrors.pulseRate)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.pulseRate;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.pulseRate ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder="72"
                   />
+                  {fieldErrors.pulseRate && (
+                    <p
+                      data-testid="error-pulse"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.pulseRate}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -415,13 +609,33 @@ export default function VitalsPage() {
                   </label>
                   <input
                     type="number"
+                    data-testid="vitals-spo2"
+                    aria-invalid={!!fieldErrors.spO2}
+                    min={RANGE.spO2.min}
+                    max={RANGE.spO2.max}
                     value={form.spO2}
-                    onChange={(e) =>
-                      setForm({ ...form, spO2: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, spO2: e.target.value });
+                      if (serverFieldErrors.spO2)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.spO2;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.spO2 ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder="98"
                   />
+                  {fieldErrors.spO2 && (
+                    <p
+                      data-testid="error-spo2"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.spO2}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -430,13 +644,33 @@ export default function VitalsPage() {
                   <input
                     type="number"
                     step="0.1"
+                    data-testid="vitals-weight"
+                    aria-invalid={!!fieldErrors.weight}
+                    min={RANGE.weight.min}
+                    max={RANGE.weight.max}
                     value={form.weight}
-                    onChange={(e) =>
-                      setForm({ ...form, weight: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, weight: e.target.value });
+                      if (serverFieldErrors.weight)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.weight;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.weight ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder="70"
                   />
+                  {fieldErrors.weight && (
+                    <p
+                      data-testid="error-weight"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.weight}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -445,13 +679,33 @@ export default function VitalsPage() {
                   <input
                     type="number"
                     step="0.1"
+                    data-testid="vitals-height"
+                    aria-invalid={!!fieldErrors.height}
+                    min={RANGE.height.min}
+                    max={RANGE.height.max}
                     value={form.height}
-                    onChange={(e) =>
-                      setForm({ ...form, height: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, height: e.target.value });
+                      if (serverFieldErrors.height)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.height;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.height ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder="170"
                   />
+                  {fieldErrors.height && (
+                    <p
+                      data-testid="error-height"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.height}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -462,13 +716,33 @@ export default function VitalsPage() {
                   </label>
                   <input
                     type="number"
+                    data-testid="vitals-resp-rate"
+                    aria-invalid={!!fieldErrors.respiratoryRate}
+                    min={RANGE.respiratoryRate.min}
+                    max={RANGE.respiratoryRate.max}
                     value={form.respiratoryRate}
-                    onChange={(e) =>
-                      setForm({ ...form, respiratoryRate: e.target.value })
-                    }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    onChange={(e) => {
+                      setForm({ ...form, respiratoryRate: e.target.value });
+                      if (serverFieldErrors.respiratoryRate)
+                        setServerFieldErrors((p) => {
+                          const n = { ...p };
+                          delete n.respiratoryRate;
+                          return n;
+                        });
+                    }}
+                    className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                      fieldErrors.respiratoryRate ? "border-red-500 bg-red-50" : ""
+                    }`}
                     placeholder="16"
                   />
+                  {fieldErrors.respiratoryRate && (
+                    <p
+                      data-testid="error-resp-rate"
+                      className="mt-1 text-xs text-red-600"
+                    >
+                      {fieldErrors.respiratoryRate}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium">
@@ -537,7 +811,8 @@ export default function VitalsPage() {
 
               <button
                 type="submit"
-                disabled={saving}
+                data-testid="save-vitals-btn"
+                disabled={saving || hasFieldErrors}
                 className="mt-4 w-full rounded-lg bg-secondary py-2.5 font-medium text-white hover:bg-green-700 disabled:opacity-50"
               >
                 {saving ? "Saving..." : "Save Vitals"}

@@ -37,8 +37,33 @@ interface CalEvent {
   raw?: any;
 }
 
+// Issue #93 (2026-04-26): off-by-one rendering. `d.toISOString()` always
+// converts to UTC, so an event at 2026-04-14T00:00+05:30 (IST midnight)
+// becomes 2026-04-13T18:30Z and the calendar bucketed it on Apr 13. We
+// now read the LOCAL year/month/day so the bucket matches what the user
+// sees on the wall clock. For raw YYYY-MM-DD strings (no time/zone), we
+// also expose a parser that anchors to local midnight rather than UTC.
 function fmtYmd(d: Date): string {
-  return d.toISOString().split("T")[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Parse a date the API returned. Accepts ISO datetimes (with offset) and
+ * bare YYYY-MM-DD strings — the latter must be anchored at local midnight,
+ * not UTC, to avoid the same off-by-one that bit fmtYmd() above.
+ */
+function parseEventDate(raw: string | Date): Date {
+  if (raw instanceof Date) return raw;
+  // Bare YYYY-MM-DD → local midnight (new Date("2026-04-14") is parsed
+  // as UTC by the spec, which is the off-by-one root cause).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(raw);
 }
 
 function safe<T>(p: string, fb: T): Promise<T> {
@@ -87,7 +112,10 @@ export default function UnifiedCalendarPage() {
       ]);
 
       for (const a of appts.data || []) {
-        const d = new Date(a.date);
+        // Appointments come back with a YYYY-MM-DD `date` — parse with
+        // the local-midnight helper so `fmtYmd` doesn't round it down a
+        // day in negative-offset timezones.
+        const d = parseEventDate(a.date);
         collected.push({
           id: `appt-${a.id}`,
           date: fmtYmd(d),
@@ -132,7 +160,7 @@ export default function UnifiedCalendarPage() {
         const visits = a.visits || [];
         for (const v of visits) {
           if (!v.scheduledDate) continue;
-          const d = new Date(v.scheduledDate);
+          const d = parseEventDate(v.scheduledDate);
           if (d < first || d > last) continue;
           collected.push({
             id: `anc-${v.id}`,
@@ -148,7 +176,7 @@ export default function UnifiedCalendarPage() {
       }
       for (const rx of rxFollow.data || []) {
         if (!rx.followUpDate) continue;
-        const d = new Date(rx.followUpDate);
+        const d = parseEventDate(rx.followUpDate);
         collected.push({
           id: `followup-${rx.id}`,
           date: fmtYmd(d),
@@ -161,7 +189,7 @@ export default function UnifiedCalendarPage() {
         });
       }
       for (const sh of shifts.data || []) {
-        const d = new Date(sh.date);
+        const d = parseEventDate(sh.date);
         collected.push({
           id: `shift-${sh.id}`,
           date: fmtYmd(d),
@@ -343,15 +371,12 @@ export default function UnifiedCalendarPage() {
             <div className="space-y-2 p-4 text-sm">
               {selected.subtitle && <p>{selected.subtitle}</p>}
               <p className="text-xs text-gray-500">
-                {new Date(selected.date + "T00:00:00").toLocaleDateString(
-                  "en-IN",
-                  {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  }
-                )}
+                {parseEventDate(selected.date).toLocaleDateString("en-IN", {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
                 {selected.time ? ` · ${selected.time}` : ""}
               </p>
               <p className="text-xs uppercase tracking-wide text-gray-400">

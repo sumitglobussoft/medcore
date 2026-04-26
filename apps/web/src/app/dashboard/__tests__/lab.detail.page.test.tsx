@@ -68,7 +68,7 @@ describe("LabOrderPage", () => {
     apiMock.get.mockReset();
     apiMock.patch.mockReset();
     authMock.mockImplementation((selector: any) => {
-      const state = { user: { id: "u1", name: "Tech", email: "t@x.com", role: "LAB_TECHNICIAN" } };
+      const state = { user: { id: "u1", name: "Tech", email: "t@x.com", role: "LAB_TECH" } };
       return typeof selector === "function" ? selector(state) : state;
     });
   });

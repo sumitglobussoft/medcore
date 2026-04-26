@@ -5,7 +5,14 @@ import { authenticate, authorize } from "../middleware/auth";
 
 const router = Router();
 router.use(authenticate);
-router.use(authorize(Role.ADMIN, Role.RECEPTION));
+// Issue #83: relaxed from `(ADMIN, RECEPTION)` to also include DOCTOR so the
+// AI Analytics Triage tab can render for doctors. The previously-shadowed
+// per-route `authorize(ADMIN, RECEPTION, DOCTOR)` on /ai/triage and
+// /ai/scribe never ran because this global guard 403'd the request — and
+// the web client surfaced that as a generic "Internal server error" toast.
+// Revenue routes still pin ADMIN-only at the per-route level
+// (see /revenue, /revenue/breakdown, /export/revenue.csv).
+router.use(authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR));
 
 // ─── Helpers ───────────────────────────────────────
 
@@ -210,8 +217,20 @@ router.get("/overview", async (req: Request, res: Response, next: NextFunction) 
 
     const current = await computeOverviewSnapshot(from, to);
 
+    // RBAC (issue #90): RECEPTION must NOT see revenue/financial KPIs in
+    // the overview. Strip totalRevenue + revenueByMode for non-ADMIN
+    // callers. This keeps the operational counters (appointments, patients,
+    // admissions, etc.) flowing to RECEPTION while hiding money.
+    const stripFinancial = (snap: typeof current) => {
+      if (req.user?.role === Role.ADMIN) return snap;
+      const { totalRevenue: _tr, revenueByMode: _rbm, ...rest } = snap;
+      void _tr;
+      void _rbm;
+      return rest;
+    };
+
     if (!compareMode) {
-      res.json({ success: true, data: current, error: null });
+      res.json({ success: true, data: stripFinancial(current), error: null });
       return;
     }
 
@@ -238,12 +257,15 @@ router.get("/overview", async (req: Request, res: Response, next: NextFunction) 
         Number(previous[k] || 0)
       );
     });
+    if (req.user?.role !== Role.ADMIN) {
+      delete deltaPercent.totalRevenue;
+    }
 
     res.json({
       success: true,
       data: {
-        current,
-        previous,
+        current: stripFinancial(current),
+        previous: stripFinancial(previous),
         deltaPercent,
         compareMode,
         previousRange: {
@@ -294,8 +316,11 @@ router.get("/appointments", async (req: Request, res: Response, next: NextFuncti
 });
 
 // ─── GET /analytics/revenue (time series) ──────────
+// RBAC (issue #90): financial KPIs are ADMIN-only. RECEPTION must NOT see
+// revenue dashboards (the global router authorize allows RECEPTION; this
+// per-route override re-tightens to ADMIN).
 
-router.get("/revenue", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/revenue", authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { from, to } = parseRange(req);
     const groupBy = parseGroupBy(req);
@@ -352,8 +377,9 @@ router.get("/revenue", async (req: Request, res: Response, next: NextFunction) =
 });
 
 // ─── GET /analytics/revenue/breakdown ──────────────
+// RBAC (issue #90): ADMIN-only.
 
-router.get("/revenue/breakdown", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/revenue/breakdown", authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { from, to } = parseRange(req);
 
@@ -1306,7 +1332,8 @@ router.get("/feedback/trends", async (req: Request, res: Response, next: NextFun
 
 // ─── CSV Exports ───────────────────────────────────
 
-router.get("/export/revenue.csv", async (req: Request, res: Response, next: NextFunction) => {
+// RBAC (issue #90): ADMIN-only — revenue CSV export contains payment data.
+router.get("/export/revenue.csv", authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { from, to } = parseRange(req);
 
@@ -1843,9 +1870,23 @@ router.get(
       let confidenceCount = 0;
 
       for (const s of sessions) {
-        // Messages is a JSON array of { role, content } objects
-        const msgs = Array.isArray(s.messages) ? (s.messages as Array<{ role: string }>) : [];
-        const userTurns = msgs.filter((m) => m.role === "user").length;
+        // Messages is a JSON array of { role, content } objects. Defensive:
+        // older rows wrote a JSON-stringified array — coerce both shapes.
+        // (Issue #83: the un-coerced read raised "messages.filter is not a
+        // function" → 500.)
+        let msgs: Array<{ role: string }> = [];
+        const rawMsgs: unknown = s.messages;
+        if (Array.isArray(rawMsgs)) {
+          msgs = rawMsgs as Array<{ role: string }>;
+        } else if (typeof rawMsgs === "string") {
+          try {
+            const parsed = JSON.parse(rawMsgs);
+            if (Array.isArray(parsed)) msgs = parsed as Array<{ role: string }>;
+          } catch {
+            msgs = [];
+          }
+        }
+        const userTurns = msgs.filter((m) => m && m.role === "user").length;
         totalUserTurns += userTurns;
         sessionCount++;
 
@@ -1853,14 +1894,22 @@ router.get(
         const cc = (s.chiefComplaint || "").trim();
         if (cc) chiefComplaintCounts.set(cc, (chiefComplaintCounts.get(cc) || 0) + 1);
 
-        // Suggested specialties — flatten JSON array
+        // Suggested specialties — flatten JSON array. The schema stores a
+        // mix of `string[]` (older rows) and `Array<{ specialty: string }>`
+        // (current shape from kpi-metrics top1AcceptanceRate). Handle both.
         if (s.suggestedSpecialties) {
-          const specs = Array.isArray(s.suggestedSpecialties)
-            ? (s.suggestedSpecialties as string[])
-            : [];
+          const raw = s.suggestedSpecialties as unknown;
+          const specs = Array.isArray(raw) ? raw : [];
           for (const sp of specs) {
-            if (sp && typeof sp === "string") {
+            if (typeof sp === "string") {
               specialtyCounts.set(sp, (specialtyCounts.get(sp) || 0) + 1);
+            } else if (
+              sp &&
+              typeof sp === "object" &&
+              typeof (sp as { specialty?: unknown }).specialty === "string"
+            ) {
+              const name = (sp as { specialty: string }).specialty;
+              specialtyCounts.set(name, (specialtyCounts.get(name) || 0) + 1);
             }
           }
         }

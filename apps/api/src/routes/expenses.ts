@@ -16,7 +16,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/expenses — list with filters
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+// RBAC (issue #89): DOCTOR must NOT see expenses (₹9.29 lakh staff-salary
+// leak). Restricted to financial roles only.
+router.get("/", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       category,
@@ -64,8 +66,10 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // GET /api/v1/expenses/summary?from=&to=
+// RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/summary",
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { from, to } = req.query as Record<string, string | undefined>;
@@ -271,8 +275,10 @@ router.patch(
 );
 
 // GET /api/v1/expenses/recurring — list recurring templates
+// RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/recurring",
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const items = await prisma.expense.findMany({
@@ -344,8 +350,10 @@ router.post(
 );
 
 // GET /api/v1/expenses/budgets?year=&month=
+// RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/budgets",
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const now = new Date();
