@@ -14,6 +14,7 @@
   "include": [
     "./migrate-insurance-claims-to-v2.ts",
     "./verify-insurance-claims-migration.ts",
-    "./dedup-active-admissions.ts"
+    "./dedup-active-admissions.ts",
+    "./sanitize-and-reseed.ts"
   ]
 }
