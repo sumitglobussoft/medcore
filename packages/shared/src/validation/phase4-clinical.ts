@@ -61,14 +61,36 @@ export const endTelemedicineSchema = z.object({
 });
 
 // Emergency
-export const createEmergencyCaseSchema = z.object({
-  patientId: z.string().uuid().optional(),
-  unknownName: z.string().optional(),
-  unknownAge: z.number().int().nonnegative().optional(),
-  unknownGender: z.string().optional(),
-  arrivalMode: z.string().optional(),
-  chiefComplaint: z.string().min(1),
-});
+// Issue #171 (Apr 2026): the create schema previously allowed BOTH
+// patientId and unknownName to be absent — and the route happily wrote
+// an orphan ER case row with no patient identity. Now we require
+// EXACTLY one of:
+//   - `patientId` (UUID) for a registered chart, OR
+//   - `unknownName` (non-empty trimmed string) for John/Jane Doe intake.
+// The ER intake form already exposes a 2-tab toggle (Registered /
+// Unknown) so this matches the UI contract; orphan rows are blocked at
+// the API even if a stale client misses the toggle.
+export const createEmergencyCaseSchema = z
+  .object({
+    patientId: z.string().uuid().optional(),
+    unknownName: z.string().trim().optional(),
+    unknownAge: z.number().int().nonnegative().optional(),
+    unknownGender: z.string().optional(),
+    arrivalMode: z.string().optional(),
+    chiefComplaint: z.string().min(1),
+  })
+  .superRefine((data, ctx) => {
+    const hasPatient = !!data.patientId;
+    const hasUnknown = !!data.unknownName && data.unknownName.length > 0;
+    if (!hasPatient && !hasUnknown) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["patientId"],
+        message:
+          "Patient is required: select a registered patient or provide a name for an unknown intake.",
+      });
+    }
+  });
 
 export const triageSchema = z.object({
   caseId: z.string().uuid(),

@@ -341,7 +341,17 @@ async function main() {
         totalAppointments++;
 
         // ─── Vitals (for checked-in, in-consultation, completed) ───
-        if ([AppointmentStatus.CHECKED_IN, AppointmentStatus.IN_CONSULTATION, AppointmentStatus.COMPLETED].includes(status)) {
+        // Type narrowing: `.includes()` on a narrow tuple needs an explicit
+        // widening cast on the array side because TS infers
+        // `(CHECKED_IN | IN_CONSULTATION | COMPLETED)[]` and `status` here is
+        // the wider AppointmentStatus.
+        if (
+          ([
+            AppointmentStatus.CHECKED_IN,
+            AppointmentStatus.IN_CONSULTATION,
+            AppointmentStatus.COMPLETED,
+          ] as AppointmentStatus[]).includes(status)
+        ) {
           const patAge = PATIENT_DATA.find(pd => pd.name === p.name)?.age ?? 40;
           await prisma.vitals.create({
             data: {
@@ -361,7 +371,15 @@ async function main() {
         }
 
         // ─── Consultation & Prescription (for completed & in-consultation) ───
-        if ([AppointmentStatus.COMPLETED, AppointmentStatus.IN_CONSULTATION].includes(status)) {
+        // Same type-narrowing pattern as above — widen the literal-typed
+        // array to AppointmentStatus[] so the strict include() typecheck
+        // passes.
+        if (
+          ([
+            AppointmentStatus.COMPLETED,
+            AppointmentStatus.IN_CONSULTATION,
+          ] as AppointmentStatus[]).includes(status)
+        ) {
           const diagData = randomItem(DIAGNOSES);
 
           await prisma.consultation.create({

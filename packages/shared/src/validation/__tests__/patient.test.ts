@@ -113,6 +113,48 @@ describe("createPatientSchema", () => {
   });
 });
 
+// Issue #167 (Apr 2026): adult registration must reject age=0; pediatric
+// flow (DOB-based newborn) must still accept it.
+describe("createPatientSchema age=0 guard (Issue #167)", () => {
+  it("rejects age=0 without dateOfBirth (adult flow)", () => {
+    const r = createPatientSchema.safeParse({ ...validPatient, age: 0 });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const ageIssue = r.error.issues.find((i) => i.path.includes("age"));
+      expect(ageIssue?.message).toMatch(/Age must be at least 1/i);
+    }
+  });
+  it("accepts age=0 with dateOfBirth (pediatric/newborn flow)", () => {
+    const r = createPatientSchema.safeParse({
+      ...validPatient,
+      age: 0,
+      dateOfBirth: "2026-04-25",
+    });
+    expect(r.success).toBe(true);
+  });
+  it("rejects future dateOfBirth", () => {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    const r = createPatientSchema.safeParse({
+      ...validPatient,
+      dateOfBirth: tomorrow,
+    });
+    expect(r.success).toBe(false);
+  });
+  it("accepts adult age >= 1", () => {
+    expect(
+      createPatientSchema.safeParse({ ...validPatient, age: 1 }).success
+    ).toBe(true);
+    expect(
+      createPatientSchema.safeParse({ ...validPatient, age: 35 }).success
+    ).toBe(true);
+  });
+  it("accepts when age is omitted entirely", () => {
+    // Reception may register a walk-in chart and fill DOB later; the
+    // refine should NOT block the no-age path.
+    expect(createPatientSchema.safeParse(validPatient).success).toBe(true);
+  });
+});
+
 describe("updatePatientSchema", () => {
   it("accepts an empty object (all fields optional)", () => {
     expect(updatePatientSchema.safeParse({}).success).toBe(true);

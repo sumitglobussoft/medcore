@@ -166,6 +166,25 @@ describe("createEmergencyCaseSchema", () => {
       createEmergencyCaseSchema.safeParse({ chiefComplaint: "" }).success
     ).toBe(false);
   });
+  // Issue #171 (Apr 2026): require either patientId or unknownName so an
+  // ER case can never be a true orphan record.
+  it("rejects when neither patientId nor unknownName is provided", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      chiefComplaint: "Unspecified",
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) => i.path.includes("patientId"));
+      expect(issue?.message).toMatch(/Patient is required/i);
+    }
+  });
+  it("rejects when unknownName is empty whitespace and no patientId", () => {
+    const r = createEmergencyCaseSchema.safeParse({
+      chiefComplaint: "Trauma",
+      unknownName: "   ",
+    });
+    expect(r.success).toBe(false);
+  });
 });
 
 describe("triageSchema", () => {

@@ -252,10 +252,23 @@ async function main() {
     const orderNumber = `LAB${String(nextSeq++).padStart(6, "0")}`;
     const orderedAt = scenario.daysOld > 0 ? daysAgo(scenario.daysOld) : hoursAgo(rand(0, 23));
 
-    const collectedAt =
-      [LabTestStatus.SAMPLE_COLLECTED, LabTestStatus.IN_PROGRESS, LabTestStatus.COMPLETED].includes(scenario.status)
-        ? new Date(orderedAt.getTime() + rand(15, 120) * 60 * 1000)
-        : null;
+    // Issue (Apr 2026 cleanup): TS strict-mode rejected `.includes(scenario.status)`
+    // because the array's element type is the narrow 3-status subset while
+    // `scenario.status` widened to all 5 possible LabTestStatus values
+    // (ORDERED + CANCELLED also flow through here). Use a type guard against
+    // a const tuple so the narrowing is explicit and TS accepts the call.
+    const COLLECTED_STATUSES = [
+      LabTestStatus.SAMPLE_COLLECTED,
+      LabTestStatus.IN_PROGRESS,
+      LabTestStatus.COMPLETED,
+    ] as const;
+    type CollectedStatus = (typeof COLLECTED_STATUSES)[number];
+    const isCollectedStatus = (s: LabTestStatus): s is CollectedStatus =>
+      (COLLECTED_STATUSES as readonly LabTestStatus[]).includes(s);
+
+    const collectedAt = isCollectedStatus(scenario.status)
+      ? new Date(orderedAt.getTime() + rand(15, 120) * 60 * 1000)
+      : null;
 
     const completedAt =
       scenario.status === LabTestStatus.COMPLETED
@@ -351,7 +364,113 @@ async function main() {
     console.log(`    ${sc.status}: ${sc._count}`);
   }
 
+  // ─── Lab QC entries (Issue #172) ──────────────────────────
+  // The QC dashboard read empty even on tenants with hundreds of completed
+  // orders because nothing seeded `LabQCEntry`. This block creates ~10
+  // Levey-Jennings-style daily QC runs per common test (CBC, KFT, LFT,
+  // Lipid Profile, Thyroid Profile, FBS, HbA1c) with normal-distributed
+  // recorded values around a known mean/SD pair so the LJ chart renders
+  // realistic ±2SD / ±3SD deviations and a believable pass-rate.
+  await seedLabQCEntries(staffUsers);
+
   console.log("\n=== Lab seed complete ===");
+}
+
+/**
+ * Idempotent QC entries. Each (testName, instrument, runDate) combo is
+ * unique, so we re-run by skipping when the rows already exist for the
+ * current 10-day window.
+ */
+async function seedLabQCEntries(
+  staffUsers: Array<{ id: string }>
+): Promise<void> {
+  console.log("\n  Seeding Lab QC entries (Levey-Jennings)...");
+
+  // Reference QC targets — mean + SD per parameter group. Chosen to match
+  // mid-range physiologic values so the recorded points land within the
+  // ±2SD band ~95% of the time (clinically realistic pass-rate).
+  const qcTargets: Array<{
+    testName: string;
+    instrument: string;
+    qcLevel: "LOW" | "NORMAL" | "HIGH";
+    mean: number;
+    sd: number;
+  }> = [
+    { testName: "CBC", instrument: "Sysmex XN-1000", qcLevel: "NORMAL", mean: 13.5, sd: 0.4 },
+    { testName: "CBC", instrument: "Sysmex XN-1000", qcLevel: "LOW", mean: 8.0, sd: 0.3 },
+    { testName: "Lipid Profile", instrument: "Roche Cobas c311", qcLevel: "NORMAL", mean: 180, sd: 8 },
+    { testName: "LFT", instrument: "Roche Cobas c311", qcLevel: "NORMAL", mean: 32, sd: 2.5 },
+    { testName: "KFT", instrument: "Roche Cobas c311", qcLevel: "NORMAL", mean: 1.0, sd: 0.08 },
+    { testName: "Thyroid Profile", instrument: "Beckman DXI-800", qcLevel: "NORMAL", mean: 2.5, sd: 0.2 },
+    { testName: "Blood Sugar Fasting", instrument: "Roche Cobas c311", qcLevel: "NORMAL", mean: 95, sd: 4 },
+    { testName: "HbA1c", instrument: "Bio-Rad D-10", qcLevel: "NORMAL", mean: 5.5, sd: 0.15 },
+  ];
+
+  // Box-Muller normal-distributed sample.
+  function gaussian(mean: number, sd: number): number {
+    const u1 = Math.random() || 1e-9;
+    const u2 = Math.random() || 1e-9;
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + z * sd;
+  }
+
+  const tests = await prisma.labTest.findMany();
+  const testByName = new Map(tests.map((t) => [t.name, t]));
+
+  if (staffUsers.length === 0) {
+    console.log("  No staff users to record QC; skipping.");
+    return;
+  }
+
+  let createdQC = 0;
+  for (const target of qcTargets) {
+    const test = testByName.get(target.testName);
+    if (!test) continue;
+
+    for (let dayBack = 9; dayBack >= 0; dayBack--) {
+      const runDate = daysAgo(dayBack);
+
+      // Skip if a row for this exact (testId, instrument, qcLevel,
+      // run-day) already exists — keeps the seed idempotent.
+      const dayStart = new Date(runDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(runDate);
+      dayEnd.setHours(23, 59, 59, 999);
+      const exists = await prisma.labQCEntry.findFirst({
+        where: {
+          testId: test.id,
+          instrument: target.instrument,
+          qcLevel: target.qcLevel,
+          runDate: { gte: dayStart, lte: dayEnd },
+        },
+        select: { id: true },
+      });
+      if (exists) continue;
+
+      const recorded = gaussian(target.mean, target.sd);
+      const z = (recorded - target.mean) / target.sd;
+      const withinRange = Math.abs(z) <= 2; // ±2SD pass band
+      const cv = (target.sd / target.mean) * 100;
+
+      await prisma.labQCEntry.create({
+        data: {
+          testId: test.id,
+          qcLevel: target.qcLevel,
+          instrument: target.instrument,
+          runDate,
+          meanValue: target.mean,
+          recordedValue: parseFloat(recorded.toFixed(3)),
+          cv: parseFloat(cv.toFixed(2)),
+          withinRange,
+          performedBy: pick(staffUsers).id,
+          notes: withinRange ? null : `Out of ±2SD (z=${z.toFixed(2)})`,
+        },
+      });
+      createdQC++;
+    }
+  }
+
+  console.log(`  Created ${createdQC} QC entries`);
 }
 
 main()

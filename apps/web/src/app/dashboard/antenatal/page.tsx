@@ -426,10 +426,13 @@ export default function AntenatalPage() {
             <div className="space-y-4">
               <div>
                 <label className="mb-1 block text-sm font-medium">
-                  Patient (female only)
+                  Patient (female only) <span className="text-red-600" aria-hidden="true">*</span>
                 </label>
                 {selectedPatient ? (
-                  <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+                  <div
+                    data-testid="anc-patient-selected"
+                    className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm"
+                  >
                     <span>
                       <strong>{selectedPatient.user.name}</strong> —{" "}
                       {selectedPatient.mrNumber}
@@ -448,7 +451,15 @@ export default function AntenatalPage() {
                 ) : (
                   <>
                     <input
-                      placeholder="Search by name or MR number"
+                      // Issue #171 (Apr 2026): patient picker is required —
+                      // without a selected patient the case is an orphan.
+                      // We can't put `required` on a search field that
+                      // becomes hidden once the choice is made, so we
+                      // rely on `aria-required` for AT + the
+                      // submitCase() guard for actual blocking.
+                      aria-required="true"
+                      data-testid="anc-patient-search"
+                      placeholder="Search by name or MR number (required)"
                       value={patientSearch}
                       onChange={(e) => setPatientSearch(e.target.value)}
                       className="w-full rounded-lg border px-3 py-2 text-sm"

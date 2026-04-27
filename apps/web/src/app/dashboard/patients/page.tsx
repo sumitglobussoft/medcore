@@ -109,8 +109,12 @@ export default function PatientsPage() {
       errs.email = "Enter a valid email address";
     if (form.age) {
       const ageNum = parseInt(form.age, 10);
-      if (Number.isNaN(ageNum) || ageNum < 0 || ageNum > 130)
-        errs.age = "Age must be between 0 and 130";
+      // Issue #167 (Apr 2026): adult registration form. age=0 was
+      // silently accepted because reception's empty input coerced to 0;
+      // newborns are registered with date-of-birth via the pediatric
+      // flow, not this form. Reject < 1 explicitly.
+      if (Number.isNaN(ageNum) || ageNum < 1 || ageNum > 130)
+        errs.age = "Age must be between 1 and 130";
     }
     if (form.address) {
       const pinMatch = form.address.match(/\b(\d{6})\b/);
@@ -318,8 +322,10 @@ export default function PatientsPage() {
               </label>
               <input
                 id="patient-email"
+                type="email"
                 placeholder="Email (optional)"
                 value={form.email}
+                data-testid="patient-email"
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className={
                   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -327,7 +333,9 @@ export default function PatientsPage() {
                 }
               />
               {formErrors.email && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.email}</p>
+                <p data-testid="error-email" className="mt-1 text-xs text-red-600">
+                  {formErrors.email}
+                </p>
               )}
             </div>
             <div>
@@ -338,7 +346,10 @@ export default function PatientsPage() {
                 id="patient-age"
                 placeholder={t("register.age")}
                 type="number"
+                min={1}
+                max={130}
                 value={form.age}
+                data-testid="patient-age"
                 onChange={(e) => setForm({ ...form, age: e.target.value })}
                 className={
                   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -346,7 +357,9 @@ export default function PatientsPage() {
                 }
               />
               {formErrors.age && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.age}</p>
+                <p data-testid="error-patient-age" className="mt-1 text-xs text-red-600">
+                  {formErrors.age}
+                </p>
               )}
             </div>
             <label htmlFor="patient-gender" className="sr-only">

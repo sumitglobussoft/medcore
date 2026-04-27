@@ -13,7 +13,10 @@ export const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
 // Issue #103 / #138 share this E.164-ish 10–15 digit format.
 export const PHONE_REGEX = /^\+?\d{10,15}$/;
 
-export const createPatientSchema = z.object({
+// Issue #167 (Apr 2026): the base shape stays as a ZodObject so existing
+// `createPatientSchema.partial()` (used by updatePatientSchema) keeps
+// working — only the create path layers on the adult-vs-newborn refine.
+const patientBaseSchema = z.object({
   name: z
     .string()
     .trim()
@@ -24,6 +27,11 @@ export const createPatientSchema = z.object({
       "Name may only contain letters, spaces, dots, hyphens and apostrophes"
     ),
   dateOfBirth: z.string().optional(),
+  // age: schema floor stays at 0 so the pediatric/newborn DOB-based path
+  // still works. The "adult flow rejects 0" rule is enforced via the
+  // .superRefine() on `createPatientSchema` below — that way `age=0`
+  // without a DOB gets a clear field-level error, while `age=0` WITH a
+  // DOB (a newborn) still passes.
   age: z.number().int().min(0).max(150).optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]),
   phone: z
@@ -53,7 +61,42 @@ export const createPatientSchema = z.object({
     .optional(),
 });
 
-export const updatePatientSchema = createPatientSchema.partial();
+export const createPatientSchema = patientBaseSchema.superRefine((data, ctx) => {
+  // Issue #167: adult-flow guard. age=0 is allowed ONLY when a DOB is
+  // also supplied (a newborn). Otherwise it's the silent zero-coercion
+  // bug where the number input emitted `0` for an empty field.
+  if (data.age === 0 && !data.dateOfBirth) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["age"],
+      message:
+        "Age must be at least 1 for adult registration. For newborns, provide date of birth instead.",
+    });
+  }
+  // DOB sanity: must be in the past (no time-travelling babies).
+  if (data.dateOfBirth) {
+    const dob = new Date(data.dateOfBirth);
+    if (Number.isNaN(dob.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateOfBirth"],
+        message: "Invalid date of birth",
+      });
+    } else if (dob.getTime() > Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateOfBirth"],
+        message: "Date of birth must be in the past",
+      });
+    }
+  }
+});
+
+// updatePatientSchema is built from the base ZodObject so .partial() works
+// (ZodEffects from .superRefine() doesn't expose .partial()). The adult
+// `age=0` guard isn't relevant on PATCH — receptionists fixing typos
+// shouldn't be blocked by a refine that's only meaningful at registration.
+export const updatePatientSchema = patientBaseSchema.partial();
 
 export const mergePatientSchema = z.object({
   otherPatientId: z.string().uuid(),

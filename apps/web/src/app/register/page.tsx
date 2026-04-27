@@ -58,8 +58,11 @@ export default function RegisterPage() {
       errs.password = "Password must be at least 6 characters";
     if (form.age) {
       const n = parseInt(form.age, 10);
-      if (Number.isNaN(n) || n < 0 || n > 150)
-        errs.age = "Enter a valid age between 0 and 150";
+      // Issue #167 (Apr 2026): self-registration is the adult path.
+      // Newborns can't sign themselves up — guard against the
+      // empty-input-coerces-to-0 silent failure.
+      if (Number.isNaN(n) || n < 1 || n > 150)
+        errs.age = "Enter a valid age between 1 and 150";
     }
     return errs;
   }
@@ -312,7 +315,7 @@ export default function RegisterPage() {
               <input
                 id="reg-age"
                 type="number"
-                min="0"
+                min="1"
                 max="150"
                 value={form.age}
                 onChange={(e) => update("age", e.target.value)}

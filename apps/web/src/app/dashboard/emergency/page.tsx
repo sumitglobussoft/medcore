@@ -624,9 +624,14 @@ export default function EmergencyPage() {
             <div className="space-y-4">
               {!unknownMode ? (
                 <div>
-                  <label className="mb-1 block text-sm font-medium">Patient</label>
+                  <label className="mb-1 block text-sm font-medium">
+                    Patient <span className="text-red-600" aria-hidden="true">*</span>
+                  </label>
                   {intakePatient ? (
-                    <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
+                    <div
+                      data-testid="er-patient-selected"
+                      className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm"
+                    >
                       <span>
                         <strong>{intakePatient.user.name}</strong>
                         {intakePatient.mrNumber && ` — ${intakePatient.mrNumber}`}
@@ -645,7 +650,14 @@ export default function EmergencyPage() {
                   ) : (
                     <>
                       <input
-                        placeholder="Search by name or MR number"
+                        // Issue #171 (Apr 2026): registered-patient mode
+                        // requires a selected patient — without one the
+                        // emergency case is an orphan record. Hard guard
+                        // is in submitIntake(); aria-required surfaces it
+                        // to AT + the visible asterisk above.
+                        aria-required="true"
+                        data-testid="er-patient-search"
+                        placeholder="Search by name or MR number (required)"
                         value={intakeSearch}
                         onChange={(e) => setIntakeSearch(e.target.value)}
                         className="w-full rounded-lg border px-3 py-2 text-sm"

@@ -69,15 +69,29 @@ export default function PediatricDetailPage() {
 
   async function load() {
     setLoading(true);
-    try {
-      const [patRes, growthRes] = await Promise.all([
-        api.get<{ data: Patient }>(`/patients/${patientId}`),
-        api.get<{ data: GrowthRecord[] }>(`/growth/patient/${patientId}`),
-      ]);
-      setPatient(patRes.data);
-      setRecords(growthRes.data);
-    } catch {
-      // empty
+    // Issue #170: each request must succeed-or-be-null independently.
+    // Using Promise.all here meant a single 503 from /growth (e.g. for a
+    // pediatric patient with zero growth records on a tenant where the
+    // table snapshot was empty) tanked the WHOLE detail page and the user
+    // never saw any data. allSettled isolates failures so the patient
+    // header still renders even if a side-panel call fails.
+    const [patRes, growthRes] = await Promise.allSettled([
+      api.get<{ data: Patient }>(`/patients/${patientId}`),
+      api.get<{ data: GrowthRecord[] }>(`/growth/patient/${patientId}`),
+    ]);
+    if (patRes.status === "fulfilled") {
+      setPatient(patRes.value.data ?? null);
+    } else {
+      setPatient(null);
+    }
+    // Defensive: coerce to [] for every iterated array. The minified
+    // "TypeError: r is not iterable" was caused by a server response that
+    // returned `{ success: true, data: undefined }` for empty growth
+    // tables; the spread `[...records.map(...)]` then exploded.
+    if (growthRes.status === "fulfilled") {
+      setRecords(Array.isArray(growthRes.value?.data) ? growthRes.value.data : []);
+    } else {
+      setRecords([]);
     }
     setLoading(false);
   }
@@ -553,7 +567,10 @@ function MilestonesPanel({
       const res = await api.get<{
         data: { summary: { total: number; achieved: number; expectedNotAchieved: number }; diff: MilestoneDiffItem[] };
       }>(`/growth/patient/${patientId}/milestones`);
-      setItems(res.data.diff);
+      // Issue #170: defensive — server may return data: null for a
+      // pediatric patient missing DOB. Spread/for-of on undefined throws
+      // "TypeError: r is not iterable".
+      setItems(Array.isArray(res.data?.diff) ? res.data.diff : []);
     } catch {
       setItems([]);
     }
@@ -678,8 +695,11 @@ function FeedingLogPanel({
       const res = await api.get<{
         data: { logs: FeedingLogItem[]; daily: typeof daily };
       }>(`/growth/patient/${patientId}/feeding?limit=100`);
-      setLogs(res.data.logs);
-      setDaily(res.data.daily);
+      // Issue #170: defensive coercion — feeding log endpoint can return
+      // an empty body for new pediatric patients; iterating undefined
+      // throws "r is not iterable" in the daily-summary slice below.
+      setLogs(Array.isArray(res.data?.logs) ? res.data.logs : []);
+      setDaily(Array.isArray(res.data?.daily) ? res.data.daily : []);
     } catch {
       setLogs([]);
       setDaily([]);

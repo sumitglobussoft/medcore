@@ -80,24 +80,20 @@ router.get(
   "/:id",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Issue #170 (Apr 2026): previously a single `findUnique` with a
+      // wide `include` block. If ANY one relation (vitals, prescriptions,
+      // appointments) hit a transient error or timed out, the whole route
+      // 503'd — and pediatric patients with sparse but valid relations
+      // tripped this most often. Split the relations into independent
+      // queries with `.catch(() => [])` per-call so a missing/empty/slow
+      // relation can't tank the chart-load. Empty arrays are guaranteed,
+      // never `undefined` — that's what the frontend defends against in
+      // the matching iteration sites.
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.id },
         include: {
           user: {
             select: { id: true, name: true, email: true, phone: true },
-          },
-          appointments: {
-            orderBy: { date: "desc" },
-            take: 20,
-            include: {
-              doctor: { include: { user: { select: { name: true } } } },
-            },
-          },
-          vitals: { orderBy: { recordedAt: "desc" }, take: 10 },
-          prescriptions: {
-            orderBy: { createdAt: "desc" },
-            take: 10,
-            include: { items: true },
           },
         },
       });
@@ -107,7 +103,39 @@ router.get(
         return;
       }
 
-      res.json({ success: true, data: patient, error: null });
+      const [appointments, vitals, prescriptions] = await Promise.all([
+        prisma.appointment
+          .findMany({
+            where: { patientId: req.params.id },
+            orderBy: { date: "desc" },
+            take: 20,
+            include: {
+              doctor: { include: { user: { select: { name: true } } } },
+            },
+          })
+          .catch(() => []),
+        prisma.vitals
+          .findMany({
+            where: { patientId: req.params.id },
+            orderBy: { recordedAt: "desc" },
+            take: 10,
+          })
+          .catch(() => []),
+        prisma.prescription
+          .findMany({
+            where: { patientId: req.params.id },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+            include: { items: true },
+          })
+          .catch(() => []),
+      ]);
+
+      res.json({
+        success: true,
+        data: { ...patient, appointments, vitals, prescriptions },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }
