@@ -9,6 +9,7 @@ import { FREQUENCY_OPTIONS, createPrescriptionSchema } from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { InfoIcon } from "@/components/Tooltip";
 import { Autocomplete } from "@/components/Autocomplete";
+import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
 import { FileText } from "lucide-react";
 
@@ -369,7 +370,7 @@ export default function PrescriptionsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dashboard.prescriptions.title")}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.prescriptions.title")}</h1>
         {user?.role === "DOCTOR" && (
           <button
             onClick={() => setShowForm(!showForm)}
@@ -384,12 +385,12 @@ export default function PrescriptionsPage() {
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="mb-6 rounded-xl bg-white p-6 shadow-sm"
+          className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
         >
           <h2 className="mb-4 font-semibold">New Prescription</h2>
 
           {templates.length > 0 && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 p-3">
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/30">
               <label className="text-sm font-medium">Use Template:</label>
               <select
                 value={selectedTemplateId}
@@ -397,7 +398,7 @@ export default function PrescriptionsPage() {
                   setSelectedTemplateId(e.target.value);
                   if (e.target.value) applyTemplate(e.target.value);
                 }}
-                className="flex-1 rounded border px-2 py-1 text-sm"
+                className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="">— Select a template —</option>
                 {templates.map((t) => (
@@ -410,36 +411,89 @@ export default function PrescriptionsPage() {
           )}
 
           <div className="mb-4 grid grid-cols-2 gap-4">
+            {/* Issue #120 (Apr 2026): replace raw "paste a UUID" inputs with
+                the shared EntityPicker. Patient picker comes first so the
+                appointment picker can scope to that patient — picking a
+                patient automatically clears any previously selected
+                appointment to prevent cross-patient prescriptions. */}
             <div>
-              <input
-                placeholder="Appointment ID"
-                value={form.appointmentId}
-                onChange={(e) => setForm({ ...form, appointmentId: e.target.value })}
-                className={
-                  "w-full rounded-lg border px-3 py-2 text-sm " +
-                  (formErrors.appointmentId ? "border-red-500" : "")
-                }
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                Patient
+              </label>
+              <EntityPicker
+                endpoint="/patients"
+                searchParam="search"
+                labelField="user.name"
+                subtitleField="user.phone"
+                hintField="mrNumber"
+                value={form.patientId}
+                onChange={(id) => {
+                  setForm((f) => ({
+                    ...f,
+                    patientId: id,
+                    // Clear appointment when patient changes — avoids
+                    // accidentally writing an Rx for the wrong patient.
+                    appointmentId: "",
+                  }));
+                  if (formErrors.patientId)
+                    setFormErrors((p) => ({ ...p, patientId: "" }));
+                }}
+                searchPlaceholder="Search patient by name, phone or MR..."
+                testIdPrefix="rx-patient-picker"
+                required
               />
-              {formErrors.appointmentId && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.appointmentId}</p>
+              {formErrors.patientId && (
+                <p
+                  data-testid="error-rx-patient"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {formErrors.patientId}
+                </p>
               )}
             </div>
             <div>
-              <input
-                placeholder="Patient ID"
-                value={form.patientId}
-                onChange={(e) => setForm({ ...form, patientId: e.target.value })}
-                className={
-                  "w-full rounded-lg border px-3 py-2 text-sm " +
-                  (formErrors.patientId ? "border-red-500" : "")
-                }
-              />
-              {formErrors.patientId && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.patientId}</p>
+              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                Appointment
+              </label>
+              {/* Issue #120: appointment search is scoped to the selected
+                  patient. We can't search until a patient is chosen, so
+                  the picker shows a hint in that state. */}
+              {form.patientId ? (
+                <EntityPicker
+                  endpoint={`/appointments?patientId=${form.patientId}`}
+                  searchParam="search"
+                  labelField="date"
+                  subtitleField="slotStart"
+                  hintField="tokenNumber"
+                  value={form.appointmentId}
+                  onChange={(id) => {
+                    setForm((f) => ({ ...f, appointmentId: id }));
+                    if (formErrors.appointmentId)
+                      setFormErrors((p) => ({ ...p, appointmentId: "" }));
+                  }}
+                  searchPlaceholder="Search appointments (date, token)..."
+                  testIdPrefix="rx-appointment-picker"
+                  required
+                />
+              ) : (
+                <p
+                  className="rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-500 dark:border-gray-600 dark:text-gray-400"
+                  data-testid="rx-appointment-picker-hint"
+                >
+                  Select a patient first to choose their appointment.
+                </p>
+              )}
+              {formErrors.appointmentId && (
+                <p
+                  data-testid="error-rx-appointment"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {formErrors.appointmentId}
+                </p>
               )}
             </div>
             <div className="col-span-2">
-              <label className="mb-1 flex items-center text-sm font-medium text-gray-700">
+              <label className="mb-1 flex items-center text-sm font-medium text-gray-700 dark:text-gray-200">
                 Diagnosis
                 <InfoIcon tooltip="ICD-10 codes are international standard diagnosis codes (e.g. E11.9 = Type 2 diabetes). Type to search." />
               </label>
@@ -491,7 +545,7 @@ export default function PrescriptionsPage() {
             {medicines.map((med, idx) => (
               <div
                 key={idx}
-                className="mb-2 grid grid-cols-6 gap-2 rounded-lg border bg-gray-50 p-3"
+                className="mb-2 grid grid-cols-6 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
               >
                 <div className="col-span-2">
                   <Autocomplete<{
@@ -536,12 +590,12 @@ export default function PrescriptionsPage() {
                   placeholder="Dosage"
                   value={med.dosage}
                   onChange={(e) => updateMedicine(idx, "dosage", e.target.value)}
-                  className="rounded border px-2 py-1.5 text-sm"
+                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
                 <select
                   value={med.frequency}
                   onChange={(e) => updateMedicine(idx, "frequency", e.target.value)}
-                  className="rounded border px-2 py-1.5 text-sm"
+                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 >
                   <option value="">Frequency</option>
                   {FREQUENCY_OPTIONS.map((f) => (
@@ -554,7 +608,7 @@ export default function PrescriptionsPage() {
                   placeholder="Duration"
                   value={med.duration}
                   onChange={(e) => updateMedicine(idx, "duration", e.target.value)}
-                  className="rounded border px-2 py-1.5 text-sm"
+                  className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
                 <button
                   type="button"
@@ -608,7 +662,7 @@ export default function PrescriptionsPage() {
               placeholder="Advice / Notes"
               value={form.advice}
               onChange={(e) => setForm({ ...form, advice: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
               rows={2}
             />
             <div>
@@ -617,7 +671,7 @@ export default function PrescriptionsPage() {
                 type="date"
                 value={form.followUpDate}
                 onChange={(e) => setForm({ ...form, followUpDate: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
           </div>
@@ -632,7 +686,7 @@ export default function PrescriptionsPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded-lg border px-4 py-2 text-sm"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
             >
               Cancel
             </button>
@@ -643,7 +697,7 @@ export default function PrescriptionsPage() {
       {/* Prescriptions list */}
       <div className="space-y-3">
         {loading ? (
-          <div className="rounded-xl bg-white p-8 text-center text-gray-500">
+          <div className="rounded-xl bg-white p-8 text-center text-gray-500 dark:bg-gray-800 dark:text-gray-400">
             Loading...
           </div>
         ) : prescriptions.length === 0 ? (
@@ -659,7 +713,7 @@ export default function PrescriptionsPage() {
           />
         ) : (
           prescriptions.map((rx) => (
-            <div key={rx.id} className="rounded-xl bg-white p-4 shadow-sm">
+            <div key={rx.id} className="rounded-xl bg-white p-4 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
               <button
                 onClick={() =>
                   setExpanded(expanded === rx.id ? null : rx.id)
@@ -669,7 +723,7 @@ export default function PrescriptionsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">{rx.patient.user.name}</p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       Diagnosis: {rx.diagnosis}
                     </p>
                   </div>
@@ -677,7 +731,7 @@ export default function PrescriptionsPage() {
                     <p className="text-sm font-medium">
                       {rx.doctor.user.name}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {new Date(rx.createdAt).toLocaleDateString("en-IN")}
                     </p>
                   </div>
@@ -685,10 +739,10 @@ export default function PrescriptionsPage() {
               </button>
 
               {expanded === rx.id && (
-                <div className="mt-4 border-t pt-4">
+                <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-gray-500">
+                      <tr className="text-left text-gray-500 dark:text-gray-400">
                         <th className="pb-2">Medicine</th>
                         <th className="pb-2">Dosage</th>
                         <th className="pb-2">Frequency</th>
@@ -698,14 +752,14 @@ export default function PrescriptionsPage() {
                     </thead>
                     <tbody>
                       {rx.items.map((item, i) => (
-                        <tr key={i} className="border-t">
+                        <tr key={i} className="border-t border-gray-100 dark:border-gray-700">
                           <td className="py-2 font-medium">
                             {item.medicineName}
                           </td>
                           <td className="py-2">{item.dosage}</td>
                           <td className="py-2">{item.frequency}</td>
                           <td className="py-2">{item.duration}</td>
-                          <td className="py-2 text-gray-500">
+                          <td className="py-2 text-gray-500 dark:text-gray-400">
                             {item.instructions || "—"}
                           </td>
                         </tr>

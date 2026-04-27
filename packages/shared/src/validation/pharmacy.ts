@@ -66,19 +66,65 @@ export const createDrugInteractionSchema = z.object({
   description: z.string().min(1, "Description is required"),
 });
 
-export const createInventoryItemSchema = z.object({
-  medicineId: z.string().uuid(),
-  batchNumber: z.string().min(1, "Batch number is required"),
-  quantity: z.number().int().nonnegative(),
-  unitCost: z.number().nonnegative(),
-  sellingPrice: z.number().nonnegative(),
-  expiryDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Expiry date must be YYYY-MM-DD"),
-  supplier: z.string().optional(),
-  reorderLevel: z.number().int().nonnegative().optional(),
-  location: z.string().optional(),
-});
+// Issue #141 + #96 (Apr 2026):
+// - medicineId remains a strict UUID — the backend MUST reject a missing
+//   medicine selection (the form previously let users submit with no
+//   medicine bound, ending up as a Prisma FK 500).
+// - quantity / unitCost / sellingPrice are now strictly positive (a stock
+//   record with quantity=0 or price=0 is meaningless and obscures real low-
+//   stock alerts; reorderLevel may legitimately be 0).
+// - expiryDate must be strictly in the future — adding a batch that expires
+//   today or earlier would silently sit in inventory and dispense to a
+//   patient.
+export const createInventoryItemSchema = z
+  .object({
+    medicineId: z.string().uuid("Medicine is required"),
+    batchNumber: z.string().min(1, "Batch number is required"),
+    quantity: z
+      .number({
+        required_error: "Quantity is required",
+        invalid_type_error: "Quantity must be a number",
+      })
+      .int("Quantity must be a whole number")
+      .positive("Quantity must be at least 1"),
+    unitCost: z
+      .number({
+        required_error: "Unit cost is required",
+        invalid_type_error: "Unit cost must be a number",
+      })
+      .positive("Unit cost must be greater than 0"),
+    sellingPrice: z
+      .number({
+        required_error: "Selling price is required",
+        invalid_type_error: "Selling price must be a number",
+      })
+      .positive("Selling price must be greater than 0"),
+    expiryDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expiry date must be YYYY-MM-DD"),
+    supplier: z.string().optional(),
+    reorderLevel: z
+      .number()
+      .int("Reorder level must be a whole number")
+      .nonnegative("Reorder level cannot be negative")
+      .optional(),
+    location: z.string().optional(),
+  })
+  .superRefine((v, ctx) => {
+    // Issue #96: must be strictly in the future. We treat midnight UTC of
+    // today as the cut-off so a batch expiring "today" is still rejected
+    // (a batch dispensed today would already be expired by law).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(v.expiryDate + "T00:00:00");
+    if (!Number.isFinite(exp.getTime()) || exp.getTime() <= today.getTime()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiryDate"],
+        message: "Expiry date must be in the future",
+      });
+    }
+  });
 
 export const updateInventoryItemSchema = z.object({
   location: z.string().optional(),

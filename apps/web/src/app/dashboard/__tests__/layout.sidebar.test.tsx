@@ -43,6 +43,12 @@ vi.mock("@/components/OnboardingTour", () => ({
   hasCompletedTour: () => true,
   resetTour: vi.fn(),
 }));
+// Issue #137 added LanguageDropdown into the dashboard header. The component
+// reads from the i18n store and calls api.patch — neither matters for the
+// sidebar single-click test, so we render a stub.
+vi.mock("@/components/LanguageDropdown", () => ({
+  LanguageDropdown: () => null,
+}));
 vi.mock("./../_components/search-palette", () => ({
   SearchPalette: () => null,
 }));

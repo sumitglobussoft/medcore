@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -89,7 +90,18 @@ const MOVEMENT_COLORS: Record<string, string> = {
 
 export default function PharmacyPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const confirm = useConfirm();
+
+  // RBAC (issue #98): RECEPTION must NOT see stock levels (or write inventory).
+  // The API now enforces 403; the UI mirrors the redirect so receptionists
+  // who land here via stale bookmarks don't get a wall of empty tables.
+  useEffect(() => {
+    if (user && user.role === "RECEPTION") {
+      toast.error("Pharmacy inventory is restricted to clinical and pharmacy roles.");
+      router.replace("/dashboard");
+    }
+  }, [user, router]);
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -108,7 +120,10 @@ export default function PharmacyPage() {
   const [transferFor, setTransferFor] = useState<InventoryItem | null>(null);
   const [orderingId, setOrderingId] = useState<string | null>(null);
 
-  const canManage = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  // RBAC (issue #98): inventory write capability is now ADMIN + PHARMACIST.
+  // RECEPTION lost the ability — they shouldn't even reach this page (see
+  // redirect above) but guard the UI just in case.
+  const canManage = user?.role === "ADMIN" || user?.role === "PHARMACIST";
   const isAdmin = user?.role === "ADMIN";
 
   useEffect(() => {
@@ -225,10 +240,10 @@ export default function PharmacyPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             <Package className="text-primary" /> Pharmacy
           </h1>
-          <p className="text-sm text-gray-500">Inventory management</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Inventory management</p>
         </div>
         {canManage && (
           <button
@@ -279,21 +294,21 @@ export default function PharmacyPage() {
             placeholder="Search medicines or batches..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 pl-9 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pl-9 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
           />
         </div>
       )}
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : tab === "movements" ? (
           movements.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">No movements.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No movements.</div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Medicine</th>
@@ -304,7 +319,7 @@ export default function PharmacyPage() {
               </thead>
               <tbody>
                 {movements.map((m) => (
-                  <tr key={m.id} className="border-b last:border-0">
+                  <tr key={m.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 text-sm">
                       {new Date(m.createdAt).toLocaleString()}
                     </td>
@@ -322,7 +337,7 @@ export default function PharmacyPage() {
                       {m.inventory?.batchNumber || "—"}
                     </td>
                     <td className="px-4 py-3 text-sm">{m.quantity}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                       {m.notes || "—"}
                     </td>
                   </tr>
@@ -332,11 +347,11 @@ export default function PharmacyPage() {
           )
         ) : tab === "returns" ? (
           returns.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">No returns.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No returns.</div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Return #</th>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Medicine</th>
@@ -348,7 +363,7 @@ export default function PharmacyPage() {
               </thead>
               <tbody>
                 {returns.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
+                  <tr key={r.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 font-mono text-sm">
                       {r.returnNumber}
                     </td>
@@ -373,11 +388,11 @@ export default function PharmacyPage() {
           )
         ) : tab === "transfers" ? (
           transfers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">No transfers.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No transfers.</div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Transfer #</th>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Medicine</th>
@@ -389,7 +404,7 @@ export default function PharmacyPage() {
               </thead>
               <tbody>
                 {transfers.map((t) => (
-                  <tr key={t.id} className="border-b last:border-0">
+                  <tr key={t.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 font-mono text-sm">
                       {t.transferNumber}
                     </td>
@@ -435,13 +450,13 @@ export default function PharmacyPage() {
               </div>
             </div>
             {!valuation || valuation.perMedicine.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
                 No valuation data.
               </div>
             ) : (
               <table className="w-full">
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500">
+                  <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <th className="px-4 py-3">Medicine</th>
                     <th className="px-4 py-3">On Hand</th>
                     <th className="px-4 py-3">Unit Value</th>
@@ -452,7 +467,7 @@ export default function PharmacyPage() {
                   {valuation.perMedicine.map((v) => (
                     <tr
                       key={v.medicineId}
-                      className="border-b last:border-0"
+                      className="border-b border-gray-100 last:border-0 dark:border-gray-700"
                     >
                       <td className="px-4 py-3 text-sm">{v.medicineName}</td>
                       <td className="px-4 py-3 text-sm">{v.onHand}</td>
@@ -469,13 +484,13 @@ export default function PharmacyPage() {
             )}
           </div>
         ) : items.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             No inventory items.
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Medicine</th>
                 <th className="px-4 py-3">Batch</th>
                 <th className="px-4 py-3">Quantity</th>
@@ -491,11 +506,11 @@ export default function PharmacyPage() {
                 const isLow =
                   i.reorderLevel != null && i.quantity <= i.reorderLevel;
                 return (
-                  <tr key={i.id} className="border-b last:border-0">
+                  <tr key={i.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3">
                       <p className="font-medium">{i.medicine.name}</p>
                       {i.medicine.genericName && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {i.medicine.genericName}
                         </p>
                       )}
@@ -841,6 +856,16 @@ function AddStockModal({
     location: "",
     reorderLevel: "",
   });
+  // Issue #141 / #96 (Apr 2026): per-field error map mirrors the API zod
+  // messages so the UI shows a red border + hint instead of a single toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Issue #96: HTML5 `min` for the date picker is tomorrow.
+  const tomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
 
   useEffect(() => {
     if (medSearch.length < 2) {
@@ -862,29 +887,69 @@ function AddStockModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedMed) {
-      toast.error("Select a medicine");
+    // Issue #141 / #96: client mirror of the server zod schema. Fail fast
+    // so the user sees the field-level error before a network round-trip.
+    const errs: Record<string, string> = {};
+    if (!selectedMed) errs.medicineId = "Medicine is required";
+    if (!form.batchNumber.trim()) errs.batchNumber = "Batch number is required";
+    const qty = parseInt(form.quantity, 10);
+    if (!form.quantity.trim()) errs.quantity = "Quantity is required";
+    else if (!Number.isFinite(qty) || qty < 1)
+      errs.quantity = "Quantity must be at least 1";
+    const cost = parseFloat(form.unitCost);
+    if (!form.unitCost.trim()) errs.unitCost = "Unit cost is required";
+    else if (!Number.isFinite(cost) || cost <= 0)
+      errs.unitCost = "Unit cost must be greater than 0";
+    const price = parseFloat(form.sellingPrice);
+    if (!form.sellingPrice.trim())
+      errs.sellingPrice = "Selling price is required";
+    else if (!Number.isFinite(price) || price <= 0)
+      errs.sellingPrice = "Selling price must be greater than 0";
+    if (form.reorderLevel.trim()) {
+      const ro = parseInt(form.reorderLevel, 10);
+      if (!Number.isFinite(ro) || ro < 0)
+        errs.reorderLevel = "Reorder level cannot be negative";
+    }
+    if (!form.expiryDate) errs.expiryDate = "Expiry date is required";
+    else if (form.expiryDate < tomorrow)
+      errs.expiryDate = "Expiry date must be in the future";
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.warning("Please fix the highlighted fields");
       return;
     }
     try {
       await api.post("/pharmacy/inventory", {
-        medicineId: selectedMed.id,
-        batchNumber: form.batchNumber,
-        quantity: parseInt(form.quantity),
-        unitCost: form.unitCost ? parseFloat(form.unitCost) : undefined,
-        sellingPrice: form.sellingPrice
-          ? parseFloat(form.sellingPrice)
-          : undefined,
+        medicineId: selectedMed!.id,
+        batchNumber: form.batchNumber.trim(),
+        quantity: qty,
+        unitCost: cost,
+        sellingPrice: price,
         expiryDate: form.expiryDate,
         supplier: form.supplier || undefined,
         location: form.location || undefined,
         reorderLevel: form.reorderLevel
-          ? parseInt(form.reorderLevel)
+          ? parseInt(form.reorderLevel, 10)
           : undefined,
       });
       onSaved();
       onClose();
     } catch (err) {
+      // Surface server-side zod field errors (in case the schema tightens
+      // further than the client mirror).
+      const payload = (err as { payload?: { details?: Array<{ field?: string; message?: string }> } })
+        .payload;
+      if (payload?.details && Array.isArray(payload.details)) {
+        const next: Record<string, string> = {};
+        for (const d of payload.details) {
+          if (d?.field && d?.message) next[d.field] = d.message;
+        }
+        if (Object.keys(next).length > 0) {
+          setFieldErrors(next);
+          toast.error(Object.values(next)[0] || "Failed to add stock");
+          return;
+        }
+      }
       toast.error(err instanceof Error ? err.message : "Failed to add stock");
     }
   }
@@ -893,20 +958,24 @@ function AddStockModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form
         onSubmit={submit}
-        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-semibold">Add Stock</h2>
 
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-sm font-medium">Medicine</label>
+            <label className="mb-1 block text-sm font-medium">
+              Medicine <span className="text-red-600">*</span>
+            </label>
             {selectedMed ? (
-              <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2 text-sm">
-                <span>{selectedMed.name}</span>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900">
+                <span data-testid="add-stock-medicine-chosen">
+                  {selectedMed.name}
+                </span>
                 <button
                   type="button"
                   onClick={() => setSelectedMed(null)}
-                  className="text-xs text-red-600"
+                  className="text-xs text-red-600 dark:text-red-400"
                 >
                   Change
                 </button>
@@ -917,10 +986,17 @@ function AddStockModal({
                   placeholder="Search medicines"
                   value={medSearch}
                   onChange={(e) => setMedSearch(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="add-stock-medicine-search"
+                  aria-invalid={fieldErrors.medicineId ? "true" : undefined}
+                  className={
+                    "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
+                    (fieldErrors.medicineId
+                      ? "border-red-500 bg-red-50"
+                      : "border-gray-300 dark:border-gray-700")
+                  }
                 />
                 {medResults.length > 0 && (
-                  <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-sm">
+                  <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
                     {medResults.map((m) => (
                       <button
                         key={m.id}
@@ -928,8 +1004,10 @@ function AddStockModal({
                         onClick={() => {
                           setSelectedMed(m);
                           setMedResults([]);
+                          if (fieldErrors.medicineId)
+                            setFieldErrors((p) => ({ ...p, medicineId: "" }));
                         }}
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                        className="block w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
                         {m.name}
                       </button>
@@ -937,6 +1015,14 @@ function AddStockModal({
                   </div>
                 )}
               </>
+            )}
+            {fieldErrors.medicineId && (
+              <p
+                data-testid="error-add-stock-medicineId"
+                className="mt-1 text-xs text-red-600"
+              >
+                {fieldErrors.medicineId}
+              </p>
             )}
           </div>
 
@@ -946,31 +1032,78 @@ function AddStockModal({
               <input
                 required
                 value={form.batchNumber}
+                data-testid="add-stock-batch"
                 onChange={(e) =>
                   setForm({ ...form, batchNumber: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.batchNumber
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.batchNumber && (
+                <p
+                  data-testid="error-add-stock-batchNumber"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.batchNumber}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Quantity</label>
               <input
                 required
                 type="number"
+                /* Issue #96: at least 1 unit per stock entry. */
+                min={1}
+                step={1}
                 value={form.quantity}
+                data-testid="add-stock-quantity"
                 onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.quantity
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.quantity && (
+                <p
+                  data-testid="error-add-stock-quantity"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.quantity}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Unit Cost</label>
               <input
                 type="number"
+                /* Issue #96: > 0 — a zero-cost batch breaks valuation. */
+                min={0.01}
                 step="0.01"
                 value={form.unitCost}
+                data-testid="add-stock-unit-cost"
                 onChange={(e) => setForm({ ...form, unitCost: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.unitCost
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.unitCost && (
+                <p
+                  data-testid="error-add-stock-unitCost"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.unitCost}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">
@@ -978,13 +1111,29 @@ function AddStockModal({
               </label>
               <input
                 type="number"
+                /* Issue #96: > 0 — billing engine never expects ₹0. */
+                min={0.01}
                 step="0.01"
                 value={form.sellingPrice}
+                data-testid="add-stock-selling-price"
                 onChange={(e) =>
                   setForm({ ...form, sellingPrice: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.sellingPrice
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.sellingPrice && (
+                <p
+                  data-testid="error-add-stock-sellingPrice"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.sellingPrice}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">
@@ -993,19 +1142,35 @@ function AddStockModal({
               <input
                 required
                 type="date"
+                /* Issue #96: HTML5 min — tomorrow. JS validation also enforces. */
+                min={tomorrow}
                 value={form.expiryDate}
+                data-testid="add-stock-expiry"
                 onChange={(e) =>
                   setForm({ ...form, expiryDate: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.expiryDate
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.expiryDate && (
+                <p
+                  data-testid="error-add-stock-expiryDate"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.expiryDate}
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Supplier</label>
               <input
                 value={form.supplier}
                 onChange={(e) => setForm({ ...form, supplier: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
@@ -1013,7 +1178,7 @@ function AddStockModal({
               <input
                 value={form.location}
                 onChange={(e) => setForm({ ...form, location: e.target.value })}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
@@ -1022,12 +1187,29 @@ function AddStockModal({
               </label>
               <input
                 type="number"
+                /* Issue #96: ≥ 0 (0 = "never auto-flag low stock"). */
+                min={0}
+                step={1}
                 value={form.reorderLevel}
+                data-testid="add-stock-reorder-level"
                 onChange={(e) =>
                   setForm({ ...form, reorderLevel: e.target.value })
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className={
+                  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                  (fieldErrors.reorderLevel
+                    ? "border-red-500 bg-red-50"
+                    : "border-gray-300 dark:border-gray-700")
+                }
               />
+              {fieldErrors.reorderLevel && (
+                <p
+                  data-testid="error-add-stock-reorderLevel"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {fieldErrors.reorderLevel}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -1036,7 +1218,7 @@ function AddStockModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Cancel
           </button>

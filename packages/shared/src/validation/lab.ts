@@ -45,6 +45,46 @@ export const recordLabResultSchema = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * Issue #95 (clinical safety): for tests with a numeric result type
+ * (i.e. the LabTest has a `unit` set, or `panicLow`/`panicHigh` thresholds
+ * defined), the entered `value` MUST parse as a finite number. Saving free
+ * text like "abc" as a numeric result silently bypasses delta-checks and
+ * panic-value alerts. The router calls this AFTER `recordLabResultSchema`.
+ *
+ * Returns null on success, or { field, message } on rejection so the API
+ * can emit the same field-level error shape as the zod middleware.
+ */
+export function validateNumericLabResult(input: {
+  value: string;
+  test: {
+    unit?: string | null;
+    panicLow?: number | null;
+    panicHigh?: number | null;
+  };
+}): { field: string; message: string } | null {
+  const isNumericTest =
+    (typeof input.test.unit === "string" && input.test.unit.trim().length > 0) ||
+    typeof input.test.panicLow === "number" ||
+    typeof input.test.panicHigh === "number";
+  if (!isNumericTest) return null;
+  const trimmed = input.value.trim();
+  // Accept bare numbers, optional sign and decimal: "12", "12.5", "-1.4"
+  const numeric = /^-?\d+(\.\d+)?$/;
+  if (!numeric.test(trimmed)) {
+    return {
+      field: "value",
+      message:
+        "Value must be a number for this test (e.g. 12.5). Free text is not allowed.",
+    };
+  }
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) {
+    return { field: "value", message: "Value must be a finite number" };
+  }
+  return null;
+}
+
 export const labQCSchema = z.object({
   testId: z.string().uuid(),
   qcLevel: z.enum(["LOW", "NORMAL", "HIGH", "INTERNAL"]),

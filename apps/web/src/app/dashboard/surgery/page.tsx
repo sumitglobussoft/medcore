@@ -7,6 +7,8 @@ import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { Autocomplete } from "@/components/Autocomplete";
+import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Scissors } from "lucide-react";
 
 interface Doctor {
@@ -313,8 +315,8 @@ export default function SurgeryPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Surgery</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Surgery</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Operating theater scheduling and case management
           </p>
         </div>
@@ -346,18 +348,18 @@ export default function SurgeryPage() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : surgeries.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <Scissors size={32} className="mx-auto mb-2 text-gray-300" />
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+            <Scissors size={32} className="mx-auto mb-2 text-gray-300 dark:text-gray-600" />
             No surgeries in this state.
           </div>
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Case #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">Surgeon</th>
@@ -373,7 +375,7 @@ export default function SurgeryPage() {
               {surgeries.map((s) => {
                 const effective = effectiveStatus(s);
                 return (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr key={s.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                     <td className="px-4 py-3 font-medium">
                       <Link
                         href={`/dashboard/surgery/${s.id}`}
@@ -384,7 +386,7 @@ export default function SurgeryPage() {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{s.patient.user.name}</p>
-                      <p className="text-xs text-gray-500">{s.patient.mrNumber}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{s.patient.mrNumber}</p>
                     </td>
                     <td className="px-4 py-3 text-sm">{s.surgeon.user.name}</td>
                     <td className="px-4 py-3 text-sm">{s.ot.name}</td>
@@ -405,7 +407,13 @@ export default function SurgeryPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
-                        {s.status === "SCHEDULED" && canSchedule && (
+                        {/* Issue #148: hide "Start" once a SCHEDULED row has
+                            slipped past its grace window — the case is
+                            effectively MISSED_SCHEDULE. The user must
+                            explicitly Reschedule (a future enhancement) or
+                            Cancel. The Cancel action remains available so
+                            the row doesn't get stranded. */}
+                        {s.status === "SCHEDULED" && canSchedule && effective !== "MISSED_SCHEDULE" && (
                           <>
                             <button
                               onClick={() => startSurgery(s.id)}
@@ -421,6 +429,15 @@ export default function SurgeryPage() {
                               Cancel
                             </button>
                           </>
+                        )}
+                        {s.status === "SCHEDULED" && canSchedule && effective === "MISSED_SCHEDULE" && (
+                          <button
+                            onClick={() => cancelSurgery(s.id)}
+                            data-testid={`cancel-missed-${s.id}`}
+                            className="rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"
+                          >
+                            Cancel
+                          </button>
                         )}
                         {s.status === "IN_PROGRESS" && canSchedule && (
                           <button
@@ -639,12 +656,38 @@ export default function SurgeryPage() {
             </div>
 
             <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">Diagnosis</label>
-              <input
-                type="text"
+              <label className="mb-1 flex items-center text-sm font-medium">
+                Diagnosis (ICD-10)
+                <InfoIcon tooltip="ICD-10 codes are international standard diagnosis codes (e.g. K35.80 = acute appendicitis). Type to search." />
+              </label>
+              {/* Issue #97 (Apr 2026): replace free-text diagnosis with the
+                  same ICD-10 picker the prescription form uses (Issue #84).
+                  We persist the rendered "CODE — Description" string into the
+                  existing free-text `diagnosis` column, no schema change. */}
+              <Autocomplete<{ code: string; description: string }>
                 value={form.diagnosis}
-                onChange={(e) => setForm((f) => ({ ...f, diagnosis: e.target.value }))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                onChange={(val, item) =>
+                  setForm((f) => ({
+                    ...f,
+                    diagnosis: item ? `${item.code} — ${item.description}` : val,
+                  }))
+                }
+                fetchOptions={async (q) => {
+                  const r = await api.get<{
+                    data: Array<{ code: string; description: string }>;
+                  }>(`/icd10?q=${encodeURIComponent(q)}`);
+                  return r.data ?? [];
+                }}
+                getOptionLabel={(o) => `${o.code} — ${o.description}`}
+                renderOption={(o) => (
+                  <div>
+                    <span className="font-mono text-xs text-primary">
+                      {o.code}
+                    </span>{" "}
+                    <span>{o.description}</span>
+                  </div>
+                )}
+                placeholder="Search ICD-10 (e.g. appendicitis)"
               />
             </div>
 

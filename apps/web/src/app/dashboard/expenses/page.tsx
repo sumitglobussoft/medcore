@@ -9,8 +9,9 @@ import { useAuthStore } from "@/lib/store";
 import { Wallet, Plus, X } from "lucide-react";
 
 // Issue #89: DOCTOR must NOT see Expenses (₹9.29 lakh staff-salary leak).
-// Restricted to ADMIN + RECEPTION (financial roles).
-const ALLOWED_ROLES = new Set(["ADMIN", "RECEPTION"]);
+// Issue #98: RECEPTION must NOT see staff-salary expenses either. Until we
+// add a dedicated ACCOUNTANT role, expenses are ADMIN-only.
+const ALLOWED_ROLES = new Set(["ADMIN"]);
 
 interface ExpenseRecord {
   id: string;
@@ -85,7 +86,7 @@ export default function ExpensesPage() {
   // Issue #89: redirect away if role is not financial. Toast — no native alert.
   useEffect(() => {
     if (!isLoading && user && !ALLOWED_ROLES.has(user.role)) {
-      toast.error("Expenses is restricted to Admin and Reception.");
+      toast.error("Expenses is restricted to Admin.");
       router.replace("/dashboard");
     }
   }, [user, isLoading, router]);

@@ -280,43 +280,43 @@ export default function BloodBankPage() {
     <div>
       <div className="mb-6 flex items-center gap-3">
         <Droplet className="text-red-600" size={28} />
-        <h1 className="text-2xl font-bold">Blood Bank</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Blood Bank</h1>
       </div>
 
       {/* Summary strip */}
       {summary && (
         <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div className="rounded-lg bg-white p-4 shadow">
-            <p className="text-xs text-gray-500">Available Units</p>
+          <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Available Units</p>
             <p className="text-2xl font-bold">{summary.totalAvailable}</p>
           </div>
-          <div className="rounded-lg bg-white p-4 shadow">
-            <p className="text-xs text-gray-500">Expiring in 7 days</p>
-            <p className="text-2xl font-bold text-red-600">{summary.expiringSoon}</p>
+          <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Expiring in 7 days</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{summary.expiringSoon}</p>
           </div>
-          <div className="rounded-lg bg-white p-4 shadow">
-            <p className="text-xs text-gray-500">Open Requests</p>
+          <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Open Requests</p>
             <p className="text-2xl font-bold">
               {requests.filter((r) => !r.fulfilled).length}
             </p>
           </div>
-          <div className="rounded-lg bg-white p-4 shadow">
-            <p className="text-xs text-gray-500">Total Donors</p>
+          <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Total Donors</p>
             <p className="text-2xl font-bold">{donors.length}</p>
           </div>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b border-gray-200 dark:border-gray-700">
         {(["inventory", "donors", "donations", "requests"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize ${
               tab === t
-                ? "border-b-2 border-red-600 text-red-600"
-                : "text-gray-600 hover:text-gray-900"
+                ? "border-b-2 border-red-600 text-red-600 dark:text-red-400"
+                : "text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
             }`}
           >
             {t}
@@ -325,7 +325,7 @@ export default function BloodBankPage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <>
           {tab === "inventory" && (
@@ -341,7 +341,7 @@ export default function BloodBankPage() {
                 return (
                   <div
                     key={g}
-                    className="rounded-lg bg-white p-4 shadow border"
+                    className="rounded-lg bg-white p-4 text-gray-900 shadow border border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700"
                   >
                     <div className="flex items-center justify-between">
                       <div className="text-2xl font-bold text-red-600">
@@ -353,7 +353,7 @@ export default function BloodBankPage() {
                       {COMPONENTS.map((c) => (
                         <div
                           key={c}
-                          className="flex justify-between text-sm text-gray-700"
+                          className="flex justify-between text-sm text-gray-700 dark:text-gray-200"
                         >
                           <span>{prettyComponent(c)}</span>
                           <span className="font-medium">{counts[c] || 0}</span>

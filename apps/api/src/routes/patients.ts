@@ -123,6 +123,42 @@ router.post(
     try {
       const data = req.body;
 
+      // Issue #103 (Apr 2026): pre-check for an existing patient with the
+      // same phone before creating a duplicate MR record. We surface the
+      // matching MR number so reception can pull up the existing chart
+      // instead of creating a "Sharma 2" / "Sharma 3" sprawl. We DO NOT
+      // rely solely on a unique constraint at the DB layer because (a) it
+      // would 500 the request with a Prisma error and (b) the user would
+      // get no actionable hint about which record already exists.
+      if (typeof data.phone === "string" && data.phone.trim().length > 0) {
+        const existing = await prisma.patient.findFirst({
+          where: {
+            mergedIntoId: null,
+            user: { phone: data.phone.trim() },
+          },
+          select: { id: true, mrNumber: true, user: { select: { name: true } } },
+        });
+        if (existing) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `A patient with this phone is already registered (MR: ${existing.mrNumber}).`,
+            details: [
+              {
+                field: "phone",
+                message: `Already registered as ${existing.user?.name ?? "patient"} (MR: ${existing.mrNumber}).`,
+              },
+            ],
+            existingPatient: {
+              id: existing.id,
+              mrNumber: existing.mrNumber,
+              name: existing.user?.name ?? null,
+            },
+          });
+          return;
+        }
+      }
+
       // Auto-generate MR number
       const config = await prisma.systemConfig.findUnique({
         where: { key: "next_mr_number" },

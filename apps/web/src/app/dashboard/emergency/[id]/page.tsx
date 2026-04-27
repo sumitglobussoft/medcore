@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
+// Issue #162 / #163 — central elapsed-minutes helper with year-2000 clamp.
+import { elapsedMinutes } from "@/lib/time";
 import {
   ArrowLeft,
   Clock,
@@ -74,9 +76,11 @@ function fmt(d: string | null | undefined) {
   return new Date(d).toLocaleString();
 }
 
+// Issue #162 / #163: legacy ER rows had `arrivedAt`/`closedAt` defaulted to
+// year-2000 sentinels which produced 19,500-minute elapsed badges. Route
+// every reading through the shared clamping helper.
 function elapsedMin(from: string, to?: string | null): number {
-  const end = to ? new Date(to).getTime() : Date.now();
-  return Math.max(0, Math.floor((end - new Date(from).getTime()) / 60000));
+  return elapsedMinutes(from, to ?? null);
 }
 
 export default function EmergencyCaseDetailPage() {

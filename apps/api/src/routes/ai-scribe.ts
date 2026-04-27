@@ -39,6 +39,85 @@ function safeAudit(
 const router = Router();
 router.use(authenticate);
 
+// GET /api/v1/ai/scribe — list scribe sessions for the EntityPicker
+//
+// Issue #100: the AI Letters page picks a scribe session via
+// `<EntityPicker endpoint="/ai/scribe" />`. There was no list endpoint
+// — the picker hit a 404 and the page was permanently stuck on
+// "Searching…" / "No matches", so no letter could ever be generated.
+//
+// Returns finalised sessions (soapFinal != null) preferentially, since
+// only those can drive a referral letter, but accepts any status when
+// the client asks for `?status=`. Response envelope matches the rest
+// of the API: `{ success, data, error }`.
+router.get(
+  "/",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const search = (req.query.search as string | undefined)?.trim();
+      const limitRaw = parseInt((req.query.limit as string) ?? "20", 10);
+      const limit = Number.isFinite(limitRaw)
+        ? Math.max(1, Math.min(limitRaw, 100))
+        : 20;
+      const status = req.query.status as string | undefined;
+
+      const where: Record<string, unknown> = {};
+      if (status) {
+        where.status = status.includes(",")
+          ? { in: status.split(",").map((s) => s.trim()).filter(Boolean) }
+          : status;
+      } else {
+        // Letters need a finalised SOAP, so default to COMPLETED.
+        where.status = "COMPLETED";
+      }
+      if (search) {
+        // Search by id prefix or by patient name through the appointment.
+        where.OR = [
+          { id: { startsWith: search } },
+          {
+            appointment: {
+              patient: { user: { name: { contains: search, mode: "insensitive" } } },
+            },
+          },
+        ];
+      }
+
+      const sessions = await prisma.aIScribeSession.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        include: {
+          appointment: {
+            include: {
+              patient: { include: { user: { select: { name: true } } } },
+            },
+          },
+        },
+      });
+
+      // Lift the patient summary onto the row so the EntityPicker's
+      // `labelField="patient.user.name"` resolves without an extra hop.
+      const data = sessions.map((s: any) => ({
+        id: s.id,
+        status: s.status,
+        appointmentId: s.appointmentId,
+        createdAt: s.createdAt,
+        patient: s.appointment?.patient
+          ? {
+              id: s.appointment.patient.id,
+              user: { name: s.appointment.patient.user?.name ?? null },
+            }
+          : null,
+      }));
+
+      res.json({ success: true, data, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // POST /api/v1/ai/scribe/start — start a scribe session (doctor only)
 router.post(
   "/start",

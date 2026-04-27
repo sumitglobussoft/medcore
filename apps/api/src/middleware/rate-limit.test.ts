@@ -90,4 +90,51 @@ describe("rateLimit middleware — per-route caps", () => {
     expect(aDenied.status).toBe(429);
     expect(bDenied.status).toBe(429);
   });
+
+  // Issue #124/#125: /auth/login per-route cap raised to 20/min so demo
+  // operators don't get locked out after a couple of typo logins.
+  it("allows 20 requests/min and rejects the 21st with 429 (auth/login)", async () => {
+    const app = makeApp(20, 60_000);
+    const ip = "10.0.0.20";
+
+    for (let i = 0; i < 20; i++) {
+      const res = await request(app).get("/probe").set("X-Forwarded-For", ip);
+      expect(res.status, `request #${i + 1} should succeed`).toBe(200);
+    }
+
+    const tooMany = await request(app).get("/probe").set("X-Forwarded-For", ip);
+    expect(tooMany.status).toBe(429);
+  });
+
+  // Issue #128: /auth/forgot-password capped at 5/min so a stuck reset flow
+  // doesn't burn shared quota.
+  it("allows 5 requests/min and rejects the 6th with 429 (auth/forgot-password)", async () => {
+    const app = makeApp(5, 60_000);
+    const ip = "10.0.0.21";
+
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app).get("/probe").set("X-Forwarded-For", ip);
+      expect(res.status, `request #${i + 1} should succeed`).toBe(200);
+    }
+
+    const tooMany = await request(app).get("/probe").set("X-Forwarded-For", ip);
+    expect(tooMany.status).toBe(429);
+  });
+
+  // Issue #125: 429 body must surface a friendly retry hint.
+  it("429 response body surfaces retryAfterSeconds + friendly message", async () => {
+    const app = makeApp(2, 60_000);
+    const ip = "10.0.0.22";
+    await request(app).get("/probe").set("X-Forwarded-For", ip).expect(200);
+    await request(app).get("/probe").set("X-Forwarded-For", ip).expect(200);
+    const denied = await request(app).get("/probe").set("X-Forwarded-For", ip);
+    expect(denied.status).toBe(429);
+    expect(denied.body.error).toMatch(/try again in \d+ seconds/i);
+    expect(typeof denied.body.retryAfterSeconds).toBe("number");
+    expect(denied.body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(denied.body.limit).toBe(2);
+    expect(denied.body.remaining).toBe(0);
+    expect(denied.headers["retry-after"]).toBeDefined();
+    expect(denied.headers["ratelimit-limit"]).toBe("2");
+  });
 });

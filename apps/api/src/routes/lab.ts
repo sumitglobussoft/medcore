@@ -22,6 +22,7 @@ import {
   labQCSchema,
   verifyResultSchema,
   shareLinkSchema,
+  validateNumericLabResult,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -365,12 +366,37 @@ router.post(
 
       const orderItem = await prisma.labOrderItem.findUnique({
         where: { id: orderItemId },
+        include: { test: true },
       });
       if (!orderItem) {
         res.status(404).json({
           success: false,
           data: null,
           error: "Lab order item not found",
+        });
+        return;
+      }
+
+      // Issue #95 (clinical safety): block free-text values for numeric tests.
+      // The recordLabResultSchema only enforces "non-empty string"; the test's
+      // unit / panic thresholds tell us whether the value column must be a
+      // parseable number. Saving "abc" silently bypasses delta-check and panic
+      // alerts, so we reject with a 400 + field-level detail (same shape the
+      // zod middleware emits, so the UI's extractFieldErrors helper renders it).
+      const numericIssue = validateNumericLabResult({
+        value,
+        test: {
+          unit: orderItem.test.unit,
+          panicLow: orderItem.test.panicLow,
+          panicHigh: orderItem.test.panicHigh,
+        },
+      });
+      if (numericIssue) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Validation failed",
+          details: [numericIssue],
         });
         return;
       }
@@ -682,6 +708,45 @@ router.post(
           notes?: string;
         }>;
       };
+
+      // Issue #95: pre-validate every row's value against its test's numeric
+      // expectation BEFORE opening the transaction. Failing fast prevents a
+      // partial-batch insert that would have to be rolled back.
+      const itemIds = Array.from(new Set(results.map((r) => r.orderItemId)));
+      const itemsForBatch = await prisma.labOrderItem.findMany({
+        where: { id: { in: itemIds } },
+        include: { test: true },
+      });
+      const itemById = new Map(itemsForBatch.map((it) => [it.id, it]));
+      const issues: Array<{ field: string; message: string }> = [];
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const it = itemById.get(r.orderItemId);
+        if (!it) continue;
+        const issue = validateNumericLabResult({
+          value: r.value,
+          test: {
+            unit: it.test.unit,
+            panicLow: it.test.panicLow,
+            panicHigh: it.test.panicHigh,
+          },
+        });
+        if (issue) {
+          issues.push({
+            field: `results.${i}.value`,
+            message: issue.message,
+          });
+        }
+      }
+      if (issues.length > 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Validation failed",
+          details: issues,
+        });
+        return;
+      }
 
       const created = await prisma.$transaction(async (tx) => {
         const out = [];

@@ -1293,7 +1293,7 @@ export default function AppointmentsPage() {
 
           {/* Booking form */}
           {showBooking && (
-            <div className="mb-6 rounded-xl bg-white p-6 shadow-sm">
+            <div className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
               <h2 className="mb-4 font-semibold">{t("dashboard.appointments.book.title")}</h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
@@ -1307,7 +1307,7 @@ export default function AppointmentsPage() {
                       setSelectedDoctor(e.target.value);
                       if (e.target.value) loadSlots(e.target.value, selectedDate);
                     }}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                   >
                     <option value="">{t("dashboard.appointments.selectDoctor")}</option>
                     {doctors.map((d) => (
@@ -1329,7 +1329,7 @@ export default function AppointmentsPage() {
                       setSelectedDate(e.target.value);
                       if (selectedDoctor) loadSlots(selectedDoctor, e.target.value);
                     }}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
                 <div className="flex items-end">
@@ -1338,7 +1338,7 @@ export default function AppointmentsPage() {
                     className={`w-full rounded-lg px-3 py-2 text-sm font-medium ${
                       isRecurring
                         ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
                     }`}
                   >
                     {isRecurring ? "Recurring ON" : "Book Recurring"}
@@ -1355,7 +1355,7 @@ export default function AppointmentsPage() {
                       onChange={(e) =>
                         setRecFrequency(e.target.value as "DAILY" | "WEEKLY" | "MONTHLY")
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     >
                       <option value="DAILY">Daily</option>
                       <option value="WEEKLY">Weekly (same day)</option>
@@ -1372,7 +1372,7 @@ export default function AppointmentsPage() {
                       onChange={(e) =>
                         setRecOccurrences(Math.max(2, Math.min(52, Number(e.target.value) || 2)))
                       }
-                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     />
                   </div>
                 </div>
@@ -1472,7 +1472,7 @@ export default function AppointmentsPage() {
           )}
 
           {/* Appointments table */}
-          <div className="rounded-xl bg-white shadow-sm">
+          <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
             {loading ? (
               <div className="p-4">
                 <SkeletonTable rows={5} columns={isPatient ? 7 : 9} />
@@ -1849,11 +1849,11 @@ export default function AppointmentsPage() {
           </div>
 
           {statsLoading ? (
-            <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+            <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
               Loading stats…
             </div>
           ) : !stats ? (
-            <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+            <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
               No data.
             </div>
           ) : (
@@ -2154,7 +2154,7 @@ function MultiPatientPicker({
           className="w-full rounded-lg border px-3 py-2 text-sm"
         />
         {open && query.trim().length >= 2 && (
-          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border bg-white shadow-lg">
+          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
             {loading && (
               <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
             )}
@@ -2244,7 +2244,7 @@ function SinglePatientPicker({
         className="w-full rounded-lg border px-3 py-2 text-sm"
       />
       {open && query.trim().length >= 2 && (
-        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border bg-white shadow-lg">
+        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
           {loading && (
             <li className="px-3 py-2 text-xs text-gray-500">Searching...</li>
           )}

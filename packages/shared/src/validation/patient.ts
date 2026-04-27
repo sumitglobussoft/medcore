@@ -1,11 +1,35 @@
 import { z } from "zod";
 
+// Issue #104 (Apr 2026): patient names must reject digits and most special
+// characters but still allow Indian conventions:
+//   - "Dr. R.K. Sharma"   (titles + initials with dots)
+//   - "K. Anand-Kumar"    (hyphenated double-barrelled names)
+//   - "O'Brien"           (apostrophes)
+//   - "रामेश शर्मा"        (Devanagari for Hindi-speaking belt)
+// We deliberately do NOT allow digits or symbols like @ # $ — those signal
+// a typo or paste from a phone number / email field.
+export const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
+
+// Issue #103 / #138 share this E.164-ish 10–15 digit format.
+export const PHONE_REGEX = /^\+?\d{10,15}$/;
+
 export const createPatientSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters")
+    .regex(
+      PATIENT_NAME_REGEX,
+      "Name may only contain letters, spaces, dots, hyphens and apostrophes"
+    ),
   dateOfBirth: z.string().optional(),
   age: z.number().int().min(0).max(150).optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
+  phone: z
+    .string()
+    .trim()
+    .regex(PHONE_REGEX, "Phone must be 10–15 digits, optional leading +"),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
   bloodGroup: z

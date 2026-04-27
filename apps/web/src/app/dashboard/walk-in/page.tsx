@@ -36,6 +36,9 @@ export default function WalkInPage() {
     tokenNumber: number;
     doctorName: string;
     patientName: string;
+    // Issue #118: surface MR number on the success card alongside the
+    // patient name so the front-desk can confirm at a glance.
+    mrNumber: string;
   } | null>(null);
 
   useEffect(() => {
@@ -96,7 +99,7 @@ export default function WalkInPage() {
         data: {
           tokenNumber: number;
           doctor: { user: { name: string } };
-          patient: { user: { name: string } };
+          patient: { user: { name: string }; mrNumber?: string };
         };
       }>("/appointments/walk-in", {
         patientId,
@@ -109,6 +112,11 @@ export default function WalkInPage() {
         tokenNumber: res.data.tokenNumber,
         doctorName: res.data.doctor.user.name,
         patientName: res.data.patient.user.name,
+        // Issue #118: server may return mrNumber on the embedded patient.
+        // Fall back to the locally selected patient (search result) when
+        // not present so the success card never goes blank.
+        mrNumber:
+          res.data.patient.mrNumber ?? selectedPatient?.mrNumber ?? "",
       });
 
       // Reset form
@@ -126,13 +134,36 @@ export default function WalkInPage() {
     <div className="mx-auto max-w-2xl">
       <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Walk-in Registration</h1>
 
-      {/* Success token display */}
+      {/* Success token display — Issue #118: patient name + MR number must
+          be prominent. Previously the patient name rendered as a thin
+          text-lg line that visually disappeared next to the giant token. */}
       {result && (
-        <div className="mb-6 rounded-xl bg-green-50 border-2 border-green-200 p-8 text-center">
+        <div
+          className="mb-6 rounded-xl bg-green-50 border-2 border-green-200 p-8 text-center"
+          data-testid="walkin-success"
+        >
           <p className="text-sm text-green-600">Token Assigned</p>
-          <p className="text-6xl font-bold text-green-700">{result.tokenNumber}</p>
-          <p className="mt-2 text-lg">{result.patientName}</p>
-          <p className="text-sm text-gray-500">Doctor: {result.doctorName}</p>
+          <p
+            className="text-6xl font-bold text-green-700"
+            data-testid="walkin-token"
+          >
+            {result.tokenNumber}
+          </p>
+          <p
+            className="mt-3 text-2xl font-semibold text-gray-900 dark:text-gray-100"
+            data-testid="walkin-patient-name"
+          >
+            {result.patientName}
+          </p>
+          {result.mrNumber && (
+            <p
+              className="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300"
+              data-testid="walkin-mr-number"
+            >
+              MR # {result.mrNumber}
+            </p>
+          )}
+          <p className="mt-2 text-sm text-gray-500">Doctor: {result.doctorName}</p>
           <button
             onClick={() => setResult(null)}
             className="mt-4 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-white"
@@ -152,14 +183,14 @@ export default function WalkInPage() {
                 <button
                   key={d.id}
                   onClick={() => setSelectedDoctor(d.id)}
-                  className={`rounded-lg border-2 p-3 text-left text-sm transition ${
+                  className={`rounded-lg border-2 p-3 text-left text-sm text-gray-900 transition dark:text-gray-100 ${
                     selectedDoctor === d.id
-                      ? "border-primary bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
+                      ? "border-primary bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30"
+                      : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-500"
                   }`}
                 >
                   <p className="font-medium">{d.user.name}</p>
-                  <p className="text-xs text-gray-500">{d.specialization}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{d.specialization}</p>
                 </button>
               ))}
             </div>
@@ -170,16 +201,16 @@ export default function WalkInPage() {
             <label className="mb-2 block font-medium">2. Patient</label>
 
             {selectedPatient ? (
-              <div className="flex items-center justify-between rounded-lg bg-green-50 p-3">
+              <div className="flex items-center justify-between rounded-lg bg-green-50 p-3 dark:bg-green-900/30">
                 <div>
-                  <p className="font-medium">{selectedPatient.user.name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{selectedPatient.user.name}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-300">
                     {selectedPatient.mrNumber} | {selectedPatient.user.phone}
                   </p>
                 </div>
                 <button
                   onClick={() => setSelectedPatient(null)}
-                  className="text-sm text-red-500"
+                  className="text-sm text-red-500 dark:text-red-400"
                 >
                   Change
                 </button>
@@ -190,10 +221,10 @@ export default function WalkInPage() {
                   placeholder="Search patient by name, phone, or MR number..."
                   value={search}
                   onChange={(e) => searchPatients(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
                 {searchResults.length > 0 && (
-                  <div className="mt-2 rounded-lg border">
+                  <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700">
                     {searchResults.map((p) => (
                       <button
                         key={p.id}
@@ -201,7 +232,7 @@ export default function WalkInPage() {
                           setSelectedPatient(p);
                           setSearchResults([]);
                         }}
-                        className="w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+                        className="w-full border-b border-gray-200 px-3 py-2 text-left text-sm text-gray-900 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
                         {p.user.name} — {p.mrNumber} — {p.user.phone}
                       </button>
@@ -216,7 +247,7 @@ export default function WalkInPage() {
                 </button>
 
                 {showNewPatient && (
-                  <div className="mt-3 rounded-lg border bg-gray-50 p-4">
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <input
@@ -225,7 +256,7 @@ export default function WalkInPage() {
                           onChange={(e) =>
                             setNewPatient({ ...newPatient, name: e.target.value })
                           }
-                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm dark:bg-gray-900 dark:text-gray-100 ${
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
                             fieldErrors.name ? "border-red-500" : "border-gray-200 dark:border-gray-600"
                           }`}
                         />
@@ -240,7 +271,7 @@ export default function WalkInPage() {
                           onChange={(e) =>
                             setNewPatient({ ...newPatient, phone: e.target.value })
                           }
-                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm dark:bg-gray-900 dark:text-gray-100 ${
+                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
                             fieldErrors.phone ? "border-red-500" : "border-gray-200 dark:border-gray-600"
                           }`}
                         />
@@ -256,7 +287,7 @@ export default function WalkInPage() {
                             gender: e.target.value,
                           })
                         }
-                        className="rounded border px-2 py-1.5 text-sm"
+                        className="rounded border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                       >
                         <option value="MALE">Male</option>
                         <option value="FEMALE">Female</option>
@@ -269,7 +300,7 @@ export default function WalkInPage() {
                         onChange={(e) =>
                           setNewPatient({ ...newPatient, age: e.target.value })
                         }
-                        className="rounded border px-2 py-1.5 text-sm"
+                        className="rounded border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                       />
                     </div>
                   </div>
@@ -285,7 +316,7 @@ export default function WalkInPage() {
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="NORMAL">Normal</option>
                 <option value="URGENT">Urgent</option>
@@ -298,7 +329,7 @@ export default function WalkInPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes"
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
           </div>

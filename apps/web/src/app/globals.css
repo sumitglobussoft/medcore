@@ -10,8 +10,16 @@
   --color-accent: #f59e0b;
   --color-danger: #dc2626;
   --color-bg: #f8fafc;
-  --color-sidebar: #1e293b;
-  --color-sidebar-hover: #334155;
+  /* Issue #145: previously the sidebar was hardcoded dark (#1e293b) in
+   * both themes. The toggle still flipped the main pane to dark mode but
+   * left the sidebar looking the same in light mode, which broke visual
+   * consistency. Light-mode now uses a near-white surface with the
+   * navigation showing dark text. The .dark override below restores the
+   * original slate palette for dark mode. */
+  --color-sidebar: #ffffff;
+  --color-sidebar-hover: #f1f5f9;
+  --color-sidebar-text: #0f172a;
+  --color-sidebar-text-muted: #475569;
 
   /* Surface tokens, adjusted by dark class below */
   --color-surface: #ffffff;
@@ -26,6 +34,8 @@
   --color-bg: #0b1220;
   --color-sidebar: #0f172a;
   --color-sidebar-hover: #1e293b;
+  --color-sidebar-text: #f1f5f9;
+  --color-sidebar-text-muted: #cbd5e1;
   --color-surface: #111827;
   --color-surface-muted: #0f172a;
   --color-text-base: #f1f5f9;

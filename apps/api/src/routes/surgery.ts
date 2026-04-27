@@ -33,7 +33,14 @@ router.use(authenticate);
 // this fix) so we expose the derived flag as `effectiveStatus` and a boolean
 // `isStaleSchedule` on every surgery payload. Frontend uses these to badge
 // the row without needing to recompute the wall-clock comparison.
-const STALE_SCHEDULE_GRACE_MS = 30 * 60 * 1000;
+//
+// Issue #160 (Apr 2026): the read-side flag is no longer enough — stale
+// rows accumulate forever because nothing transitions them to a terminal
+// state. The companion auto-cancel task in services/scheduled-tasks.ts
+// imports {STALE_AUTO_CANCEL_AFTER_DAYS, autoCancelStaleScheduledSurgeries}
+// from this file so the cutoff is co-located with the read-time grace.
+export const STALE_SCHEDULE_GRACE_MS = 30 * 60 * 1000;
+export const STALE_AUTO_CANCEL_AFTER_DAYS = 7;
 function withStaleFlags<T extends { status: string; scheduledAt: Date | string }>(
   s: T
 ): T & { effectiveStatus: string; isStaleSchedule: boolean } {

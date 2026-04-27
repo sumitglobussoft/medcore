@@ -16,9 +16,10 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/expenses — list with filters
-// RBAC (issue #89): DOCTOR must NOT see expenses (₹9.29 lakh staff-salary
-// leak). Restricted to financial roles only.
-router.get("/", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res: Response, next: NextFunction) => {
+// RBAC (issue #89 + #98): DOCTOR + RECEPTION must NOT see expenses
+// (₹9.29 lakh staff-salary leak). Until we add a dedicated ACCOUNTANT role,
+// expenses are ADMIN-only.
+router.get("/", authorize(Role.ADMIN), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       category,
@@ -69,7 +70,7 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION), async (req: Request, res:
 // RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/summary",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { from, to } = req.query as Record<string, string | undefined>;
@@ -121,7 +122,7 @@ router.get(
 // POST /api/v1/expenses — creates; auto-PENDING if > threshold
 router.post(
   "/",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   validate(createExpenseSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -278,7 +279,7 @@ router.patch(
 // RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/recurring",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const items = await prisma.expense.findMany({
@@ -295,7 +296,7 @@ router.get(
 // POST /api/v1/expenses/:id/generate-recurring — clone as a new expense for next period
 router.post(
   "/:id/generate-recurring",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parent = await prisma.expense.findUnique({ where: { id: req.params.id } });
@@ -353,7 +354,7 @@ router.post(
 // RBAC (issue #89): DOCTOR excluded.
 router.get(
   "/budgets",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const now = new Date();

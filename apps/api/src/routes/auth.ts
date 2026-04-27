@@ -9,16 +9,54 @@ import {
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updateProfileSchema,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import { rateLimit } from "../middleware/rate-limit";
+import {
+  checkLockout,
+  recordFailedLogin,
+  clearFailedLogins,
+} from "../services/auth-lockout";
 import {
   generateSecret,
   verifyTOTP,
   buildOtpAuthUri,
   generateBackupCodes,
 } from "../services/totp";
+
+/**
+ * Resolve the caller's IP for lockout / audit purposes. Mirrors the same
+ * x-forwarded-for handling the rate limiter and audit logger use so the
+ * three layers always agree on which IP they're talking about.
+ */
+function clientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  return (
+    (typeof forwarded === "string"
+      ? forwarded.split(",")[0].trim()
+      : req.ip) ?? "unknown"
+  );
+}
+
+/**
+ * Per-route limiters. Issues #124, #125, #128:
+ *   • /login — 20/min/IP (was sharing the 30/min auth bucket which got
+ *     consumed by /me probes after 2-3 logins).
+ *   • /forgot-password — 5/min/IP (separate from login so a stuck reset flow
+ *     doesn't lock a user out of logging in).
+ * Both no-op in NODE_ENV=test to keep the integration suite deterministic.
+ */
+const loginLimiter =
+  process.env.NODE_ENV === "test"
+    ? (_: Request, __: Response, n: NextFunction) => n()
+    : rateLimit(20, 60_000);
+const forgotPasswordLimiter =
+  process.env.NODE_ENV === "test"
+    ? (_: Request, __: Response, n: NextFunction) => n()
+    : rateLimit(5, 60_000);
 
 // security(2026-04-23-low): CSRF considerations.
 // MedCore currently authenticates via `Authorization: Bearer <JWT>` headers
@@ -269,6 +307,7 @@ router.post(
 // POST /api/v1/auth/login
 router.post(
   "/login",
+  loginLimiter,
   validate(loginSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -278,12 +317,45 @@ router.post(
         rememberMe?: boolean;
       };
 
+      // Issue #164: IP-based failed-login lockout. Distinct from the
+      // rate limiter — fires only on REPEATED FAILURES, not total volume.
+      const ip = clientIp(req);
+      const lockout = checkLockout(ip);
+      if (lockout.locked) {
+        res.status(429).json({
+          success: false,
+          data: null,
+          error: `Too many failed login attempts. Try again in ${lockout.remainingSeconds} seconds.`,
+          retryAfterSeconds: lockout.remainingSeconds,
+          locked: true,
+        });
+        return;
+      }
+
+      const recordFailure = (
+        userId: string | undefined,
+        reason: string
+      ): void => {
+        const result = recordFailedLogin(ip);
+        auditLog(req, "LOGIN_FAILED", "user", userId, {
+          email,
+          reason,
+          failureCount: result.failureCount,
+          remainingAttempts: result.remainingAttempts,
+        }).catch(console.error);
+        if (result.justLocked) {
+          auditLog(req, "AUTH_LOCKOUT_TRIGGERED", "auth", undefined, {
+            ip,
+            email,
+            failureCount: result.failureCount,
+            lockoutSeconds: 15 * 60,
+          }).catch(console.error);
+        }
+      };
+
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user || !user.isActive) {
-        auditLog(req, "LOGIN_FAILED", "user", undefined, {
-          email,
-          reason: "user_not_found_or_inactive",
-        }).catch(console.error);
+        recordFailure(undefined, "user_not_found_or_inactive");
         res.status(401).json({
           success: false,
           data: null,
@@ -294,10 +366,7 @@ router.post(
 
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) {
-        auditLog(req, "LOGIN_FAILED", "user", user.id, {
-          email,
-          reason: "bad_password",
-        }).catch(console.error);
+        recordFailure(user.id, "bad_password");
         res.status(401).json({
           success: false,
           data: null,
@@ -316,10 +385,7 @@ router.post(
           select: { active: true },
         });
         if (tenant && !tenant.active) {
-          auditLog(req, "LOGIN_FAILED", "user", user.id, {
-            email,
-            reason: "tenant_deactivated",
-          }).catch(console.error);
+          recordFailure(user.id, "tenant_deactivated");
           res.status(401).json({
             success: false,
             data: null,
@@ -328,6 +394,10 @@ router.post(
           return;
         }
       }
+
+      // Successful credential check — clear any prior failures so the next
+      // operator on this IP isn't locked out by a previous user's typos.
+      clearFailedLogins(ip);
 
       // If 2FA is enabled, do not issue real tokens — return a temp token.
       if (user.twoFactorEnabled && user.twoFactorSecret) {
@@ -507,8 +577,11 @@ router.post(
 // ─── Password Reset (DB-backed code store) ────────────────────────
 
 // POST /api/v1/auth/forgot-password
+// Issue #128: dedicated 5/min/IP limiter so a stuck reset flow doesn't burn
+// the shared auth bucket and lock the user out of /login too.
 router.post(
   "/forgot-password",
+  forgotPasswordLimiter,
   validate(forgotPasswordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -668,9 +741,13 @@ router.post(
 );
 
 // PATCH /api/v1/auth/me — update own profile (name/phone/photoUrl/prefs)
+// Issue #138 (Apr 2026): use the shared `updateProfileSchema` so empty
+// names and bogus phones ("abc") are rejected with field-level errors
+// surfaced via extractFieldErrors, matching every other write endpoint.
 router.patch(
   "/me",
   authenticate,
+  validate(updateProfileSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -688,8 +765,8 @@ router.patch(
       };
 
       const data: Record<string, unknown> = {};
-      if (typeof name === "string" && name.trim().length > 0) data.name = name.trim();
-      if (typeof phone === "string" && phone.trim().length > 0) data.phone = phone.trim();
+      if (typeof name === "string") data.name = name.trim();
+      if (typeof phone === "string") data.phone = phone.trim();
       if (photoUrl !== undefined) data.photoUrl = photoUrl;
       if (preferredLanguage !== undefined) data.preferredLanguage = preferredLanguage;
       if (defaultLandingPage !== undefined) data.defaultLandingPage = defaultLandingPage;

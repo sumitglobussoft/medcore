@@ -135,4 +135,22 @@ describe("GET /api/v1/analytics/ai/triage (Issue #83)", () => {
     const gp = dist.find((d) => d.specialty === "General Physician");
     expect(gp?.count).toBe(1);
   });
+
+  // Issue #157: any unexpected throw from inside the handler — including
+  // a Prisma failure or a row shape we haven't seen yet — must NOT 500
+  // the analytics tab. The handler now degrades to a 200 with
+  // `data: null` and a `warning` so the UI can render an inline notice.
+  it("Issue #157: degrades to 200 + warning when prisma throws", async () => {
+    prismaMock.aITriageSession.findMany.mockRejectedValueOnce(
+      new Error("connect ECONNREFUSED")
+    );
+    const app = buildApp();
+    const res = await request(app)
+      .get("/api/v1/analytics/ai/triage")
+      .set("Authorization", `Bearer ${tokenFor("ADMIN")}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toBeNull();
+    expect(res.body.warning).toMatch(/could not be parsed/i);
+  });
 });

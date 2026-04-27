@@ -12,6 +12,7 @@ import {
   createLabOrderSchema,
   recordLabResultSchema,
   labQCSchema,
+  validateNumericLabResult,
 } from "../lab";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
@@ -180,5 +181,52 @@ describe("labQCSchema", () => {
         withinRange: true,
       }).success
     ).toBe(true);
+  });
+});
+
+// Issue #95 (Apr 2026): a numeric test must reject free-text values to
+// preserve delta-checks and panic alerts.
+describe("validateNumericLabResult", () => {
+  it("accepts a number when test has a unit", () => {
+    expect(
+      validateNumericLabResult({ value: "13.5", test: { unit: "g/dL" } })
+    ).toBeNull();
+  });
+  it("accepts a number when test has panicLow set", () => {
+    expect(
+      validateNumericLabResult({
+        value: "70",
+        test: { unit: null, panicLow: 50, panicHigh: null },
+      })
+    ).toBeNull();
+  });
+  it("rejects free text on a numeric test", () => {
+    const issue = validateNumericLabResult({
+      value: "abc",
+      test: { unit: "mg/dL" },
+    });
+    expect(issue).not.toBeNull();
+    expect(issue?.field).toBe("value");
+  });
+  it("rejects mixed alphanumerics on a numeric test", () => {
+    expect(
+      validateNumericLabResult({
+        value: "12abc",
+        test: { unit: "mg/dL" },
+      })
+    ).not.toBeNull();
+  });
+  it("allows free text on a non-numeric test (no unit, no panic)", () => {
+    expect(
+      validateNumericLabResult({
+        value: "Yellow, clear",
+        test: { unit: null, panicLow: null, panicHigh: null },
+      })
+    ).toBeNull();
+  });
+  it("accepts negative and decimal numbers", () => {
+    expect(
+      validateNumericLabResult({ value: "-1.4", test: { unit: "mEq/L" } })
+    ).toBeNull();
   });
 });

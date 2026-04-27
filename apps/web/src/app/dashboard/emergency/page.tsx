@@ -9,6 +9,12 @@ import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { useTranslation } from "@/lib/i18n";
 import { getSocket } from "@/lib/socket";
+// Issue #162 / #163 (2026-04-26): legacy ER rows had `arrivedAt` set to a
+// year-2000 sentinel value, producing 19,500-minute "elapsed" badges. The
+// shared elapsedMinutes helper clamps the reading to [0, now - arrivedAt]
+// and ignores pre-2010 timestamps, so a single bad row can no longer look
+// like a 13-day-old triage case.
+import { elapsedMinutes } from "@/lib/time";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Siren, AlertTriangle, UserCheck, X } from "lucide-react";
 
@@ -89,8 +95,10 @@ const TRIAGE_TARGET_MIN: Record<string, number> = {
   NON_URGENT: 120,
 };
 
-function elapsedMin(dateStr: string): number {
-  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+// Issue #162 / #163 — wrap the shared helper so call-sites stay terse but
+// every reading goes through the same year-2000-sentinel clamp.
+function elapsedMin(dateStr: string | null | undefined): number {
+  return elapsedMinutes(dateStr ?? null);
 }
 
 export default function EmergencyPage() {

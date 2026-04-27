@@ -2,6 +2,12 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+// Issue #139 (2026-04-26) — canonical revenue/outstanding/refund helpers so
+// /analytics/overview cannot drift away from /billing reports' definition.
+import {
+  getRevenue as svcGetRevenue,
+  getOutstanding as svcGetOutstanding,
+} from "../services/revenue";
 
 const router = Router();
 router.use(authenticate);
@@ -161,6 +167,11 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
     appointmentsByStatus[s.status] = s._count._all;
   });
 
+  // Issue #139 — canonical revenue: positive payments only. Refunds
+  // (negative-amount rows) are NOT subtracted from "revenue" — the UI
+  // surfaces refunds separately via /billing/reports/refunds. Without
+  // this filter the dashboard tile diverged from the billing module by
+  // exactly the refund total.
   const revenueByMode: Record<string, number> = {
     CASH: 0,
     CARD: 0,
@@ -170,6 +181,7 @@ async function computeOverviewSnapshot(from: Date, to: Date) {
   };
   let totalRevenue = 0;
   payments.forEach((p) => {
+    if (p.amount <= 0) return;
     totalRevenue += p.amount;
     revenueByMode[p.mode] = (revenueByMode[p.mode] || 0) + p.amount;
   });
@@ -1881,7 +1893,13 @@ router.get(
   "/ai/triage",
   authenticate,
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, _next: NextFunction) => {
+    // Issue #157: an unparseable row (new JSON shape, malformed
+    // `messages`, missing column after a hot-reload) used to take the
+    // whole tab down with a 500. Wrap the entire handler in a guard so
+    // the worst case is a 200 with `data: null` + a `warning` string —
+    // the AI Analytics tab can render an inline notice instead of
+    // showing a generic error toast.
     try {
       const { from, to } = parseRange(req);
 
@@ -2014,7 +2032,15 @@ router.get(
         error: null,
       });
     } catch (err) {
-      next(err);
+      // Issue #157: never let a single malformed row take the analytics
+      // tab down with a 500. Log and degrade to an empty payload + warn.
+      console.error("[analytics:/ai/triage] degraded:", err);
+      res.status(200).json({
+        success: true,
+        data: null,
+        warning: "Some sessions could not be parsed",
+        error: null,
+      });
     }
   }
 );

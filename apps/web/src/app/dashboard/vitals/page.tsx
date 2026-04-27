@@ -301,7 +301,7 @@ export default function VitalsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-6 text-2xl font-bold">Record Vitals</h1>
+      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">Record Vitals</h1>
 
       {/* Doctor selection */}
       <div className="mb-6 grid grid-cols-3 gap-2">
@@ -312,14 +312,14 @@ export default function VitalsPage() {
               setSelectedDoctor(d.id);
               loadQueue(d.id);
             }}
-            className={`rounded-lg border-2 p-3 text-left text-sm ${
+            className={`rounded-lg border-2 p-3 text-left text-sm text-gray-900 dark:text-gray-100 ${
               selectedDoctor === d.id
-                ? "border-primary bg-blue-50"
-                : "border-gray-200 hover:border-gray-300"
+                ? "border-primary bg-blue-50 dark:border-blue-400 dark:bg-blue-900/30"
+                : "border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-500"
             }`}
           >
             <p className="font-medium">{d.user.name}</p>
-            <p className="text-xs text-gray-500">{d.specialization}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{d.specialization}</p>
           </button>
         ))}
       </div>
@@ -361,7 +361,7 @@ export default function VitalsPage() {
         {/* Vitals form */}
         <div className="col-span-2">
           {selectedPatient ? (
-            <form onSubmit={saveVitals} className="rounded-xl bg-white p-6 shadow-sm">
+            <form onSubmit={saveVitals} className="rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
               <h2 className="mb-4 font-semibold">
                 Vitals — Token #{selectedPatient.tokenNumber} ({selectedPatient.patientName})
               </h2>
@@ -819,7 +819,7 @@ export default function VitalsPage() {
               </button>
             </form>
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-xl bg-white text-gray-400 shadow-sm">
+            <div className="flex h-64 items-center justify-center rounded-xl bg-white text-gray-400 shadow-sm dark:bg-gray-800 dark:text-gray-500">
               Select a patient to record vitals
             </div>
           )}

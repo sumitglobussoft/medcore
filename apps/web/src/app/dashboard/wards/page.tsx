@@ -187,8 +187,8 @@ export default function WardsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Wards &amp; Beds</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Wards &amp; Beds</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {totals.available} available · {totals.occupied} occupied ·{" "}
             {totals.total} total beds
           </p>
@@ -204,13 +204,13 @@ export default function WardsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b border-slate-200">
+      <div className="mb-4 flex gap-2 border-b border-slate-200 dark:border-slate-700">
         <button
           onClick={() => setTab("beds")}
           className={`px-3 py-2 text-sm border-b-2 -mb-0.5 ${
             tab === "beds"
               ? "border-primary text-primary font-semibold"
-              : "border-transparent text-slate-600"
+              : "border-transparent text-slate-600 dark:text-slate-300"
           }`}
         >
           Beds
@@ -220,7 +220,7 @@ export default function WardsPage() {
           className={`inline-flex items-center gap-1 px-3 py-2 text-sm border-b-2 -mb-0.5 ${
             tab === "forecast"
               ? "border-primary text-primary font-semibold"
-              : "border-transparent text-slate-600"
+              : "border-transparent text-slate-600 dark:text-slate-300"
           }`}
         >
           <TrendingUp size={14} /> Forecast
@@ -233,30 +233,30 @@ export default function WardsPage() {
         <>
       {/* Summary cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Total Beds</p>
+        <div className="rounded-xl bg-white p-5 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total Beds</p>
           <p className="mt-1 text-3xl font-bold">{totals.total}</p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Available</p>
-          <p className="mt-1 text-3xl font-bold text-green-600">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Available</p>
+          <p className="mt-1 text-3xl font-bold text-green-600 dark:text-green-400">
             {totals.available}
           </p>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Occupied</p>
-          <p className="mt-1 text-3xl font-bold text-red-600">
+        <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Occupied</p>
+          <p className="mt-1 text-3xl font-bold text-red-600 dark:text-red-400">
             {totals.occupied}
           </p>
         </div>
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           Loading...
         </div>
       ) : wards.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           No wards yet. {isAdmin && 'Click "Add Ward" to create one.'}
         </div>
       ) : (
@@ -270,7 +270,7 @@ export default function WardsPage() {
             return (
               <div
                 key={ward.id}
-                className={`rounded-xl bg-white p-5 shadow-sm transition ${
+                className={`rounded-xl bg-white p-5 text-gray-900 shadow-sm transition dark:bg-gray-800 dark:text-gray-100 ${
                   isExpanded ? "md:col-span-2 lg:col-span-3" : ""
                 }`}
               >
@@ -287,7 +287,7 @@ export default function WardsPage() {
                       {ward.type.replace(/_/g, " ")}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Floor {ward.floor ?? "—"}
                   </p>
 
@@ -301,7 +301,7 @@ export default function WardsPage() {
                   </div>
 
                   {/* Progress bar */}
-                  <div className="mt-2 flex h-2 w-full overflow-hidden rounded bg-gray-200">
+                  <div className="mt-2 flex h-2 w-full overflow-hidden rounded bg-gray-200 dark:bg-gray-700">
                     <div
                       className="bg-red-500"
                       style={{ width: `${occupiedPct}%` }}
@@ -318,7 +318,7 @@ export default function WardsPage() {
                 </button>
 
                 {isExpanded && (
-                  <div className="mt-4 border-t pt-4">
+                  <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
                     <div className="mb-3 flex items-center justify-between">
                       <h4 className="text-sm font-semibold">Beds</h4>
                       {isAdmin && (
@@ -331,7 +331,7 @@ export default function WardsPage() {
                       )}
                     </div>
                     {(ward.beds || []).length === 0 ? (
-                      <p className="text-sm text-gray-500">No beds yet.</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">No beds yet.</p>
                     ) : (
                       <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
                         {ward.beds!.map((bed) => (
@@ -357,7 +357,7 @@ export default function WardsPage() {
                           onChange={(e) =>
                             setBedForm({ bedNumber: e.target.value })
                           }
-                          className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                          className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         />
                         <button
                           type="submit"
@@ -368,7 +368,7 @@ export default function WardsPage() {
                         <button
                           type="button"
                           onClick={() => setShowBedModal(null)}
-                          className="rounded-lg border px-3 py-2 text-sm"
+                          className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                         >
                           Cancel
                         </button>
@@ -389,7 +389,7 @@ export default function WardsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <form
             onSubmit={createWard}
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Add New Ward</h2>
             <div className="space-y-3">
@@ -401,7 +401,7 @@ export default function WardsPage() {
                   onChange={(e) =>
                     setWardForm({ ...wardForm, name: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
               <div>
@@ -411,7 +411,7 @@ export default function WardsPage() {
                   onChange={(e) =>
                     setWardForm({ ...wardForm, type: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 >
                   {WARD_TYPES.map((t) => (
                     <option key={t} value={t}>
@@ -427,7 +427,7 @@ export default function WardsPage() {
                   onChange={(e) =>
                     setWardForm({ ...wardForm, floor: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
               <div>
@@ -440,7 +440,7 @@ export default function WardsPage() {
                     setWardForm({ ...wardForm, description: e.target.value })
                   }
                   rows={3}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
             </div>
@@ -448,7 +448,7 @@ export default function WardsPage() {
               <button
                 type="button"
                 onClick={() => setShowWardModal(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -507,10 +507,10 @@ function OccupancyForecast() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-white p-4 shadow-sm">
+      <div className="rounded-xl bg-white p-4 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold">Next 7 Days Predicted Occupancy</h3>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-500 dark:text-slate-300">
             based on expected LOS, scheduled surgeries, and planned admissions
           </span>
         </div>
@@ -545,9 +545,9 @@ function OccupancyForecast() {
           })}
         </svg>
       </div>
-      <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="bg-white text-gray-900 border border-gray-200 rounded-lg overflow-hidden dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-600 uppercase">
+          <thead className="bg-slate-50 text-xs text-slate-600 uppercase dark:bg-gray-900/40 dark:text-slate-300">
             <tr>
               <th className="px-3 py-2 text-left">Date</th>
               <th className="px-3 py-2 text-right">Predicted</th>
@@ -559,7 +559,7 @@ function OccupancyForecast() {
           </thead>
           <tbody>
             {data.map((d) => (
-              <tr key={d.date} className="border-t border-slate-100">
+              <tr key={d.date} className="border-t border-slate-100 dark:border-slate-700">
                 <td className="px-3 py-2">{d.date}</td>
                 <td className="px-3 py-2 text-right font-semibold">
                   {d.predictedOccupancy}
@@ -612,7 +612,7 @@ function BedCell({
         <span className="text-[10px]">{STATUS_LABELS[bed.status]}</span>
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border bg-white shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
           {Object.keys(STATUS_COLORS).map((s) => (
             <button
               key={s}
@@ -620,7 +620,7 @@ function BedCell({
                 onChange(bed.id, s);
                 setOpen(false);
               }}
-              className="block w-full px-3 py-1.5 text-left text-xs hover:bg-gray-50"
+              className="block w-full px-3 py-1.5 text-left text-xs text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               {STATUS_LABELS[s]}
             </button>

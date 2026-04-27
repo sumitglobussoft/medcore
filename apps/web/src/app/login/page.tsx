@@ -272,7 +272,16 @@ function LoginPageInner() {
                 </button>
               </form>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-5" aria-label="Login form">
+              <form
+                onSubmit={handleSubmit}
+                className="space-y-5"
+                aria-label="Login form"
+                // Issue #102: suppress the browser's native email/required
+                // validation tooltip — it positioned itself over the Password
+                // label on Chromium. We render our own per-field error spans
+                // (data-testid="error-email" / "error-password") below.
+                noValidate
+              >
                 {error && (
                   <div
                     role="alert"
@@ -305,7 +314,11 @@ function LoginPageInner() {
                     aria-describedby={fieldErrors.email ? "login-email-err" : undefined}
                   />
                   {fieldErrors.email && (
-                    <p id="login-email-err" className="mt-1 text-xs text-red-600">
+                    <p
+                      id="login-email-err"
+                      data-testid="error-email"
+                      className="mt-1 text-xs text-red-600"
+                    >
                       {fieldErrors.email}
                     </p>
                   )}
@@ -333,7 +346,11 @@ function LoginPageInner() {
                     aria-describedby={fieldErrors.password ? "login-password-err" : undefined}
                   />
                   {fieldErrors.password && (
-                    <p id="login-password-err" className="mt-1 text-xs text-red-600">
+                    <p
+                      id="login-password-err"
+                      data-testid="error-password"
+                      className="mt-1 text-xs text-red-600"
+                    >
                       {fieldErrors.password}
                     </p>
                   )}

@@ -62,27 +62,32 @@ export default function ForgotPasswordPage() {
     }
   }
 
+  // Issue #127: page used to be hardcoded to a light gradient + white card,
+  // which broke visual consistency for users on the dark theme. We now mirror
+  // the login page — light gradient with `dark:` siblings, no `data-theme`
+  // override or `forceLight` prop — so the global ThemeBootstrap drives both
+  // states uniformly.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl ring-1 ring-gray-200 dark:bg-gray-800 dark:ring-gray-700">
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-bold text-primary">MedCore</h1>
-          <p className="mt-2 text-gray-500">Reset Your Password</p>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Reset Your Password</p>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-danger">
+          <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-danger dark:bg-red-900/30 dark:text-red-300">
             {error}
           </div>
         )}
 
         {step === "email" && (
           <form onSubmit={handleRequestCode} className="space-y-5">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
               Enter your email address and we will send you a reset code.
             </p>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                 Email
               </label>
               <input
@@ -90,7 +95,7 @@ export default function ForgotPasswordPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 placeholder="Enter your email"
               />
             </div>
@@ -106,12 +111,12 @@ export default function ForgotPasswordPage() {
 
         {step === "reset" && (
           <form onSubmit={handleResetPassword} className="space-y-5">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
               A 6-digit code has been sent to <strong>{email}</strong>. Enter it
               below along with your new password.
             </p>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                 Reset Code
               </label>
               <input
@@ -120,12 +125,12 @@ export default function ForgotPasswordPage() {
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 required
                 maxLength={6}
-                className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-center text-2xl tracking-widest focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-2xl tracking-widest text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 placeholder="000000"
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">
                 New Password
               </label>
               <PasswordInput
@@ -134,7 +139,7 @@ export default function ForgotPasswordPage() {
                 required
                 minLength={6}
                 autoComplete="new-password"
-                className="rounded-lg border border-gray-300 px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="rounded-lg border border-gray-300 px-4 py-2.5 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 placeholder="Enter new password"
               />
             </div>
@@ -151,7 +156,7 @@ export default function ForgotPasswordPage() {
                 setStep("email");
                 setError("");
               }}
-              className="w-full text-sm text-gray-500 hover:text-primary"
+              className="w-full text-sm text-gray-500 hover:text-primary dark:text-gray-400"
             >
               Use a different email
             </button>
@@ -160,9 +165,9 @@ export default function ForgotPasswordPage() {
 
         {step === "done" && (
           <div className="space-y-5 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/40">
               <svg
-                className="h-8 w-8 text-green-600"
+                className="h-8 w-8 text-green-600 dark:text-green-300"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -175,10 +180,10 @@ export default function ForgotPasswordPage() {
                 />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-gray-800">
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">
               Password Reset Successful
             </p>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-300">
               Your password has been updated. You can now sign in with your new
               password.
             </p>
@@ -192,7 +197,7 @@ export default function ForgotPasswordPage() {
         )}
 
         {step !== "done" && (
-          <p className="mt-6 text-center text-sm text-gray-500">
+          <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
             Remember your password?{" "}
             <Link
               href="/login"

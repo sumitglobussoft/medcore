@@ -25,8 +25,11 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/v1/pharmacy/inventory?search=&lowStock=true
+// RBAC (issue #98): RECEPTION must NOT see stock levels. Reads restricted
+// to clinical + pharmacy roles only.
 router.get(
   "/inventory",
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const {
@@ -78,8 +81,10 @@ router.get(
 );
 
 // GET /api/v1/pharmacy/inventory/expiring?days=30
+// RBAC (issue #98): RECEPTION must NOT see stock levels.
 router.get(
   "/inventory/expiring",
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const days = parseInt((req.query.days as string) || "30");
@@ -103,9 +108,13 @@ router.get(
 );
 
 // POST /api/v1/pharmacy/inventory — add stock + create PURCHASE movement
+// RBAC (issue #98): inventory writes restricted to ADMIN + PHARMACIST.
+// RECEPTION used to be allowed (PO receiving workflow predates the
+// PHARMACIST role) — they can still receive POs via /purchase-orders, but
+// direct stock writes are pharmacy-side only now.
 router.post(
   "/inventory",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(createInventoryItemSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -188,9 +197,10 @@ router.post(
 );
 
 // PATCH /api/v1/pharmacy/inventory/:id — update location/reorderLevel/sellingPrice
+// RBAC (issue #98): inventory writes restricted to ADMIN + PHARMACIST.
 router.patch(
   "/inventory/:id",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(updateInventoryItemSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -210,9 +220,10 @@ router.patch(
 );
 
 // POST /api/v1/pharmacy/stock-movements — manual movement
+// RBAC (issue #98): stock writes restricted to ADMIN + PHARMACIST.
 router.post(
   "/stock-movements",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(stockMovementSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -699,7 +710,8 @@ router.post(
 
 router.get(
   "/reports/reorder-suggestions",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  // RBAC (issue #98): exposes stock counts per medicine — pharmacy roles only.
+  authorize(Role.ADMIN, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const days = parseInt((req.query.days as string) || "30");
@@ -785,7 +797,8 @@ router.get(
 
 router.post(
   "/stock-adjustments",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  // RBAC (issue #98): stock writes restricted to ADMIN + PHARMACIST.
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(stockAdjustmentSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1034,7 +1047,8 @@ router.get(
 
 router.post(
   "/transfers",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  // RBAC (issue #98): stock writes restricted to ADMIN + PHARMACIST.
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(stockTransferSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1128,7 +1142,9 @@ router.get(
 
 router.post(
   "/inventory/:id/order-from-supplier",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  // RBAC (issue #98): supplier ordering off the inventory record is a stock
+  // write — pharmacy roles only.
+  authorize(Role.ADMIN, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const item = await prisma.inventoryItem.findUnique({

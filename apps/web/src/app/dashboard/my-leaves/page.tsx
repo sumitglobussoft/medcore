@@ -238,7 +238,9 @@ export default function MyLeavesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-gray-500">
-                    {new Date(l.createdAt).toLocaleDateString()}
+                    {/* Issue #119: prefer the central formatDate helper so a
+                        null/invalid createdAt renders as "—". */}
+                    {formatDate(l.createdAt)}
                   </td>
                   <td className="px-4 py-3">
                     {l.status === "PENDING" ? (

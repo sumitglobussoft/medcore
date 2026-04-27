@@ -1,10 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { api, openPrintEndpoint } from "../api";
+import { api, openPrintEndpoint, __resetAuthExpiredLatchForTests } from "../api";
+import { toast } from "../toast";
+
+// Capture the jsdom default location once so 401-redirect tests can stub
+// `window.location` and the next test still sees a clean slate.
+const ORIGINAL_LOCATION = window.location;
 
 describe("api client", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    __resetAuthExpiredLatchForTests();
+    Object.defineProperty(window, "location", {
+      value: ORIGINAL_LOCATION,
+      writable: true,
+      configurable: true,
+    });
   });
 
   it("GET attaches Authorization header when a token is stored", async () => {
@@ -56,6 +67,96 @@ describe("api client", () => {
       new Response(JSON.stringify({ error: "Nope" }), { status: 400 })
     );
     await expect(api.get("/err")).rejects.toThrow("Nope");
+  });
+
+  // Issues #101 + #132: any 401 response from the API should clear the
+  // stored auth tokens, toast the user, and redirect to /login. Single-fire
+  // per page lifecycle so a burst of parallel 401s doesn't spam toasts.
+  it("401 response clears auth tokens, toasts, and redirects to /login", async () => {
+    window.localStorage.setItem("medcore_token", "expired-token");
+    window.localStorage.setItem("medcore_refresh", "expired-refresh");
+
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: {
+        pathname: "/dashboard/pharmacy",
+        search: "",
+        replace: replaceSpy,
+      },
+      writable: true,
+    });
+    const toastSpy = vi.spyOn(toast, "error");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    );
+
+    await expect(api.get("/some-protected-route")).rejects.toThrow();
+    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
+    expect(toastSpy).toHaveBeenCalledWith(
+      "Your session has expired, please sign in again.",
+      6000
+    );
+    expect(replaceSpy).toHaveBeenCalled();
+    expect(replaceSpy.mock.calls[0][0]).toMatch(/^\/login\?next=/);
+  });
+
+  it("401 fires only once per page lifecycle (no toast spam)", async () => {
+    window.localStorage.setItem("medcore_token", "expired-token");
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { pathname: "/dashboard", search: "", replace: replaceSpy },
+      writable: true,
+    });
+    const toastSpy = vi.spyOn(toast, "error");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    );
+
+    await expect(api.get("/x")).rejects.toThrow();
+    await expect(api.get("/y")).rejects.toThrow();
+    await expect(api.get("/z")).rejects.toThrow();
+
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("401 with skip401Redirect option throws but does NOT redirect", async () => {
+    window.localStorage.setItem("medcore_token", "stale");
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { pathname: "/dashboard", search: "", replace: replaceSpy },
+      writable: true,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+    );
+
+    await expect(
+      api.get("/auth/me", { skip401Redirect: true })
+    ).rejects.toThrow();
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  it("401 on /login itself does NOT redirect (would loop)", async () => {
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { pathname: "/login", search: "", replace: replaceSpy },
+      writable: true,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: "Invalid email or password" }),
+        { status: 401 }
+      )
+    );
+
+    await expect(api.post("/auth/login", { email: "x", password: "y" })).rejects.toThrow();
+    expect(replaceSpy).not.toHaveBeenCalled();
   });
 
   it("openPrintEndpoint opens a new window, fetches HTML, writes document", async () => {

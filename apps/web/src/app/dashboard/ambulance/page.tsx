@@ -176,7 +176,7 @@ export default function AmbulancePage() {
     <div>
       <div className="mb-6 flex items-center gap-3">
         <AmbulanceIcon className="text-red-600" size={28} />
-        <h1 className="text-2xl font-bold">Ambulance</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Ambulance</h1>
         <div className="ml-auto flex gap-2">
           {canDispatch && (
             <button
@@ -189,7 +189,7 @@ export default function AmbulancePage() {
           {canManage && (
             <button
               onClick={() => setShowAddAmb(true)}
-              className="flex items-center gap-2 rounded border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+              className="flex items-center gap-2 rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
             >
               <Plus size={16} /> Add Ambulance
             </button>
@@ -200,23 +200,23 @@ export default function AmbulancePage() {
       {/* Ambulance fleet cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         {ambulances.map((a) => (
-          <div key={a.id} className="rounded-lg bg-white p-4 shadow">
+          <div key={a.id} className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
             <div className="flex items-start justify-between">
               <div>
                 <div className="text-lg font-bold">{a.vehicleNumber}</div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-600 dark:text-gray-300">
                   {a.type} {a.make && `• ${a.make} ${a.model ?? ""}`}
                 </div>
               </div>
               <span
                 className={`rounded px-2 py-0.5 text-xs ${
-                  STATUS_COLORS[a.status] || "bg-gray-100 text-gray-700"
+                  STATUS_COLORS[a.status] || "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                 }`}
               >
                 {a.status.replace(/_/g, " ")}
               </span>
             </div>
-            <div className="mt-3 space-y-1 text-xs text-gray-600">
+            <div className="mt-3 space-y-1 text-xs text-gray-700 dark:text-gray-300">
               {a.driverName && (
                 <div>Driver: {a.driverName} {a.driverPhone && `(${a.driverPhone})`}</div>
               )}
@@ -225,20 +225,20 @@ export default function AmbulancePage() {
           </div>
         ))}
         {ambulances.length === 0 && (
-          <p className="text-sm text-gray-400">No ambulances registered.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No ambulances registered.</p>
         )}
       </div>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-2 border-b">
+      <div className="mb-4 flex gap-2 border-b border-gray-200 dark:border-gray-700">
         {(["active", "all"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium capitalize ${
               tab === t
-                ? "border-b-2 border-red-600 text-red-600"
-                : "text-gray-600 hover:text-gray-900"
+                ? "border-b-2 border-red-600 text-red-600 dark:text-red-400"
+                : "text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
             }`}
           >
             {t === "active" ? "Active Trips" : "All Trips"}
@@ -247,28 +247,28 @@ export default function AmbulancePage() {
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       ) : tab === "active" ? (
         <div className="space-y-4">
           {activeTrips.length === 0 && (
-            <p className="text-sm text-gray-400">No active trips.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No active trips.</p>
           )}
           {activeTrips.map((t) => {
             const stageIdx = TRIP_STAGES.indexOf(t.status);
             return (
-              <div key={t.id} className="rounded-lg bg-white p-4 shadow">
+              <div key={t.id} className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="font-mono text-xs text-gray-500">{t.tripNumber}</div>
+                    <div className="font-mono text-xs text-gray-500 dark:text-gray-400">{t.tripNumber}</div>
                     <div className="text-lg font-semibold">
                       {t.patient?.user.name || t.callerName || "Unknown caller"}
                     </div>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
                       <AmbulanceIcon size={14} className="mr-1 inline" />
                       {t.ambulance.vehicleNumber}
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     <Clock size={12} className="mr-1 inline" />
                     {new Date(t.requestedAt).toLocaleString()}
                   </div>
@@ -281,14 +281,14 @@ export default function AmbulancePage() {
                         className={`flex h-6 w-6 items-center justify-center rounded-full ${
                           i <= stageIdx
                             ? "bg-red-600 text-white"
-                            : "bg-gray-200 text-gray-500"
+                            : "bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-300"
                         }`}
                       >
                         {i + 1}
                       </div>
                       <span
                         className={
-                          i <= stageIdx ? "font-medium" : "text-gray-400"
+                          i <= stageIdx ? "font-medium text-gray-900 dark:text-gray-100" : "text-gray-500 dark:text-gray-400"
                         }
                       >
                         {s.replace(/_/g, " ")}
@@ -296,7 +296,7 @@ export default function AmbulancePage() {
                       {i < TRIP_STAGES.length - 1 && (
                         <div
                           className={`h-0.5 w-8 ${
-                            i < stageIdx ? "bg-red-600" : "bg-gray-200"
+                            i < stageIdx ? "bg-red-600" : "bg-gray-200 dark:bg-gray-700"
                           }`}
                         />
                       )}
@@ -304,7 +304,7 @@ export default function AmbulancePage() {
                   ))}
                 </div>
 
-                <div className="mt-3 space-y-1 text-sm text-gray-700">
+                <div className="mt-3 space-y-1 text-sm text-gray-700 dark:text-gray-300">
                   <div>
                     <MapPin size={14} className="mr-1 inline" />
                     Pickup: {t.pickupAddress}
@@ -316,7 +316,7 @@ export default function AmbulancePage() {
                     </div>
                   )}
                   {t.chiefComplaint && (
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
                       Complaint: {t.chiefComplaint}
                     </div>
                   )}

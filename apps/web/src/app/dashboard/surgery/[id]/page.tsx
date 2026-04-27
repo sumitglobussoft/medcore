@@ -507,7 +507,10 @@ export default function SurgeryDetailPage() {
       {/* Actions */}
       {canEdit && (
         <div className="flex flex-wrap gap-2">
-          {surgery.status === "SCHEDULED" && (
+          {/* Issue #148: hide "Start Surgery" once the case has slipped past
+              its grace window. The doctor must Cancel (or Reschedule via the
+              Cancel-then-create flow) instead of starting a stale slot. */}
+          {surgery.status === "SCHEDULED" && effectiveSurgeryStatus(surgery) !== "MISSED_SCHEDULE" && (
             <>
               <button
                 onClick={startSurgery}
@@ -522,6 +525,15 @@ export default function SurgeryDetailPage() {
                 <XCircle size={16} /> Cancel
               </button>
             </>
+          )}
+          {surgery.status === "SCHEDULED" && effectiveSurgeryStatus(surgery) === "MISSED_SCHEDULE" && (
+            <button
+              onClick={cancelSurgery}
+              className="flex items-center gap-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+              data-testid="cancel-missed-surgery"
+            >
+              <XCircle size={16} /> Cancel (Missed)
+            </button>
           )}
           {surgery.status === "IN_PROGRESS" && (
             <button

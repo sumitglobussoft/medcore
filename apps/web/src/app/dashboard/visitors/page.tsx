@@ -5,6 +5,8 @@ import { Camera, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+// Issue #92 / #162 / #163 — shared elapsed-minutes helper (year-2000 clamp).
+import { elapsedMinutes } from "@/lib/time";
 
 interface Visitor {
   id: string;
@@ -38,35 +40,6 @@ const PURPOSE_COLORS: Record<string, string> = {
   MEETING: "bg-yellow-500",
   OTHER: "bg-gray-500",
 };
-
-// Issue #92 (2026-04-26): Some legacy rows had `checkOutAt` set to a
-// year-2000 sentinel/Unix-epoch value, producing 25,000+-minute "elapsed"
-// readings (≈17 days). We now (a) clamp checkOutAt that pre-dates
-// checkInAt — that's nonsensical, treat as still-inside; (b) cap the
-// upper bound at (now - checkInAt) so elapsed can never exceed the wall
-// clock; (c) clamp to 0 if checkInAt itself is in the future (clock skew).
-function elapsedMinutes(checkInAt: string, checkOutAt: string | null): number {
-  const inMs = new Date(checkInAt).getTime();
-  if (!Number.isFinite(inMs)) return 0;
-  const now = Date.now();
-  let endMs: number;
-  if (checkOutAt) {
-    const outMs = new Date(checkOutAt).getTime();
-    // If checkOutAt is invalid OR earlier than checkInAt (legacy
-    // year-2000 default), fall back to "now" — i.e. treat as still
-    // inside rather than reporting 25k minutes of bogus elapsed.
-    if (!Number.isFinite(outMs) || outMs < inMs) {
-      endMs = now;
-    } else {
-      endMs = outMs;
-    }
-  } else {
-    endMs = now;
-  }
-  // Final safety: clamp to [0, now - checkInAt]
-  const span = Math.max(0, Math.min(endMs - inMs, now - inMs));
-  return Math.round(span / 60000);
-}
 
 export default function VisitorsPage() {
   const confirm = useConfirm();

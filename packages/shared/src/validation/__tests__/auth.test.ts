@@ -5,6 +5,7 @@ import {
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updateProfileSchema,
 } from "../auth";
 
 describe("loginSchema", () => {
@@ -89,5 +90,39 @@ describe("resetPasswordSchema", () => {
         newPassword: "newer123",
       }).success
     ).toBe(false);
+  });
+});
+
+// Issue #138 (Apr 2026)
+describe("updateProfileSchema", () => {
+  it("accepts a valid update", () => {
+    expect(
+      updateProfileSchema.safeParse({ name: "Anand", phone: "9876543210" })
+        .success
+    ).toBe(true);
+  });
+  it("accepts E.164 phones with leading +", () => {
+    expect(
+      updateProfileSchema.safeParse({ phone: "+919876543210" }).success
+    ).toBe(true);
+  });
+  it("rejects empty (only whitespace) name", () => {
+    expect(updateProfileSchema.safeParse({ name: "   " }).success).toBe(false);
+  });
+  it("rejects bogus phone", () => {
+    expect(updateProfileSchema.safeParse({ phone: "abc" }).success).toBe(false);
+  });
+  it("rejects too-short phone", () => {
+    expect(
+      updateProfileSchema.safeParse({ phone: "12345" }).success
+    ).toBe(false);
+  });
+  it("rejects phone with spaces", () => {
+    expect(
+      updateProfileSchema.safeParse({ phone: "987 654 3210" }).success
+    ).toBe(false);
+  });
+  it("rejects empty body (nothing to update)", () => {
+    expect(updateProfileSchema.safeParse({}).success).toBe(false);
   });
 });

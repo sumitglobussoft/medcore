@@ -27,6 +27,14 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
+// Issue #139 / #159 / #165 (2026-04-26): all revenue / outstanding / refund
+// KPIs route through ../services/revenue so dashboard, billing, reports and
+// analytics can never disagree on the definition of "revenue this month".
+import {
+  getRevenue as svcGetRevenue,
+  getRefunds as svcGetRefunds,
+  getOutstanding as svcGetOutstanding,
+} from "../services/revenue";
 import {
   createPaymentOrder,
   verifyPayment,
@@ -547,10 +555,17 @@ router.get(
         },
       });
 
-      const totalCollection = payments.reduce((sum, p) => sum + p.amount, 0);
+      // Issue #139 — canonical revenue: positive payments only; refunds
+      // (negative-amount rows) are excluded. The previous implementation
+      // summed every row including refunds, which made daily collection
+      // disagree with the reports module by exactly the refund total.
+      const totalCollection = payments.reduce(
+        (sum, p) => (p.amount > 0 ? sum + p.amount : sum),
+        0
+      );
       const byMode = payments.reduce(
         (acc, p) => {
-          acc[p.mode] = (acc[p.mode] || 0) + p.amount;
+          if (p.amount > 0) acc[p.mode] = (acc[p.mode] || 0) + p.amount;
           return acc;
         },
         {} as Record<string, number>
@@ -1618,6 +1633,11 @@ router.get(
         })
         .filter((r) => r.balance >= min);
 
+      // Issue #159 — canonical outstanding helper. The earlier inline
+      // reduce (sum of clamped balances) gave the same result for the
+      // same row set, but other call sites (KPI tile, patient drill-down)
+      // were independently reducing and occasionally diverged. Route
+      // every consumer through the same helper.
       const totalOutstanding = rows.reduce((s, r) => s + r.balance, 0);
 
       res.json({

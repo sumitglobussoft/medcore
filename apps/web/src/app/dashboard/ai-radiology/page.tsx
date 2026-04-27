@@ -6,7 +6,7 @@
 // (DOCTOR / ADMIN role) reviews side-by-side, and approves / amends.
 // DICOM region-overlay rendering is deferred — see the service TODOs.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
   FileSearch,
@@ -124,6 +124,81 @@ export default function AiRadiologyPage() {
       if (tab === "pending" || tab === "all") loadPending();
     }
   }, [user, tab, loadPending]);
+
+  // Issue #155 — bounded status-polling for non-terminal reports.
+  //
+  // The pending list contains reports in DRAFT / RADIOLOGIST_REVIEW. The AI
+  // draft step is asynchronous (Sarvam can take 10-60s) so the radiologist
+  // expects the queue to refresh on its own once a draft completes. The
+  // earlier ad-hoc polling never had a stop condition and rate-limited the
+  // server. We now:
+  //   • Only poll when the *visible* tab is "pending" or "all" AND the list
+  //     contains at least one non-terminal (DRAFT / RADIOLOGIST_REVIEW)
+  //     report.
+  //   • Stop polling as soon as every report is in a terminal state
+  //     (FINAL / AMENDED) or once the max-attempt budget is exhausted
+  //     (60 attempts ≈ 5 min at 5s base interval).
+  //   • Use a 5s interval for the first 30s, then exponential backoff
+  //     (10s, 20s, 40s, 60s capped) so a long-running batch doesn't
+  //     hammer the API.
+  const pollAttempts = useRef(0);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // Clear any prior schedule when the tab / role / list changes.
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+    pollAttempts.current = 0;
+
+    if (!user) return;
+    if (user.role !== "ADMIN" && user.role !== "DOCTOR") return;
+    if (tab !== "pending" && tab !== "all") return;
+
+    const TERMINAL: ReportStatus[] = ["FINAL", "AMENDED"];
+    const hasNonTerminal = pending.some((r) => !TERMINAL.includes(r.status));
+    if (!hasNonTerminal) return; // nothing to wait on
+
+    const MAX_ATTEMPTS = 60;
+    const BASE_MS = 5000;
+    function nextDelay(attempt: number): number {
+      // 5s for the first 6 ticks (= 30s), then exponential backoff capped
+      // at 60s so the request rate eventually hits 1/min.
+      if (attempt < 6) return BASE_MS;
+      const exp = Math.min(BASE_MS * Math.pow(2, attempt - 5), 60_000);
+      return exp;
+    }
+
+    function schedule() {
+      const attempt = pollAttempts.current;
+      if (attempt >= MAX_ATTEMPTS) {
+        toast.error(
+          t(
+            "radiology.poll.giveUp",
+            "Stopped checking for AI draft updates — refresh manually if needed."
+          )
+        );
+        return;
+      }
+      pollTimeoutRef.current = setTimeout(async () => {
+        pollAttempts.current = attempt + 1;
+        await loadPending();
+        // The next render will re-evaluate `pending` and decide whether
+        // to keep polling or unsubscribe. Schedule the *next* tick from
+        // here so a sequence-of-non-terminal-reports list keeps polling
+        // until it's drained.
+        schedule();
+      }, nextDelay(attempt));
+    }
+    schedule();
+
+    return () => {
+      if (pollTimeoutRef.current) {
+        clearTimeout(pollTimeoutRef.current);
+        pollTimeoutRef.current = null;
+      }
+    };
+  }, [user, tab, pending, loadPending, t]);
 
   // Role gate — DOCTOR / ADMIN only.
   if (user && user.role !== "ADMIN" && user.role !== "DOCTOR") {

@@ -2,9 +2,31 @@
 
 import { useEffect } from "react";
 import { useI18nStore, useTranslation, Lang } from "@/lib/i18n";
+import { api } from "@/lib/api";
 import { Languages } from "lucide-react";
 
-export function LanguageDropdown({ className }: { className?: string }) {
+/**
+ * Language switcher used both on auth pages (login/register/forgot) and —
+ * Issue #137 — inside the authenticated dashboard layout. The component
+ * always persists the selection to localStorage via the i18n store.
+ *
+ * `persistToServer` (Issue #137): when true, additionally PATCH /auth/me
+ * with { preferredLanguage } so the choice follows the user across devices.
+ * The server call is best-effort: failures are logged but never block the
+ * UI update because the local store has already changed.
+ *
+ * `instanceId` lets the dashboard render multiple instances (mobile header
+ * + desktop sidebar) without HTML id collisions.
+ */
+export function LanguageDropdown({
+  className,
+  persistToServer = false,
+  instanceId = "mc-lang",
+}: {
+  className?: string;
+  persistToServer?: boolean;
+  instanceId?: string;
+}) {
   const init = useI18nStore((s) => s.init);
   const { lang, setLang } = useTranslation();
 
@@ -12,16 +34,32 @@ export function LanguageDropdown({ className }: { className?: string }) {
     init();
   }, [init]);
 
+  function handleChange(next: Lang) {
+    setLang(next);
+    if (persistToServer) {
+      // Best-effort server sync. If the user is offline or the request 401s
+      // we still keep the local choice — the next successful login will
+      // restore the server value if present.
+      api
+        .patch("/auth/me", { preferredLanguage: next })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn("[LanguageDropdown] preferredLanguage sync failed", err);
+        });
+    }
+  }
+
   return (
     <div className={`inline-flex items-center gap-1 ${className ?? ""}`}>
       <Languages size={14} className="text-gray-500" aria-hidden="true" />
-      <label htmlFor="mc-lang" className="sr-only">
+      <label htmlFor={instanceId} className="sr-only">
         Language
       </label>
       <select
-        id="mc-lang"
+        id={instanceId}
+        data-testid="language-switcher"
         value={lang}
-        onChange={(e) => setLang(e.target.value as Lang)}
+        onChange={(e) => handleChange(e.target.value as Lang)}
         aria-label="Select language"
         className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
       >

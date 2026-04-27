@@ -826,7 +826,18 @@ export default function ScribePage() {
           `/appointments?date=${today}&status=CHECKED_IN,BOOKED`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        const list = res.data.data?.appointments || [];
+        // Issue #156: the api wrapper returns the parsed JSON directly,
+        // i.e. `{ success, data, meta }` — the previous code reached for
+        // `res.data.data?.appointments` (a non-existent property) and
+        // always rendered an empty list. The list endpoint returns
+        // `data: Appointment[]` so we accept either an array or a
+        // legacy `{appointments: […]}` envelope defensively.
+        const payload = res?.data;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.appointments)
+            ? payload.appointments
+            : [];
         setAppointments(list);
         setApptLoadError(null);
 

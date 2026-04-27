@@ -46,6 +46,71 @@ describe("createPatientSchema", () => {
       createPatientSchema.safeParse({ ...validPatient, photoUrl: "not a url" }).success
     ).toBe(false);
   });
+
+  // Issue #104 (Apr 2026): name regex.
+  describe("name regex", () => {
+    it("accepts honorifics with dots", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "Dr. R.K. Sharma" }).success
+      ).toBe(true);
+    });
+    it("accepts apostrophes", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "O'Brien" }).success
+      ).toBe(true);
+    });
+    it("accepts hyphenated double-barrelled names", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "K. Anand-Kumar" }).success
+      ).toBe(true);
+    });
+    it("accepts Devanagari script for Hindi names", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "रामेश शर्मा" }).success
+      ).toBe(true);
+    });
+    it("rejects digits in name", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "John1" }).success
+      ).toBe(false);
+    });
+    it("rejects @, #, or other symbols", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "John@home" }).success
+      ).toBe(false);
+    });
+    it("rejects email-shaped paste", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, name: "a@b.com" }).success
+      ).toBe(false);
+    });
+  });
+
+  // Issue #103 (Apr 2026): phone regex tightened.
+  describe("phone regex", () => {
+    it("accepts a 10-digit phone", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, phone: "9876543210" }).success
+      ).toBe(true);
+    });
+    it("accepts a +country-code phone", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, phone: "+919876543210" })
+          .success
+      ).toBe(true);
+    });
+    it("rejects 'abc'", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, phone: "abc" }).success
+      ).toBe(false);
+    });
+    it("rejects spaces in phone", () => {
+      expect(
+        createPatientSchema.safeParse({ ...validPatient, phone: "987 654 3210" })
+          .success
+      ).toBe(false);
+    });
+  });
 });
 
 describe("updatePatientSchema", () => {

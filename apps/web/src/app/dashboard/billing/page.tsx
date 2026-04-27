@@ -394,14 +394,14 @@ export default function BillingPage() {
   return (
     <div onClick={() => setOpenActionsFor(null)}>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("dashboard.billing.title")}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.billing.title")}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={(e) => {
               e.stopPropagation();
               exportCSV();
             }}
-            className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+            className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Download size={14} /> Export CSV
           </button>
@@ -411,26 +411,26 @@ export default function BillingPage() {
       {/* Summary cards */}
       {isStaff && (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wider text-gray-400">Total Outstanding</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Total Outstanding</p>
             <p className="mt-1 text-2xl font-bold text-red-600">
               {fmtMoney(summary.totalOutstanding)}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wider text-gray-400">Today&apos;s Collection</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Today&apos;s Collection</p>
             <p className="mt-1 text-2xl font-bold text-green-600">
               {fmtMoney(summary.todayCollection)}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wider text-gray-400">This Month&apos;s Revenue</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">This Month&apos;s Revenue</p>
             <p className="mt-1 text-2xl font-bold text-primary">
               {fmtMoney(summary.monthRevenue)}
             </p>
           </div>
-          <div className="rounded-xl bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wider text-gray-400">Refunds This Month</p>
+          <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Refunds This Month</p>
             <p className="mt-1 text-2xl font-bold text-orange-500">
               {fmtMoney(summary.monthRefunds)}
             </p>
@@ -450,7 +450,7 @@ export default function BillingPage() {
             className={`rounded-lg px-3 py-1.5 text-sm ${
               tab === t.id
                 ? "bg-primary text-white"
-                : "bg-white text-gray-600 hover:bg-gray-100"
+                : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
             }`}
           >
             {t.label}
@@ -459,18 +459,18 @@ export default function BillingPage() {
       </div>
 
       {/* Content */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading...</div>
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
         ) : tab === "outstanding" ? (
           outstanding.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No outstanding invoices.
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Invoice #</th>
                   <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Total</th>
@@ -483,7 +483,7 @@ export default function BillingPage() {
               </thead>
               <tbody>
                 {outstanding.map((r) => (
-                  <tr key={r.invoiceId} className="border-b last:border-0">
+                  <tr key={r.invoiceId} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                     <td className="px-4 py-3 font-mono text-sm">
                       <Link href={`/dashboard/billing/${r.invoiceId}`} className="text-primary hover:underline">
                         {r.invoiceNumber}
@@ -496,7 +496,7 @@ export default function BillingPage() {
                       >
                         {r.patient.user.name}
                       </Link>
-                      <p className="text-xs text-gray-500">{r.patient.user.phone}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.user.phone}</p>
                     </td>
                     <td className="px-4 py-3 text-sm">{fmtMoney(r.totalAmount)}</td>
                     <td className="px-4 py-3 text-sm">{fmtMoney(r.paid)}</td>
@@ -541,7 +541,7 @@ export default function BillingPage() {
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b text-left text-sm text-gray-500">
+              <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">Invoice #</th>
                 <th className="px-4 py-3">Patient</th>
                 <th className="px-4 py-3">Amount</th>
@@ -554,7 +554,7 @@ export default function BillingPage() {
             </thead>
             <tbody>
               {enrichedInvoices.map((inv) => (
-                <tr key={inv.id} className="border-b last:border-0">
+                <tr key={inv.id} className="border-b border-gray-100 last:border-0 dark:border-gray-700">
                   <td className="px-4 py-3 font-mono text-sm">
                     <Link href={`/dashboard/billing/${inv.id}`} className="text-primary hover:underline">
                       {inv.invoiceNumber}
@@ -567,13 +567,13 @@ export default function BillingPage() {
                     >
                       {inv.patient.user.name}
                     </Link>
-                    <p className="text-xs text-gray-500">{inv.patient.user.phone}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{inv.patient.user.phone}</p>
                   </td>
                   <td className="px-4 py-3 font-medium">{fmtMoney(inv.totalAmount)}</td>
                   <td className="px-4 py-3 text-sm">{fmtMoney(inv.netPaid)}</td>
                   <td
                     className={`px-4 py-3 text-sm font-semibold ${
-                      inv.balance > 0 ? "text-red-600" : "text-gray-500"
+                      inv.balance > 0 ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
                     }`}
                   >
                     {fmtMoney(inv.balance)}

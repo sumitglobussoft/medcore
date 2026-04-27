@@ -16,6 +16,7 @@ import {
   hasCompletedTour,
   resetTour,
 } from "@/components/OnboardingTour";
+import { LanguageDropdown } from "@/components/LanguageDropdown";
 import {
   LayoutDashboard,
   Calendar,
@@ -388,9 +389,14 @@ export default function DashboardLayout({
     router.push(`/login?${qs.toString()}`);
   }, [user, isLoading, router, pathname, t]);
 
-  // Auto-launch first-time tour after session loads
+  // Auto-launch first-time tour after session loads.
+  // Issue #122: pass user.id so a previous Skip on any page (which sets a
+  // global per-user flag in localStorage) suppresses the auto-launch
+  // everywhere — the tour used to reopen each time the user navigated to
+  // a sibling dashboard route because the skip was only honoured by the
+  // role-keyed "completed" flag.
   useEffect(() => {
-    if (!isLoading && user && !hasCompletedTour(user.role)) {
+    if (!isLoading && user && !hasCompletedTour(user.role, user.id)) {
       setTourOpen(true);
     }
   }, [isLoading, user]);
@@ -635,20 +641,26 @@ export default function DashboardLayout({
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar — issue #145: previously the `bg-sidebar` token was a
+          fixed slate value (#1e293b) and the foreground was hardcoded to
+          `text-white`, so toggling the theme to light only flipped the
+          main pane while the sidebar stayed dark. The token is now
+          theme-aware (white in light mode, slate in dark mode — see
+          globals.css) and every text class below has both a light-mode
+          (`text-slate-700` etc.) base and a `dark:` override. */}
       <aside
         className={clsx(
-          "no-print flex w-64 flex-col bg-sidebar text-white transition-transform duration-200",
-          "fixed inset-y-0 left-0 z-50 md:static md:translate-x-0",
+          "no-print flex w-64 flex-col bg-sidebar text-slate-900 transition-transform duration-200 dark:text-white",
+          "fixed inset-y-0 left-0 z-50 border-r border-gray-200 dark:border-white/10 md:static md:translate-x-0",
           drawerOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
         aria-label="Primary navigation"
       >
-        <div className="border-b border-white/10 p-5">
+        <div className="border-b border-gray-200 p-5 dark:border-white/10">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold">MedCore</h1>
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {user.name} ({user.role})
               </p>
             </div>
@@ -656,7 +668,7 @@ export default function DashboardLayout({
               onClick={() => setSearchOpen(true)}
               title="Search (Ctrl+K)"
               aria-label="Open search (Ctrl+K)"
-              className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+              className="rounded-lg p-2 text-gray-600 transition hover:bg-sidebar-hover hover:text-gray-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
             >
               <Search size={18} aria-hidden="true" />
             </button>
@@ -664,10 +676,10 @@ export default function DashboardLayout({
           <button
             onClick={() => setSearchOpen(true)}
             aria-label="Search"
-            className="mt-3 flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-gray-300 hover:bg-white/10 focus:ring-2 focus:ring-primary focus:outline-none"
+            className="mt-3 flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 focus:ring-2 focus:ring-primary focus:outline-none dark:border-white/10 dark:bg-white/5 dark:text-gray-300 dark:hover:bg-white/10"
           >
             <Search size={13} aria-hidden="true" /> Search...
-            <kbd className="ml-auto rounded bg-black/30 px-1 py-0.5 text-[10px]">
+            <kbd className="ml-auto rounded bg-gray-200 px-1 py-0.5 text-[10px] text-gray-700 dark:bg-black/30 dark:text-gray-300">
               Ctrl K
             </kbd>
           </button>
@@ -693,7 +705,7 @@ export default function DashboardLayout({
                   "mb-1 flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar",
                   isActive
                     ? "bg-primary font-medium text-white"
-                    : "text-gray-300 hover:bg-sidebar-hover hover:text-white"
+                    : "text-slate-700 hover:bg-sidebar-hover hover:text-slate-900 dark:text-gray-300 dark:hover:text-white"
                 )}
               >
                 <Icon size={18} aria-hidden="true" />
@@ -705,17 +717,27 @@ export default function DashboardLayout({
             <button
               type="button"
               onClick={() => {
-                resetTour(user.role);
+                // Issue #122: clear both the role-completion flag and the
+                // per-user skip flag so the tour can re-launch.
+                resetTour(user.role, user.id);
                 setTourOpen(true);
               }}
-              className="mt-2 flex w-full items-center gap-3 rounded-lg border border-white/10 px-3 py-2 text-xs text-gray-300 hover:bg-sidebar-hover hover:text-white"
+              className="mt-2 flex w-full items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 text-xs text-slate-600 hover:bg-sidebar-hover hover:text-slate-900 dark:border-white/10 dark:text-gray-300 dark:hover:text-white"
             >
               {t("dashboard.nav.takeTour")}
             </button>
           )}
         </nav>
 
-        <div className="flex items-center gap-2 border-t border-white/10 p-3">
+        <div className="flex items-center gap-2 border-t border-gray-200 p-3 dark:border-white/10">
+          {/* Issue #137: in-app language switcher. Persists to localStorage
+              (handled by the i18n store) AND PATCHes /auth/me so the
+              choice follows the user across devices. */}
+          <LanguageDropdown
+            persistToServer
+            instanceId="mc-lang-sidebar"
+            className="text-slate-700 dark:text-gray-300"
+          />
           <button
             onClick={toggleTheme}
             aria-label={
@@ -728,7 +750,7 @@ export default function DashboardLayout({
                 ? t("common.lightMode")
                 : t("common.darkMode")
             }
-            className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
           >
             {resolvedTheme === "dark" ? (
               <Sun size={18} aria-hidden="true" />
@@ -740,7 +762,7 @@ export default function DashboardLayout({
             onClick={() => setShortcutsOpen(true)}
             aria-label={t("common.shortcuts")}
             title={`${t("common.shortcuts")} (?)`}
-            className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
           >
             <Keyboard size={18} aria-hidden="true" />
           </button>
@@ -748,7 +770,7 @@ export default function DashboardLayout({
             href="/dashboard/settings"
             aria-label={t("common.settings")}
             title={t("common.settings")}
-            className="rounded-lg p-2 text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+            className="rounded-lg p-2 text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
           >
             <SettingsIcon size={18} aria-hidden="true" />
           </Link>
@@ -758,7 +780,7 @@ export default function DashboardLayout({
               router.push("/login");
             }}
             aria-label={t("common.signOut")}
-            className="ml-auto flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-gray-300 transition hover:bg-sidebar-hover hover:text-white focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none"
+            className="ml-auto flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 transition hover:bg-sidebar-hover hover:text-slate-900 focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar focus:outline-none dark:text-gray-300 dark:hover:text-white"
           >
             <LogOut size={16} aria-hidden="true" />
             <span>{t("common.signOut")}</span>
@@ -784,14 +806,22 @@ export default function DashboardLayout({
           <span className="font-semibold text-gray-900 dark:text-gray-100">
             MedCore
           </span>
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            aria-label={t("common.openSearch")}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-          >
-            <Search size={18} aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Issue #137: language switcher mirrors the sidebar one for
+                small screens where the sidebar is collapsed by default. */}
+            <LanguageDropdown
+              persistToServer
+              instanceId="mc-lang-mobile"
+            />
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label={t("common.openSearch")}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+            >
+              <Search size={18} aria-hidden="true" />
+            </button>
+          </div>
         </div>
         <div className="p-4 pb-20 md:p-6 md:pb-6">{children}</div>
       </main>
@@ -833,6 +863,7 @@ export default function DashboardLayout({
       {user && (
         <OnboardingTour
           role={user.role}
+          userId={user.id}
           open={tourOpen}
           onClose={() => setTourOpen(false)}
         />

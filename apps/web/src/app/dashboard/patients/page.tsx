@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -9,6 +10,14 @@ import { useTranslation } from "@/lib/i18n";
 import { formatPatientAge } from "@/lib/format";
 import { Search, Plus, Users } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+import { extractFieldErrors } from "@/lib/field-errors";
+
+// Issue #104 (Apr 2026): mirror the server-side patient name regex so we
+// fail fast and give the same message. Allows Devanagari + dots + hyphens
+// + apostrophes; rejects digits and other symbols.
+const PATIENT_NAME_REGEX = /^[A-Za-zऀ-ॿ\s.\-']{1,100}$/;
+// Issue #103 / #138: 10–15 digit phone with optional leading "+".
+const PATIENT_PHONE_REGEX = /^\+?\d{10,15}$/;
 
 interface PatientRecord {
   id: string;
@@ -26,10 +35,14 @@ interface PatientRecord {
 export default function PatientsPage() {
   const { user } = useAuthStore();
   const { t } = useTranslation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  // Issue #143: when redirected here from /dashboard/patients/register
+  // the URL carries `?register=1` and we open the registration form.
+  const [showForm, setShowForm] = useState(searchParams.get("register") === "1");
   const [form, setForm] = useState({
     name: "",
     phone: "",
@@ -67,14 +80,31 @@ export default function PatientsPage() {
     setLoading(false);
   }
 
+  // Issue #103 (Apr 2026): when the API returns 409 because a patient with
+  // this phone already exists, surface a "View existing patient" link so
+  // reception can pull up the existing chart instead of creating a duplicate
+  // MR record.
+  const [duplicateMatch, setDuplicateMatch] = useState<{
+    id: string;
+    mrNumber: string;
+    name: string | null;
+  } | null>(null);
+
   async function handleCreatePatient(e: React.FormEvent) {
     e.preventDefault();
     const errs: Record<string, string> = {};
-    if (!form.name.trim()) errs.name = "Full name is required";
-    const phoneDigits = form.phone.replace(/\D/g, "");
-    if (!form.phone.trim()) errs.phone = "Phone number is required";
-    else if (phoneDigits.length < 10 || phoneDigits.length > 13)
-      errs.phone = "Enter a valid phone number (10 digits)";
+    // Issue #104: name regex covers all the valid Indian patterns; we keep
+    // the existing "required" check as a separate friendlier message.
+    const trimmedName = form.name.trim();
+    if (!trimmedName) errs.name = "Full name is required";
+    else if (!PATIENT_NAME_REGEX.test(trimmedName))
+      errs.name =
+        "Name may only contain letters, spaces, dots, hyphens and apostrophes";
+    // Issue #103/#138 phone regex (10–15 digits, optional +).
+    const trimmedPhone = form.phone.trim();
+    if (!trimmedPhone) errs.phone = "Phone number is required";
+    else if (!PATIENT_PHONE_REGEX.test(trimmedPhone))
+      errs.phone = "Phone must be 10–15 digits, optional leading +";
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = "Enter a valid email address";
     if (form.age) {
@@ -88,10 +118,13 @@ export default function PatientsPage() {
         errs.address = "PIN code must be 6 digits";
     }
     setFormErrors(errs);
+    setDuplicateMatch(null);
     if (Object.keys(errs).length > 0) return;
     try {
       await api.post("/patients", {
         ...form,
+        name: trimmedName,
+        phone: trimmedPhone,
         age: form.age ? parseInt(form.age) : undefined,
         bloodGroup: form.bloodGroup || undefined,
       });
@@ -107,6 +140,28 @@ export default function PatientsPage() {
       });
       loadPatients();
     } catch (err) {
+      // Issue #103: 409 carries `existingPatient` so reception can pull up
+      // the existing chart in one click. Otherwise fall through to the
+      // generic field-error or toast path.
+      const payload = (err as { payload?: { existingPatient?: { id: string; mrNumber: string; name: string | null } } })
+        .payload;
+      if (payload?.existingPatient) {
+        setDuplicateMatch(payload.existingPatient);
+        setFormErrors((p) => ({
+          ...p,
+          phone: `Already registered as ${payload.existingPatient!.name ?? "patient"} (MR: ${payload.existingPatient!.mrNumber}).`,
+        }));
+        toast.error(
+          `Patient with this phone already exists (MR: ${payload.existingPatient.mrNumber}).`,
+        );
+        return;
+      }
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFormErrors((p) => ({ ...p, ...fields }));
+        toast.error(Object.values(fields)[0] || "Failed to register patient");
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to register patient");
     }
   }
@@ -202,6 +257,7 @@ export default function PatientsPage() {
                 id="patient-name"
                 placeholder={t("dashboard.patients.fullName")}
                 value={form.name}
+                data-testid="patient-name"
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className={
                   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -209,7 +265,12 @@ export default function PatientsPage() {
                 }
               />
               {formErrors.name && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.name}</p>
+                <p
+                  data-testid="error-patient-name"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {formErrors.name}
+                </p>
               )}
             </div>
             <div>
@@ -220,14 +281,35 @@ export default function PatientsPage() {
                 id="patient-phone"
                 placeholder="Phone Number (10 digits)"
                 value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                data-testid="patient-phone"
+                onChange={(e) => {
+                  setForm({ ...form, phone: e.target.value });
+                  if (duplicateMatch) setDuplicateMatch(null);
+                }}
                 className={
                   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
                   (formErrors.phone ? "border-red-500" : "border-gray-200 dark:border-gray-600")
                 }
               />
               {formErrors.phone && (
-                <p className="mt-1 text-xs text-red-600">{formErrors.phone}</p>
+                <p
+                  data-testid="error-patient-phone"
+                  className="mt-1 text-xs text-red-600"
+                >
+                  {formErrors.phone}
+                </p>
+              )}
+              {duplicateMatch && (
+                <button
+                  type="button"
+                  data-testid="patient-duplicate-view"
+                  onClick={() =>
+                    router.push(`/dashboard/patients/${duplicateMatch.id}`)
+                  }
+                  className="mt-1 text-xs font-medium text-blue-600 underline hover:text-blue-800"
+                >
+                  View existing patient ({duplicateMatch.mrNumber})
+                </button>
               )}
             </div>
             <div>

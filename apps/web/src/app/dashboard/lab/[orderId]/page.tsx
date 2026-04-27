@@ -18,6 +18,8 @@ interface LabTest {
   normalRange?: string | null;
   unit?: string | null;
   category?: string | null;
+  panicLow?: number | null;
+  panicHigh?: number | null;
 }
 
 interface LabResult {
@@ -222,9 +224,28 @@ function OrderItemCard({
     flag: "NORMAL",
     notes: "",
   });
+  const [valueError, setValueError] = useState<string | null>(null);
+
+  // Issue #95: a test is "numeric" when it has a default unit OR panic
+  // thresholds — those tests must accept a number, not free text. Parameters
+  // like "Color" / "Appearance" on a urinalysis are still text-only.
+  const isNumericTest =
+    !!(item.test.unit && item.test.unit.trim().length > 0) ||
+    typeof item.test.panicLow === "number" ||
+    typeof item.test.panicHigh === "number";
+  const numericRegex = /^-?\d+(\.\d+)?$/;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Client-side mirror of validateNumericLabResult — fails fast before POST
+    if (isNumericTest && !numericRegex.test(form.value.trim())) {
+      setValueError(
+        "Value must be a number for this test (e.g. 12.5). Free text is not allowed.",
+      );
+      toast.error("Result value must be a number for this test");
+      return;
+    }
+    setValueError(null);
     try {
       await api.post("/lab/results", {
         orderItemId: item.id,
@@ -245,6 +266,17 @@ function OrderItemCard({
       });
       onSaved();
     } catch (err) {
+      // Issue #95: surface API field-level reject ("value must be a number")
+      // by reading the same error.payload.details shape the zod middleware
+      // emits. Fall back to the toast for everything else.
+      const payload = (err as { payload?: { details?: Array<{ field?: string; message?: string }> } })
+        .payload;
+      const valueDetail = payload?.details?.find((d) => d?.field === "value");
+      if (valueDetail?.message) {
+        setValueError(valueDetail.message);
+        toast.error(valueDetail.message);
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Failed to save result");
     }
   }
@@ -255,8 +287,21 @@ function OrderItemCard({
         <div>
           <h3 className="font-semibold">{item.test.name}</h3>
           {item.test.normalRange && (
-            <p className="text-xs text-gray-500">
-              Normal range: {item.test.normalRange} {item.test.unit}
+            <p className="text-xs text-gray-500" data-testid="lab-range-hint">
+              {/*
+               * Issue #147: the unit was being rendered twice — most lab
+               * `normalRange` strings already include the unit (e.g.
+               * "5-10 mg/dL"), so appending {item.test.unit} produced
+               * "5-10 mg/dL mg/dL". We now only append the unit when the
+               * range string does not already contain it.
+               */}
+              Normal range: {item.test.normalRange}
+              {item.test.unit &&
+              !item.test.normalRange
+                .toLowerCase()
+                .includes(item.test.unit.toLowerCase())
+                ? ` ${item.test.unit}`
+                : ""}
             </p>
           )}
         </div>
@@ -321,13 +366,60 @@ function OrderItemCard({
             onChange={(e) => setForm({ ...form, parameter: e.target.value })}
             className="rounded-lg border px-2 py-1.5 text-sm"
           />
-          <input
-            required
-            placeholder="Value"
-            value={form.value}
-            onChange={(e) => setForm({ ...form, value: e.target.value })}
-            className="rounded-lg border px-2 py-1.5 text-sm"
-          />
+          <div>
+            <input
+              required
+              // Issue #95: numeric tests accept only numbers; type=number
+              // also lets browsers reject free text in supported chrome.
+              type={isNumericTest ? "number" : "text"}
+              step={isNumericTest ? "any" : undefined}
+              min={
+                isNumericTest && typeof item.test.panicLow === "number"
+                  ? item.test.panicLow
+                  : undefined
+              }
+              max={
+                isNumericTest && typeof item.test.panicHigh === "number"
+                  ? item.test.panicHigh
+                  : undefined
+              }
+              placeholder={
+                isNumericTest
+                  ? typeof item.test.panicLow === "number" &&
+                    typeof item.test.panicHigh === "number"
+                    ? `Value (${item.test.panicLow}–${item.test.panicHigh})`
+                    : "Value (number)"
+                  : "Value"
+              }
+              value={form.value}
+              onChange={(e) => {
+                setForm({ ...form, value: e.target.value });
+                if (valueError) setValueError(null);
+              }}
+              data-testid="lab-result-value"
+              aria-invalid={valueError ? "true" : undefined}
+              className={
+                "w-full rounded-lg border px-2 py-1.5 text-sm " +
+                (valueError ? "border-red-500 bg-red-50" : "")
+              }
+            />
+            {isNumericTest &&
+              (typeof item.test.panicLow === "number" ||
+                typeof item.test.panicHigh === "number") && (
+                <p className="mt-0.5 text-[10px] text-gray-500">
+                  Panic range: {item.test.panicLow ?? "—"} to{" "}
+                  {item.test.panicHigh ?? "—"} {item.test.unit ?? ""}
+                </p>
+              )}
+            {valueError && (
+              <p
+                data-testid="error-lab-result-value"
+                className="mt-1 text-xs text-red-600"
+              >
+                {valueError}
+              </p>
+            )}
+          </div>
           <input
             placeholder="Unit"
             value={form.unit}

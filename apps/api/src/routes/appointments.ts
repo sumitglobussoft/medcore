@@ -230,8 +230,56 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const where: Record<string, unknown> = {};
     if (doctorId) where.doctorId = doctorId;
     if (patientId) where.patientId = patientId;
-    if (date) where.date = new Date(date as string);
-    if (status) where.status = status;
+    if (date) {
+      // Issue #156: Today's-Patients in the AI Scribe page sends an ISO
+      // date (e.g. "2026-04-26"). `new Date("2026-04-26")` parses to
+      // 00:00 UTC, but appointment rows store local-day timestamps that
+      // can land just before midnight UTC the previous day. Match the
+      // whole calendar day rather than an exact equality so the picker
+      // doesn't return an empty list (or 500 on a bad ISO string).
+      try {
+        const day = new Date(date as string);
+        if (Number.isNaN(day.getTime())) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: "Invalid date",
+          });
+          return;
+        }
+        const start = new Date(day);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(day);
+        end.setHours(23, 59, 59, 999);
+        where.date = { gte: start, lte: end };
+      } catch {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid date",
+        });
+        return;
+      }
+    }
+    if (status) {
+      // Issue #156: scribe Today's-Patients sends a comma-separated
+      // status filter (e.g. `status=CHECKED_IN,BOOKED`). Prisma rejected
+      // the literal "CHECKED_IN,BOOKED" string against the
+      // AppointmentStatus enum and threw a 500. Normalise to `{ in: […] }`
+      // when a comma is present, otherwise fall through to a single
+      // equality match.
+      const raw = String(status);
+      if (raw.includes(",")) {
+        where.status = {
+          in: raw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
+      } else {
+        where.status = raw;
+      }
+    }
 
     // If patient role, only show own appointments
     if (req.user!.role === "PATIENT") {

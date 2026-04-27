@@ -177,8 +177,8 @@ export default function MedicinesPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Medicines</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Medicines</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Medicine catalog &amp; interactions
           </p>
         </div>
@@ -202,13 +202,13 @@ export default function MedicinesPage() {
             placeholder="Search medicines..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 pl-9 text-sm"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pl-9 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
           />
         </div>
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="rounded-lg border px-3 py-2 text-sm"
+          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
         >
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>
@@ -219,11 +219,11 @@ export default function MedicinesPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           Loading...
         </div>
       ) : medicines.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           No medicines found.
         </div>
       ) : (
@@ -239,7 +239,7 @@ export default function MedicinesPage() {
               key={m.id}
               data-testid="medicine-card"
               data-medicine-id={m.id}
-              className="rounded-xl bg-white p-4 shadow-sm hover:shadow"
+              className="rounded-xl bg-white p-4 text-gray-900 shadow-sm hover:shadow dark:bg-gray-800 dark:text-gray-100"
             >
               <button
                 type="button"
@@ -252,41 +252,41 @@ export default function MedicinesPage() {
                     <div>
                       <h3 className="font-semibold">{m.name}</h3>
                       {m.genericName && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {m.genericName}
                         </p>
                       )}
                     </div>
                   </div>
                   {m.rxRequired && (
-                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">
+                    <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900/40 dark:text-red-300">
                       Rx
                     </span>
                   )}
                 </div>
-                <p className="mt-2 text-sm text-gray-600">
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
                   {[m.form, m.strength].filter(Boolean).join(" · ") || "—"}
                 </p>
                 <p
-                  className="mt-1 text-xs text-gray-500"
+                  className="mt-1 text-xs text-gray-500 dark:text-gray-400"
                   data-testid="medicine-manufacturer"
                 >
                   Mfg: {m.manufacturer || "—"}
                 </p>
                 {m.category && (
-                  <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                  <span className="mt-2 inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-200">
                     {m.category}
                   </span>
                 )}
               </button>
               {(canEdit || canDelete) && (
-                <div className="mt-3 flex items-center justify-end gap-1 border-t border-gray-100 pt-2">
+                <div className="mt-3 flex items-center justify-end gap-1 border-t border-gray-100 pt-2 dark:border-gray-700">
                   {canEdit && (
                     <button
                       type="button"
                       onClick={() => openEdit(m)}
                       data-testid="medicine-edit"
-                      className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                      className="flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       <Pencil size={12} /> Edit
                     </button>
@@ -296,7 +296,7 @@ export default function MedicinesPage() {
                       type="button"
                       onClick={() => handleDelete(m)}
                       data-testid="medicine-delete"
-                      className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-900/20"
                     >
                       <Trash2 size={12} /> Delete
                     </button>
@@ -311,19 +311,19 @@ export default function MedicinesPage() {
       {/* Detail Modal */}
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100">
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <h2 className="text-xl font-bold">{selected.name}</h2>
                 {selected.genericName && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     {selected.genericName}
                   </p>
                 )}
               </div>
               <button
                 onClick={() => setSelected(null)}
-                className="rounded p-1 hover:bg-gray-100"
+                className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <X size={20} />
               </button>
@@ -344,10 +344,10 @@ export default function MedicinesPage() {
               />
             </div>
 
-            <div className="mt-4 border-t pt-4">
+            <div className="mt-4 border-t pt-4 dark:border-gray-700">
               <h3 className="mb-2 font-semibold">Drug Interactions</h3>
               {!selected.interactions || selected.interactions.length === 0 ? (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   No known interactions recorded.
                 </p>
               ) : (
@@ -355,7 +355,7 @@ export default function MedicinesPage() {
                   {selected.interactions.map((i) => (
                     <div
                       key={i.id}
-                      className={`rounded-lg border-l-4 bg-gray-50 p-3 ${
+                      className={`rounded-lg border-l-4 bg-gray-50 p-3 dark:bg-gray-700/40 ${
                         i.severity === "MAJOR"
                           ? "border-red-500"
                           : i.severity === "MODERATE"
@@ -371,7 +371,7 @@ export default function MedicinesPage() {
                           {i.severity}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-gray-600">
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">
                         {i.description}
                       </p>
                     </div>
@@ -388,7 +388,7 @@ export default function MedicinesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <form
             onSubmit={createMedicine}
-            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+            className="w-full max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">
               {editing ? `Edit ${editing.name}` : "Add Medicine"}
@@ -400,7 +400,7 @@ export default function MedicinesPage() {
                   required
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -413,7 +413,7 @@ export default function MedicinesPage() {
                     onChange={(e) =>
                       setForm({ ...form, genericName: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                   />
                 </div>
                 <div>
@@ -425,7 +425,7 @@ export default function MedicinesPage() {
                     onChange={(e) =>
                       setForm({ ...form, category: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                   >
                     {CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -440,7 +440,7 @@ export default function MedicinesPage() {
                     placeholder="Tablet, Syrup..."
                     value={form.form}
                     onChange={(e) => setForm({ ...form, form: e.target.value })}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
@@ -453,7 +453,7 @@ export default function MedicinesPage() {
                     onChange={(e) =>
                       setForm({ ...form, strength: e.target.value })
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                 </div>
               </div>
@@ -467,7 +467,7 @@ export default function MedicinesPage() {
                   onChange={(e) =>
                     setForm({ ...form, manufacturer: e.target.value })
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
               <label className="flex items-center gap-2 text-sm">
@@ -489,7 +489,7 @@ export default function MedicinesPage() {
                   setShowAdd(false);
                   setEditing(null);
                 }}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -519,8 +519,8 @@ function Info({
 }) {
   return (
     <div className={fullWidth ? "col-span-2" : ""}>
-      <dt className="text-xs text-gray-500">{label}</dt>
-      <dd className="mt-0.5">{value}</dd>
+      <dt className="text-xs text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="mt-0.5 text-gray-900 dark:text-gray-100">{value}</dd>
     </div>
   );
 }

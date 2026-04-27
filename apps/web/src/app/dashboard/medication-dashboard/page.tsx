@@ -118,10 +118,10 @@ export default function MedicationDashboardPage() {
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             <Syringe className="text-primary" /> Medication Administration
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Due and upcoming medications · Last refresh:{" "}
             {lastRefresh.toLocaleTimeString()}
           </p>
@@ -130,7 +130,7 @@ export default function MedicationDashboardPage() {
           <select
             value={wardFilter}
             onChange={(e) => setWardFilter(e.target.value)}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
           >
             <option value="">All Wards</option>
             {wards.map((w) => (
@@ -141,7 +141,7 @@ export default function MedicationDashboardPage() {
           </select>
           <button
             onClick={load}
-            className="flex items-center gap-1 rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+            className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <RefreshCw size={14} /> Refresh
           </button>
@@ -149,11 +149,11 @@ export default function MedicationDashboardPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           Loading...
         </div>
       ) : Object.keys(grouped).length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm">
+        <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
           No medications due.
         </div>
       ) : (
@@ -161,14 +161,14 @@ export default function MedicationDashboardPage() {
           {Object.entries(grouped).map(([admissionId, group]) => (
             <div
               key={admissionId}
-              className="rounded-xl bg-white p-5 shadow-sm"
+              className="rounded-xl bg-white p-5 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
             >
-              <div className="mb-3 flex items-center justify-between border-b pb-2">
+              <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
                 <div>
                   <h3 className="font-semibold">
                     {group.admission.patient.user.name}
                   </h3>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     MR: {group.admission.patient.mrNumber} ·{" "}
                     {group.admission.bed
                       ? `${group.admission.bed.ward.name} / Bed ${group.admission.bed.bedNumber}`

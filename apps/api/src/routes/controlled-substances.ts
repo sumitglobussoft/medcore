@@ -7,6 +7,12 @@ import { auditLog } from "../middleware/audit";
 
 const router = Router();
 router.use(authenticate);
+// RBAC (issue #98): the entire Controlled Substance Register (Schedule H/H1/X)
+// is regulated — gate every endpoint on it to ADMIN + PHARMACIST + DOCTOR.
+// RECEPTION must NOT be able to read or write entries. Per-route authorize()
+// is still applied below for any tighter (e.g. audit-report = ADMIN+DOCTOR)
+// restrictions.
+router.use(authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR));
 
 // ───────────────────────────────────────────────────────
 // Helpers
@@ -60,7 +66,10 @@ async function nextBalance(
 // ───────────────────────────────────────────────────────
 router.post(
   "/",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  // RBAC (issue #98): Schedule H/H1/X drugs are regulated — RECEPTION must
+  // not be able to record dispenses against the register. ADMIN +
+  // PHARMACIST + DOCTOR only.
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR),
   validate(controlledSubstanceSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

@@ -489,6 +489,212 @@ export function _peekRateLimitAlarmStateForTests(): RateLimitAlarmState {
   return { ...rateLimitAlarmState };
 }
 
+// ─── Auto-cancel stale SCHEDULED surgeries (Issue #160) ─────
+//
+// The withStaleFlags helper in routes/surgery.ts only re-labels rows on read;
+// the underlying Prisma row stays SCHEDULED forever. After ~7 days a missed
+// surgery is unequivocally not happening, so we transition the row to
+// CANCELLED and emit an audit log so the audit trail captures the fact that
+// no human cancelled it. Hospitals can re-create a fresh row if the case is
+// rescheduled — we deliberately do NOT delete data.
+
+const STALE_SURGERY_CANCEL_AFTER_DAYS = 7;
+
+export async function autoCancelStaleScheduledSurgeries(now: Date = new Date()): Promise<{
+  cancelled: number;
+  ids: string[];
+}> {
+  const cutoff = new Date(
+    now.getTime() - STALE_SURGERY_CANCEL_AFTER_DAYS * 24 * 60 * 60 * 1000
+  );
+  const stale = await prisma.surgery.findMany({
+    where: { status: "SCHEDULED", scheduledAt: { lt: cutoff } },
+    select: { id: true, caseNumber: true, scheduledAt: true, surgeonId: true },
+    take: 500,
+  });
+  if (stale.length === 0) return { cancelled: 0, ids: [] };
+
+  const cancelledIds: string[] = [];
+  for (const s of stale) {
+    try {
+      await prisma.$transaction([
+        prisma.surgery.update({
+          where: { id: s.id },
+          data: { status: "CANCELLED" },
+        }),
+        prisma.auditLog.create({
+          data: {
+            action: "SURGERY_AUTO_CANCELLED_STALE",
+            entity: "surgery",
+            entityId: s.id,
+            details: {
+              caseNumber: s.caseNumber,
+              scheduledAt: s.scheduledAt,
+              ageDays: Math.floor(
+                (now.getTime() - new Date(s.scheduledAt).getTime()) /
+                  (24 * 60 * 60 * 1000)
+              ),
+              cutoffDays: STALE_SURGERY_CANCEL_AFTER_DAYS,
+            } as any,
+          } as any,
+        }),
+      ]);
+      cancelledIds.push(s.id);
+    } catch (err) {
+      console.error(
+        "[auto_cancel_missed_surgeries] failed to cancel",
+        s.id,
+        err
+      );
+    }
+  }
+  return { cancelled: cancelledIds.length, ids: cancelledIds };
+}
+
+async function autoCancelMissedSurgeries(): Promise<void> {
+  try {
+    const result = await autoCancelStaleScheduledSurgeries();
+    if (result.cancelled > 0) {
+      console.log(
+        `[auto_cancel_missed_surgeries] auto-cancelled ${result.cancelled} stale surgery rows`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_cancel_missed_surgeries]", err);
+  }
+}
+
+// ─── Auto-assign overdue complaints (Issue #161) ──────────────
+//
+// A complaint that has been OPEN for >48h with no `assignedTo` is dropping
+// through the cracks. We pick the on-duty admin with the lowest current
+// load (count of complaints currently assigned to them) and route the row
+// to them, plus a notification. Audit trail captures the auto-assignment
+// so a human can later reassign without losing context.
+
+const OVERDUE_COMPLAINT_THRESHOLD_HOURS = 48;
+
+export async function autoAssignOverdueComplaints(now: Date = new Date()): Promise<{
+  assigned: number;
+  ids: string[];
+}> {
+  const cutoff = new Date(
+    now.getTime() - OVERDUE_COMPLAINT_THRESHOLD_HOURS * 60 * 60 * 1000
+  );
+  const overdue = await prisma.complaint.findMany({
+    where: {
+      status: "OPEN",
+      assignedTo: null,
+      createdAt: { lt: cutoff },
+    },
+    select: { id: true, ticketNumber: true, category: true, createdAt: true },
+    take: 200,
+  });
+  if (overdue.length === 0) return { assigned: 0, ids: [] };
+
+  const admins = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { id: true, name: true },
+  });
+  if (admins.length === 0) {
+    console.warn(
+      "[auto_assign_overdue_complaints] no active admin users to assign to"
+    );
+    return { assigned: 0, ids: [] };
+  }
+
+  // Lowest-current-load: count OPEN complaints already assigned per admin.
+  const loads = new Map<string, number>();
+  for (const a of admins) loads.set(a.id, 0);
+  const existing = await prisma.complaint.groupBy({
+    by: ["assignedTo"],
+    where: { status: "OPEN", assignedTo: { in: admins.map((a) => a.id) } },
+    _count: { _all: true },
+  });
+  for (const e of existing as Array<{ assignedTo: string | null; _count: { _all: number } }>) {
+    if (e.assignedTo) loads.set(e.assignedTo, e._count._all);
+  }
+
+  function pickAdmin(): { id: string; name: string } {
+    let best = admins[0];
+    let bestLoad = loads.get(best.id) ?? 0;
+    for (const a of admins) {
+      const l = loads.get(a.id) ?? 0;
+      if (l < bestLoad) {
+        best = a;
+        bestLoad = l;
+      }
+    }
+    loads.set(best.id, bestLoad + 1);
+    return best;
+  }
+
+  const assignedIds: string[] = [];
+  for (const c of overdue) {
+    try {
+      const admin = pickAdmin();
+      await prisma.$transaction([
+        prisma.complaint.update({
+          where: { id: c.id },
+          data: { assignedTo: admin.id },
+        }),
+        prisma.auditLog.create({
+          data: {
+            action: "COMPLAINT_AUTO_ASSIGNED_OVERDUE",
+            entity: "complaint",
+            entityId: c.id,
+            details: {
+              ticketNumber: c.ticketNumber,
+              category: c.category,
+              ageHours: Math.floor(
+                (now.getTime() - new Date(c.createdAt).getTime()) / 3600000
+              ),
+              assigneeId: admin.id,
+              assigneeName: admin.name,
+            } as any,
+          } as any,
+        }),
+      ]);
+      assignedIds.push(c.id);
+      try {
+        await sendNotification({
+          userId: admin.id,
+          type: NotificationType.SCHEDULE_SUMMARY,
+          title: "Complaint auto-assigned",
+          message: `Complaint ${c.ticketNumber} (${c.category}) was OPEN for >${OVERDUE_COMPLAINT_THRESHOLD_HOURS}h and has been auto-assigned to you.`,
+          data: { complaintId: c.id, ticketNumber: c.ticketNumber },
+        });
+      } catch (notifErr) {
+        console.error(
+          "[auto_assign_overdue_complaints] notify",
+          admin.id,
+          notifErr
+        );
+      }
+    } catch (err) {
+      console.error(
+        "[auto_assign_overdue_complaints] assign failed",
+        c.id,
+        err
+      );
+    }
+  }
+  return { assigned: assignedIds.length, ids: assignedIds };
+}
+
+async function autoAssignOverdueComplaintsTask(): Promise<void> {
+  try {
+    const result = await autoAssignOverdueComplaints();
+    if (result.assigned > 0) {
+      console.log(
+        `[auto_assign_overdue_complaints] auto-assigned ${result.assigned} complaints`
+      );
+    }
+  } catch (err) {
+    console.error("[auto_assign_overdue_complaints]", err);
+  }
+}
+
 // ─── Drain queued (deferred) notifications ─────────────
 
 async function notificationDrainQueued(): Promise<void> {
@@ -587,6 +793,22 @@ const TASKS: ScheduledTask[] = [
     run: async () => {
       await runAuditLogArchival({});
     },
+  },
+  // Issue #160 — daily 4am IST. The host runs in IST in production; for
+  // dev/test machines on UTC the task simply runs at the host's 4am, which
+  // is acceptable for an ops-cleanup job.
+  {
+    name: "auto_cancel_missed_surgeries",
+    intervalMinutes: 24 * 60,
+    runAtHour: 4,
+    run: autoCancelMissedSurgeries,
+  },
+  // Issue #161 — daily 6am IST. Same host-clock caveat as #160.
+  {
+    name: "auto_assign_overdue_complaints",
+    intervalMinutes: 24 * 60,
+    runAtHour: 6,
+    run: autoAssignOverdueComplaintsTask,
   },
 ];
 

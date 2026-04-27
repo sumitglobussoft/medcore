@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { extractFieldErrors } from "@/lib/field-errors";
 import { PasswordInput } from "@/components/PasswordInput";
 import {
   User as UserIcon,
@@ -127,6 +128,9 @@ function ProfileTab() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Issue #138: render per-field errors next to the inputs instead of a
+  // single toast — matches the patient/surgery forms.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -141,13 +145,31 @@ function ProfileTab() {
   }, [load]);
 
   async function save() {
+    // Client-side mirror of `updateProfileSchema` — fail fast so we don't
+    // round-trip a 400. The API enforces the same regex.
+    const errs: Record<string, string> = {};
+    if (!name.trim()) errs.name = "Name cannot be empty";
+    if (phone.trim() && !/^\+?\d{10,15}$/.test(phone.trim()))
+      errs.phone = "Phone must be 10–15 digits, optional leading +";
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.warning("Please fix the highlighted fields");
+      return;
+    }
     setSaving(true);
     try {
-      await api.patch("/auth/me", { name, phone, photoUrl });
+      await api.patch("/auth/me", { name: name.trim(), phone: phone.trim(), photoUrl });
       toast.success("Profile updated");
+      setFieldErrors({});
       await refreshUser();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Save failed");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Save failed");
+      }
     } finally {
       setSaving(false);
     }
@@ -248,9 +270,27 @@ function ProfileTab() {
           <input
             type="text"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+            onChange={(e) => {
+              setName(e.target.value);
+              if (fieldErrors.name) setFieldErrors((p) => ({ ...p, name: "" }));
+            }}
+            data-testid="profile-name"
+            aria-invalid={fieldErrors.name ? "true" : undefined}
+            className={
+              "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+              (fieldErrors.name
+                ? "border-red-500 bg-red-50"
+                : "border-gray-300 dark:border-gray-600")
+            }
           />
+          {fieldErrors.name && (
+            <p
+              data-testid="error-profile-name"
+              className="mt-1 text-xs text-red-600"
+            >
+              {fieldErrors.name}
+            </p>
+          )}
         </Field>
         <Field label="Email (read-only)">
           <input
@@ -264,9 +304,27 @@ function ProfileTab() {
           <input
             type="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+            onChange={(e) => {
+              setPhone(e.target.value);
+              if (fieldErrors.phone) setFieldErrors((p) => ({ ...p, phone: "" }));
+            }}
+            data-testid="profile-phone"
+            aria-invalid={fieldErrors.phone ? "true" : undefined}
+            className={
+              "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+              (fieldErrors.phone
+                ? "border-red-500 bg-red-50"
+                : "border-gray-300 dark:border-gray-600")
+            }
           />
+          {fieldErrors.phone && (
+            <p
+              data-testid="error-profile-phone"
+              className="mt-1 text-xs text-red-600"
+            >
+              {fieldErrors.phone}
+            </p>
+          )}
         </Field>
       </div>
 

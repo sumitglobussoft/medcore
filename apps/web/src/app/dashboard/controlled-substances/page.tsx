@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
 
 interface CsEntry {
@@ -42,6 +44,7 @@ type Tab = "entries" | "register" | "audit";
 
 export default function ControlledSubstancesPage() {
   const { user } = useAuthStore();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("entries");
   const [entries, setEntries] = useState<CsEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,21 @@ export default function ControlledSubstancesPage() {
   } | null>(null);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
 
-  const canView = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  // RBAC (issue #98): Schedule H/H1/X register is regulated. ADMIN +
+  // PHARMACIST + DOCTOR may view/record entries. RECEPTION used to be
+  // allowed and is now blocked — redirect them away with a toast so a stale
+  // bookmark doesn't render an empty page.
+  const canView =
+    user?.role === "ADMIN" ||
+    user?.role === "PHARMACIST" ||
+    user?.role === "DOCTOR";
+
+  useEffect(() => {
+    if (user && !canView) {
+      toast.error("Controlled Substance Register is restricted to clinical and pharmacy roles.");
+      router.replace("/dashboard");
+    }
+  }, [user, canView, router]);
 
   // Load medicines flagged as requiresRegister (paginate all via search)
   useEffect(() => {

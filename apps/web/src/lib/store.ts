@@ -92,7 +92,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     const token = localStorage.getItem("medcore_token");
     if (!token) return;
     try {
-      const res = await api.get<{ success: boolean; data: User }>("/auth/me", { token });
+      // skip401Redirect: this is a background probe, not a navigation. If the
+      // token has expired we DO want the global interceptor to fire on the
+      // user's next *actual* navigation — not on an out-of-band /me poll.
+      const res = await api.get<{ success: boolean; data: User }>("/auth/me", {
+        token,
+        skip401Redirect: true,
+      });
       set({ user: res.data });
     } catch {
       // ignore
@@ -113,8 +119,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     try {
+      // skip401Redirect: app-boot session probe — bouncing the user to /login
+      // before they've even tried anything would be jarring. If the stored
+      // token is dead, we just clear it locally and stay on the current page;
+      // the next actual API call will trigger the proper redirect+toast.
       const res = await api.get<{ success: boolean; data: User }>("/auth/me", {
         token,
+        skip401Redirect: true,
       });
       set({ user: res.data, token, isLoading: false });
     } catch {

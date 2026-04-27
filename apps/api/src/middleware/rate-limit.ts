@@ -13,6 +13,12 @@ interface RateLimitEntry {
  *
  * Covers every caller including the global 600/min gate and every
  * per-route limiter across the API.
+ *
+ * Issues #124/#125/#128: the 429 response body now surfaces
+ * `retryAfterSeconds` (seconds until the bucket resets) and the friendly
+ * `error` string so the web client can render an actionable toast instead
+ * of a generic "Too many requests". Headers `RateLimit-*` and
+ * `Retry-After` are also set per RFC 9239 / draft-ietf-httpapi-ratelimit.
  */
 export function rateLimit(maxRequests: number, windowMs: number) {
   if (
@@ -49,16 +55,37 @@ export function rateLimit(maxRequests: number, windowMs: number) {
 
     if (!entry || entry.resetTime <= now) {
       store.set(ip, { count: 1, resetTime: now + windowMs });
+      // Issue #125: expose remaining-quota headers so the client can
+      // proactively show "X attempts left" if it wants to.
+      res.setHeader("RateLimit-Limit", String(maxRequests));
+      res.setHeader("RateLimit-Remaining", String(maxRequests - 1));
+      res.setHeader(
+        "RateLimit-Reset",
+        String(Math.ceil(windowMs / 1000))
+      );
       next();
       return;
     }
 
     entry.count++;
+    const remaining = Math.max(0, maxRequests - entry.count);
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((entry.resetTime - now) / 1000)
+    );
+    res.setHeader("RateLimit-Limit", String(maxRequests));
+    res.setHeader("RateLimit-Remaining", String(remaining));
+    res.setHeader("RateLimit-Reset", String(retryAfterSeconds));
 
     if (entry.count > maxRequests) {
+      res.setHeader("Retry-After", String(retryAfterSeconds));
       res.status(429).json({
         success: false,
-        error: "Too many requests. Try again later.",
+        data: null,
+        error: `Too many requests. Try again in ${retryAfterSeconds} seconds.`,
+        retryAfterSeconds,
+        remaining: 0,
+        limit: maxRequests,
       });
       return;
     }

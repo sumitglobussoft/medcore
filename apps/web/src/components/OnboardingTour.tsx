@@ -48,12 +48,43 @@ const tours: Record<string, TourStep[]> = {
   ],
 };
 
+// Legacy role-keyed storage. Kept for the "have you ever seen the tour" check
+// and as a fallback when the caller hasn't supplied a userId.
 export function tourStorageKey(role: string) {
   return `mc_tour_${role}`;
 }
 
-export function hasCompletedTour(role: string): boolean {
+// Issue #122: Skip flag is persisted globally (per user id, not per role)
+// so that hitting Skip on one page doesn't let the tour pop back up when
+// the user navigates to a sibling route. The previous behaviour wrote a
+// per-role completion flag at finish time but the skip path was effectively
+// re-evaluated on every layout mount because a number of pages reset it.
+export function onboardingSkipKey(userId: string) {
+  return `medcore_onboarding_skipped:${userId}`;
+}
+
+export function hasSkippedOnboarding(userId?: string | null): boolean {
+  if (typeof window === "undefined") return false;
+  if (!userId) return false;
+  return localStorage.getItem(onboardingSkipKey(userId)) === "1";
+}
+
+export function markOnboardingSkipped(userId?: string | null) {
+  if (typeof window === "undefined") return;
+  if (!userId) return;
+  localStorage.setItem(onboardingSkipKey(userId), "1");
+}
+
+export function clearOnboardingSkipped(userId?: string | null) {
+  if (typeof window === "undefined") return;
+  if (!userId) return;
+  localStorage.removeItem(onboardingSkipKey(userId));
+}
+
+export function hasCompletedTour(role: string, userId?: string | null): boolean {
   if (typeof window === "undefined") return true;
+  // Either an explicit Skip OR a finished tour suppresses the auto-launch.
+  if (hasSkippedOnboarding(userId)) return true;
   return !!localStorage.getItem(tourStorageKey(role));
 }
 
@@ -62,19 +93,29 @@ export function markTourCompleted(role: string) {
   localStorage.setItem(tourStorageKey(role), "1");
 }
 
-export function resetTour(role: string) {
+export function resetTour(role: string, userId?: string | null) {
   if (typeof window === "undefined") return;
   localStorage.removeItem(tourStorageKey(role));
+  // Clear the skip flag too so the manual "Take a tour" button can re-open
+  // the dialog after a previous skip.
+  clearOnboardingSkipped(userId);
 }
 
 export function OnboardingTour({
   role,
   open,
   onClose,
+  userId,
 }: {
   role: string;
   open: boolean;
   onClose: () => void;
+  /**
+   * Issue #122: optional user id used to persist the "skipped" flag
+   * globally so the tour does not reappear on sibling routes after Skip.
+   * Falls back to the legacy role-keyed completion flag when absent.
+   */
+  userId?: string | null;
 }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -103,7 +144,13 @@ export function OnboardingTour({
   };
 
   const skip = () => {
-    finish();
+    // Issue #122: persist a per-user "skipped" flag so navigating to a
+    // sibling page (which remounts the layout) doesn't auto-launch the
+    // tour again. Also marks the role completion flag so the legacy
+    // hasCompletedTour() check passes for the same session.
+    markOnboardingSkipped(userId);
+    markTourCompleted(role);
+    onClose();
   };
 
   return (

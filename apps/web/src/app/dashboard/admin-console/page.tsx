@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+// Issue #109 / #119: route every user-facing date through the central
+// formatDate helper so a `null` / undefined / unparseable value renders as
+// "—" instead of "Invalid Date → Invalid Date".
+import { formatDate } from "@/lib/format";
 import {
   Activity,
   AlertTriangle,
@@ -78,6 +82,11 @@ export default function AdminConsolePage() {
     total: 0,
   });
   const [activeSessions, setActiveSessions] = useState(0);
+  // Issue #108 (2026-04-26): the Doctors-On-Duty bar previously fed
+  // `total = max(onDutyCount, 1)` and `forceFull` into ResourceBar, which
+  // produced "0/1 (100%)" — math impossibility. We now also pull the total
+  // employed-doctor count so the bar shows "0/12 (0%)" or "8/12 (66%)".
+  const [totalDoctors, setTotalDoctors] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -250,6 +259,11 @@ export default function AdminConsolePage() {
       const surgs = Array.isArray(surgeriesToday.data) ? surgeriesToday.data : [];
       setOtUtil({ used: surgs.length, total: 10 });
       setActiveSessions(Array.isArray(users.data) ? users.data.length : 0);
+      // Issue #108 — the doctors endpoint returns the directory of all
+      // employed doctors; this is the correct denominator for "Doctors On
+      // Duty (X / total)". A 0-doctor hospital still renders sanely as 0/0
+      // (0%) thanks to the guard in ResourceBar.
+      setTotalDoctors(Array.isArray(users.data) ? users.data.length : 0);
       setLoaded(true);
     })();
   }, [user, refreshTick]);
@@ -475,7 +489,12 @@ export default function AdminConsolePage() {
             items={pendingLeaves.slice(0, 5).map((l: any) => ({
               id: l.id,
               primary: l.user?.name || "—",
-              secondary: `${l.type} · ${new Date(l.startDate).toLocaleDateString()} → ${new Date(l.endDate).toLocaleDateString()}`,
+              // Issue #109: API returns `fromDate`/`toDate` (not
+              // startDate/endDate); the old keys produced "Invalid Date →
+              // Invalid Date" on every row. We now read the correct fields
+              // and route them through formatDate so any future null/empty
+              // value renders as "—" instead of "Invalid Date".
+              secondary: `${l.type} · ${formatDate(l.fromDate ?? l.startDate)} → ${formatDate(l.toDate ?? l.endDate)}`,
             }))}
             onApprove={(id) => approve("leave", id)}
             viewAllHref="/dashboard/leave-management"
@@ -516,13 +535,13 @@ export default function AdminConsolePage() {
             />
             <ResourceBar
               label="Doctors On Duty"
+              // Issue #108: real "on duty / total doctors" ratio. The previous
+              // implementation used `forceFull` and `total = max(used, 1)`, which
+              // rendered the math-impossible "0/1 (100%)". With the directory
+              // count as the denominator we get an honest 0/12 (0%) etc.
               used={rosterToday.filter((s: any) => s.user?.role === "DOCTOR").length}
-              total={Math.max(
-                rosterToday.filter((s: any) => s.user?.role === "DOCTOR").length,
-                1
-              )}
+              total={totalDoctors}
               color="bg-blue-700"
-              forceFull
             />
             <ResourceBar
               label="OT Utilization"
@@ -725,9 +744,13 @@ function ResourceBar({
   warnAt?: number;
   forceFull?: boolean;
 }) {
+  // Issue #108 — a `total` of 0 must yield 0% (not 100%). The previous
+  // `Math.max(total, 1)` divisor made every empty roster look fully staffed.
   const pct = forceFull
     ? 100
-    : Math.min(Math.round((used / Math.max(total, 1)) * 100), 100);
+    : total <= 0
+      ? 0
+      : Math.min(Math.round((used / total) * 100), 100);
   const warn = warnAt != null && used >= warnAt;
   return (
     <div>

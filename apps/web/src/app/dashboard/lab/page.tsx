@@ -195,7 +195,7 @@ export default function LabPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             <FlaskConical className="text-primary" aria-hidden="true" /> {t("dashboard.lab.title")}
           </h1>
           <p className="text-sm text-gray-700 dark:text-gray-300">{t("dashboard.lab.orders")}</p>
@@ -223,7 +223,7 @@ export default function LabPage() {
             className={`ml-auto rounded-full border px-3 py-1 text-xs font-semibold ${
               statOnly
                 ? "border-red-600 bg-red-600 text-white"
-                : "border-red-300 bg-white text-red-700 hover:bg-red-50"
+                : "border-red-300 bg-white text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:bg-gray-800 dark:text-red-300 dark:hover:bg-red-900/20"
             }`}
           >
             STAT Only
@@ -232,26 +232,26 @@ export default function LabPage() {
       </div>
 
       {tab === "catalog" ? (
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
           {loading ? (
-            <div className="text-center text-gray-500">Loading...</div>
+            <div className="text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : tests.length === 0 ? (
-            <div className="text-center text-gray-500">No tests defined.</div>
+            <div className="text-center text-gray-500 dark:text-gray-400">No tests defined.</div>
           ) : (
             Object.entries(testsByCategory).map(([cat, list]) => (
               <div key={cat} className="mb-6">
-                <h3 className="mb-2 text-sm font-semibold uppercase text-gray-600">
+                <h3 className="mb-2 text-sm font-semibold uppercase text-gray-600 dark:text-gray-300">
                   {cat}
                 </h3>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((t) => (
                     <div
                       key={t.id}
-                      className="rounded-lg border p-3"
+                      className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
                     >
                       <p className="font-medium">{t.name}</p>
                       {t.normalRange && (
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           Normal: {t.normalRange} {t.unit}
                         </p>
                       )}
@@ -266,17 +266,17 @@ export default function LabPage() {
           )}
         </div>
       ) : (
-        <div className="rounded-xl bg-white shadow-sm">
+        <div className="rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading...</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">Loading...</div>
           ) : orders.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
               No lab orders.
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b text-left text-sm text-gray-500">
+                <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-4 py-3">Order #</th>
                   <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Doctor</th>
@@ -290,8 +290,8 @@ export default function LabPage() {
                 {orders.map((o) => (
                   <Fragment key={o.id}>
                     <tr
-                      className={`cursor-pointer border-b last:border-0 hover:bg-gray-50 ${
-                        o.stat ? "border-l-4 border-l-red-500 bg-red-50/40" : ""
+                      className={`cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700 ${
+                        o.stat ? "border-l-4 border-l-red-500 bg-red-50/40 dark:bg-red-900/20" : ""
                       }`}
                       onClick={() =>
                         setExpanded(expanded === o.id ? null : o.id)
@@ -314,7 +314,7 @@ export default function LabPage() {
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium">{o.patient.user.name}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           {o.patient.mrNumber}
                         </p>
                       </td>
