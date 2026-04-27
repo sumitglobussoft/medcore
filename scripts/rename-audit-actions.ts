@@ -303,8 +303,9 @@ const RENAMES: Record<string, string> = {
   STOCK_MOVEMENT: "STOCK_MOVE",
 
   // NOTE: the following are intentionally LEFT AS-IS (true events
-  // or already-canonical names). They are documented in
-  // docs/AUDIT_RENAME_MAP_2026-04-23.md for operations.
+  // or already-canonical names). The original 2026-04-23 rename map
+  // doc was retired during the Apr-27 doc-cleanup; the entire old→new
+  // mapping now lives in this file's `RENAMES` constant above.
   //
   // Also preserved this pass (2026-04-24):
   //   ABDM_GATEWAY_SIGNATURE_INVALID — true event (inbound signature rejected)

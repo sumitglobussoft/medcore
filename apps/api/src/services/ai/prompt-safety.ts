@@ -14,7 +14,9 @@
 // instructions" delimiters so the model has a clear signal that nothing inside
 // the block should change its behaviour.
 //
-// See security(2026-04-23-low) F-INJ-1 in docs/SECURITY_AUDIT_2026-04-23.md.
+// Originated from F-INJ-1 in the 2026-04-23 security audit (LOW). Audit doc
+// was retired during the Apr-27 doc cleanup; tracked in TODO.md →
+// "Security follow-ups" → F-INJ-1 (escalate before patient-facing inference).
 
 // ── Tunables ─────────────────────────────────────────────────────────────────
 

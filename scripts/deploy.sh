@@ -94,7 +94,7 @@ curl -sf http://localhost:3200 > /dev/null && echo "Web OK" || { echo "Web FAILE
 pm2 save
 echo "=== Deployment complete (previous SHA recorded at /tmp/medcore-prev-sha) ==="
 
-# Optional: re-seed (destructive — triple-guarded in docs/DEPLOYMENT.md).
+# Optional: re-seed (destructive — triple-guarded; see env var below).
 if [ "$DO_SEED" -eq 1 ]; then
     if [ "${ALLOW_PROD_SEED_RESET:-}" != "YES_I_WILL_WIPE_THE_HOSPITAL" ]; then
         echo "--seed requested but ALLOW_PROD_SEED_RESET guard is not set. Refusing."

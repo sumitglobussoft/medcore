@@ -6,11 +6,12 @@
 > PostgreSQL runs in Docker (`medcore-postgres`) bound to host port 5433.
 >
 > Companion docs:
-> - Ops details & health checks: [`DEPLOYMENT.md`](DEPLOYMENT.md)
 > - Migration policy: [`MIGRATIONS.md`](MIGRATIONS.md)
 > - Architecture overview: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > - AI subsystems: [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md)
 > - Dev onboarding: [`ONBOARDING.md`](ONBOARDING.md)
+> - Operational FAQ: [`OPERATIONS_FAQ.md`](OPERATIONS_FAQ.md)
+> - Observability + metrics: [`OBSERVABILITY.md`](OBSERVABILITY.md)
 
 ---
 
@@ -34,7 +35,10 @@ version resolved in `package-lock.json`. See the comment block at the top of
 `scripts/deploy.sh` additionally runs `git checkout -- package-lock.json` if
 the post-`npm ci` tree is dirty on prod — last-line defence so the deploy
 doesn't abort on a cosmetic lock-file reshuffle. If that revert ever silences
-a *real* drift, section 0.1 of `DEPLOYMENT.md` walks through how to spot it.
+a *real* drift, the symptom is a sudden `Cannot find module` at runtime on
+prod despite a clean deploy — at that point compare `apps/web/package.json`
+`optionalDependencies` against `package-lock.json` `node_modules/@tailwindcss/oxide-*`
+entries and re-pin if they've drifted.
 
 ---
 
@@ -194,7 +198,7 @@ scripts/verify-deploy.sh
 `20260423*` migrations only add tables/columns — old application code
 ignores them safely. If a migration ever needs to be reverted:
 
-1. Restore from backup (section 4 of `DEPLOYMENT.md`) — always prefer this.
+1. Restore from backup — see [`DEPLOY_DATA_SCRIPTS.md`](DEPLOY_DATA_SCRIPTS.md) for the canonical restore procedure. Always prefer this over manual fixes.
 2. Or hand-write a forward-only fix migration; never edit a committed one.
 
 Never run `prisma migrate reset`, `db push --force-reset`, or
@@ -372,7 +376,7 @@ disabled is considered a P2 until corrected.
 |---|---|---|
 | `verify-deploy.sh` reports 500 on an AI route. | Prisma client out of sync with DB (missing new table). | Re-run `npx prisma generate`, `pm2 restart medcore-api`. |
 | `migrate deploy` says "no pending migrations" but new ones exist in the folder. | Git pull didn't actually fast-forward; `HEAD` still points at old SHA. | `git log -1 --oneline`, confirm, then `git pull --ff-only`. |
-| `migrate deploy` says "drift detected". | Someone ran `db push` against prod. Schema ≠ migration history. | Stop. Read `DEPLOYMENT.md` section 3 ("First-time adoption"). Do **not** auto-resolve. Pair with DBA. |
+| `migrate deploy` says "drift detected". | Someone ran `db push` against prod. Schema ≠ migration history. | Stop. See [`MIGRATIONS.md`](MIGRATIONS.md) for the adoption / drift-resolution procedure. Do **not** auto-resolve. Pair with DBA. |
 | `/dashboard/*` returns old bundle after deploy. | nginx static cache stale OR web process didn't restart. | `pm2 restart medcore-web`, then `sudo nginx -s reload`. Hard-refresh browser (cache-busted by Next.js hash but CDN may cache index). |
 | PM2 shows process as `online` but port 4100 refuses connections ("zombie"). | Previous process hung on shutdown; PM2 thinks new one is up. | `pm2 delete medcore-api && pm2 start ecosystem.medcore.config.js --only medcore-api && pm2 save`. |
 | `prisma migrate status` shows pending after `migrate deploy` returned 0. | Separate `.env` loaded (DATABASE_URL pointed at wrong DB). | `echo $DATABASE_URL` — must match the one in `/home/empcloud-development/medcore/.env`. |

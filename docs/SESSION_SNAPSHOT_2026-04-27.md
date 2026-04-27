@@ -1,7 +1,8 @@
 # MedCore — Session snapshot, 2026-04-27 (refreshed end-of-day)
 
-End-of-day handoff for the next Claude Code session. Supersedes
-`SESSION_SNAPSHOT_2026-04-26.md` (kept as historical checkpoint).
+End-of-day handoff for the next Claude Code session. The `2026-04-24`
+and `2026-04-26` snapshots have been retired during the doc cleanup
+pass; this is the canonical pickup file going forward.
 
 ---
 

@@ -168,8 +168,7 @@ Before you mark a PR "ready for review":
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — System overview, service boundaries,
   scheduled tasks.
 - [`DEPLOY.md`](DEPLOY.md) — The single authoritative prod deploy runbook.
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) — Broader operations manual (backups,
-  nginx, systemd, monitoring).
+- [`OPERATIONS_FAQ.md`](OPERATIONS_FAQ.md) — Recovery, rollback, and ops cheatsheet.
 - [`TEST_PLAN.md`](TEST_PLAN.md) — Test coverage matrix and known gaps.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — Long-form contributor rules.
 

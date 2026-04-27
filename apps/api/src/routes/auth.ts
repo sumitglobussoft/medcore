@@ -142,8 +142,8 @@ function generateTokens(
   // with legacy-token detection in middleware/auth.ts.
   const tid: string | null = tenantId ?? null;
   // security(2026-04-23-med): session-TTL audit — the 2026-04-23 security
-  // review did not flag this TTL as a finding (see docs/SECURITY_AUDIT_2026-04-23.md
-  // §"Non-findings" → JWT verification). The 24h access / 7d refresh window is
+  // review did not flag this TTL as a finding (JWT verification was a
+  // documented non-finding in that audit). The 24h access / 7d refresh window is
   // intentional for clinical-shift usage (typical shift 8–12h, weekly rotation)
   // and matches MedCore's audit-log retention. Shorter access windows were
   // considered but add friction in ward-side tablets where re-auth during a

@@ -14,11 +14,10 @@ All scripts in this list:
   **stdout**, so you can pipe the summary into `jq` without noise.
 
 > **Rollback note:** none of these scripts have an automated undo. If you
-> run an `--apply` against the wrong environment, the recovery path is:
-> (a) restore from the most recent pg_dump in `/var/backups/medcore/`, or
-> (b) the per-script "reverse this change" playbook documented in
-> [`AUDIT_RENAME_MAP_2026-04-23.md`](AUDIT_RENAME_MAP_2026-04-23.md) where
-> one exists.
+> run an `--apply` against the wrong environment, the recovery path is to
+> restore the affected tables from the most recent pg_dump in
+> `/var/backups/medcore/`. Each script's docblock at the top of the file
+> calls out any per-script reversal recipe where one exists.
 
 ---
 
@@ -99,7 +98,7 @@ know what it did in case a historical audit report looks surprising.
 
 | Script | Purpose |
 |---|---|
-| `scripts/rename-audit-actions.ts` | Renames legacy audit-action codes to the post-audit canonical names. Full old→new map in [`AUDIT_RENAME_MAP_2026-04-23.md`](AUDIT_RENAME_MAP_2026-04-23.md). |
+| `scripts/rename-audit-actions.ts` | One-shot rename of legacy audit-action codes to the canonical `<ENTITY>_<VERB>` form. Old→new map is hard-coded in the script. |
 
 ```bash
 npx tsx scripts/rename-audit-actions.ts             # dry-run

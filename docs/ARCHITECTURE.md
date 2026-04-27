@@ -5,7 +5,7 @@ request flow, the authentication model, how data moves through the
 primary business flows, and the design decisions that got us here.
 
 For the development workflow and migration runbook, see
-[CONTRIBUTING.md](../CONTRIBUTING.md). For ops, see [DEPLOYMENT.md](DEPLOYMENT.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md). For ops, see [DEPLOY.md](DEPLOY.md).
 
 ---
 

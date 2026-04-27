@@ -38,9 +38,8 @@ never write a `DROP COLUMN` forward-fix without pairing with a DBA.
 
 There is **no automated undo** for the data-correction scripts. Recovery
 is per-script and documented inline (see `DEPLOY_DATA_SCRIPTS.md` for the
-full list, and the per-action rollback sections in
-[`AUDIT_RENAME_MAP_2026-04-23.md`](AUDIT_RENAME_MAP_2026-04-23.md) for the
-audit-action rename script). The safest move is almost always to restore
+full list, including per-script rollback recipes in the comment block
+at the top of each script). The safest move is almost always to restore
 the affected tables from the most recent pg_dump.
 
 Full runbook: [`DEPLOY.md` §4](DEPLOY.md#4-rollback-plan).
@@ -178,7 +177,5 @@ version in `apps/web/package.json` to match whatever
 - [`DEPLOY_ENV_VARS.md`](DEPLOY_ENV_VARS.md) — every env var by role.
 - [`DEPLOY_DATA_SCRIPTS.md`](DEPLOY_DATA_SCRIPTS.md) — every
   `fix-*` / `dedup-*` / `backfill-*` script with dry-run + apply commands.
-- [`AUDIT_RENAME_MAP_2026-04-23.md`](AUDIT_RENAME_MAP_2026-04-23.md) —
-  per-script rollback sections for the audit-action rename.
 - [`MIGRATIONS.md`](MIGRATIONS.md) — Prisma migration policy.
 - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md) — AI subsystems.

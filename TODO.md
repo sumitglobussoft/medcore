@@ -47,6 +47,40 @@ biggest security risk and should land first; the others are UX polish.
 
 ---
 
+## Security follow-ups (LOW — from 2026-04-23 audit)
+
+Captured here so they survive the deletion of the original
+`docs/SECURITY_AUDIT_2026-04-23.md` snapshot. All MEDIUM findings from
+that audit are closed; the items below are LOW and listed in the
+audit body as "follow-ups, not fixed in this pass".
+
+- **F-ABDM-1** — `POST /gateway/callback` has no rate limit. JWT signature
+  check mitigates most of the risk, but a compromised gateway key could
+  flood us. Add `rateLimit(...)` per IP.
+- **F-ABDM-3** — `:id` path on `GET /consent/:id`, `POST /consent/:id/revoke`,
+  `GET /consents/:id` not zod-validated for UUID shape. Add
+  `validateUuidParams(["id"])`.
+- **F-ADH-3** — `POST /enroll` emits no audit event. Add a minimal audit
+  row for adherence-schedule writes.
+- **F-CS-1** — `ai-chart-search` body has no zod schema (handler
+  type-checks + size-caps manually). Add `validate(chartSearchSchema)`.
+- **F-INJ-1** — prompt-injection mitigation. `prompt-safety.ts` exists
+  and is used in radiology — extend the sanitiser to `ai-er-triage.ts`,
+  `ai-letters.ts`, `ai-chart-search.ts`, `ai-report-explainer.ts`.
+  Escalate to MED before any patient-facing inference path.
+- **F-PH-1 / F-PH-2 / F-PRED-2** — pharmacy + predictions query/path
+  params not zod-validated.
+- **F-REX-1** — body not zod-validated on `/explain` and `/approve`.
+- **F-ER-3 / F-KB-2 / F-LET-2 / F-PH-* / F-PRED-1 / F-REX-3 / F-TX-1** —
+  AI inference events lack audit log rows. Not an active security issue
+  but limits forensic reconstruction after a Sarvam-bill spike. Add
+  `AI_*_INFERENCE` audit rows on each path.
+
+None are blocking the demo or pilot; tackle in any order during a
+security-hardening sprint.
+
+---
+
 ## External / non-code items (require partners)
 
 - **ABDM DPA vendor API** — needs an ABDM-empanelled vendor contract.
