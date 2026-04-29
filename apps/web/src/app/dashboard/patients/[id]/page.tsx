@@ -791,6 +791,7 @@ export default function PatientDetailPage() {
           patient={patient}
           stats={stats}
           canEdit={canEdit}
+          canCreateInvoice={isReception || isAdmin}
           onBookAppt={() => setQuickModal("book")}
         />
       )}
@@ -3731,12 +3732,14 @@ function Patient360Tab({
   patient,
   stats,
   canEdit,
+  canCreateInvoice,
   onBookAppt,
 }: {
   patientId: string;
   patient: PatientDetail & { photoUrl?: string | null };
   stats: PatientStats | null;
   canEdit: boolean;
+  canCreateInvoice: boolean;
   onBookAppt: () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
@@ -3947,12 +3950,14 @@ function Patient360Tab({
                 color="bg-green-600"
                 Icon={Pill}
               />
-              <QuickLink
-                href={`/dashboard/billing/new?patientId=${patientId}`}
-                label="Generate Bill"
-                color="bg-amber-600"
-                Icon={Receipt}
-              />
+              {canCreateInvoice && (
+                <QuickLink
+                  href={`/dashboard/billing/new?patientId=${patientId}`}
+                  label="Generate Bill"
+                  color="bg-amber-600"
+                  Icon={Receipt}
+                />
+              )}
             </div>
           </div>
 
