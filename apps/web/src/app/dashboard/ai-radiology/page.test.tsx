@@ -105,6 +105,8 @@ describe("AiRadiologyPage — region overlay", () => {
     return container;
   }
 
+  // 15s timeout (default 5s): the test runs in ~200ms locally, but the CI
+  // runner has hit the 5s ceiling on the chained findBy* waits under load.
   it("renders a data-testid wrapper for every finding region in the pending-review detail view", async () => {
     await openFirstReport();
 
@@ -129,7 +131,7 @@ describe("AiRadiologyPage — region overlay", () => {
       "data-confidence",
       "low"
     );
-  });
+  }, 15000);
 
   it("clicking a finding in the list highlights the matching region", async () => {
     await openFirstReport();
@@ -169,7 +171,7 @@ describe("AiRadiologyPage — region overlay", () => {
         "false"
       );
     });
-  });
+  }, 15000);
 
   it("falls back gracefully when the pending list is empty", async () => {
     apiMock.get.mockResolvedValue({ success: true, data: [] });
