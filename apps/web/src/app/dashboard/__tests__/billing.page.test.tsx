@@ -110,6 +110,42 @@ describe("BillingPage", () => {
     });
   });
 
+  it("derives visible status from balance instead of stale PAID flag", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/billing/invoices"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "inv-stale-paid",
+              invoiceNumber: "INV000228",
+              totalAmount: 2500,
+              paymentStatus: "PAID",
+              createdAt: new Date().toISOString(),
+              patientId: "p1",
+              patient: { user: { name: "Aarav Mehta", phone: "9000000001" } },
+              payments: [
+                {
+                  id: "pay-partial",
+                  amount: 500,
+                  mode: "CASH",
+                  paidAt: new Date().toISOString(),
+                },
+              ],
+            },
+          ],
+        });
+      return Promise.resolve(defaultGet(url));
+    });
+
+    render(<BillingPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("INV000228")).toBeInTheDocument()
+    );
+    expect(screen.getByText("PARTIAL")).toBeInTheDocument();
+    expect(screen.queryByText("PAID")).not.toBeInTheDocument();
+  });
+
   it("calls /billing/reports/outstanding when Outstanding tab is active", async () => {
     const user = userEvent.setup();
     render(<BillingPage />);

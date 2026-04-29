@@ -74,6 +74,20 @@ function overdueClass(days: number) {
   return "text-gray-500";
 }
 
+function derivePaymentStatus({
+  reportedStatus,
+  balance,
+  paid,
+}: {
+  reportedStatus: string;
+  balance: number;
+  paid: number;
+}) {
+  if (reportedStatus === "REFUNDED") return reportedStatus;
+  if (balance > 0) return paid > 0 ? "PARTIAL" : "PENDING";
+  return "PAID";
+}
+
 export default function BillingPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -358,6 +372,7 @@ export default function BillingPage() {
 
   const statusColors: Record<string, string> = {
     PENDING: "bg-red-100 text-red-700",
+    UNPAID: "bg-red-100 text-red-700",
     PARTIAL: "bg-yellow-100 text-yellow-700",
     PAID: "bg-green-100 text-green-700",
     REFUNDED: "bg-gray-100 text-gray-500",
@@ -390,7 +405,12 @@ export default function BillingPage() {
         const netPaid = paid - refunded;
         const balance = Math.max(0, inv.totalAmount - netPaid);
         const age = daysAgo(inv.createdAt);
-        return { ...inv, paid, refunded, netPaid, balance, age };
+        const displayStatus = derivePaymentStatus({
+          reportedStatus: inv.paymentStatus,
+          balance,
+          paid: netPaid,
+        });
+        return { ...inv, paid, refunded, netPaid, balance, age, displayStatus };
       }),
     [invoices]
   );
@@ -513,11 +533,20 @@ export default function BillingPage() {
                       {r.daysOverdue} days
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[r.paymentStatus] || ""}`}
-                      >
-                        {r.paymentStatus}
-                      </span>
+                      {(() => {
+                        const displayStatus = derivePaymentStatus({
+                          reportedStatus: r.paymentStatus,
+                          balance: r.balance,
+                          paid: r.paid,
+                        });
+                        return (
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[displayStatus] || ""}`}
+                          >
+                            {displayStatus}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -599,9 +628,9 @@ export default function BillingPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[inv.paymentStatus] || ""}`}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[inv.displayStatus] || ""}`}
                     >
-                      {inv.paymentStatus}
+                      {inv.displayStatus}
                     </span>
                   </td>
                   {isStaff && (
@@ -621,7 +650,7 @@ export default function BillingPage() {
                           onClick={(e) => e.stopPropagation()}
                           className="absolute right-4 top-10 z-10 w-52 rounded-lg border bg-white py-1 shadow-lg"
                         >
-                          {inv.paymentStatus !== "PAID" && (
+                          {inv.displayStatus !== "PAID" && (
                             <button
                               onClick={() => {
                                 setPayInv(inv);
@@ -632,7 +661,7 @@ export default function BillingPage() {
                               <Receipt size={14} /> Record Payment
                             </button>
                           )}
-                          {inv.paymentStatus !== "PAID" && (
+                          {inv.displayStatus !== "PAID" && (
                             <button
                               onClick={() => {
                                 openPayOnlineModal(inv);
@@ -655,8 +684,8 @@ export default function BillingPage() {
                               <Undo2 size={14} /> Record Refund
                             </button>
                           )}
-                          {inv.paymentStatus !== "PAID" &&
-                            inv.paymentStatus !== "REFUNDED" && (
+                          {inv.displayStatus !== "PAID" &&
+                            inv.displayStatus !== "REFUNDED" && (
                               <button
                                 onClick={() => {
                                   setDiscInv(inv);
