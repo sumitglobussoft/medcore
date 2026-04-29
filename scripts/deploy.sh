@@ -1,8 +1,18 @@
 #!/bin/bash
 # One-command deployment script for MedCore.
-# Usage: ./deploy.sh [--seed] [--yes]
 #
-# Guard rails (see docs/DEPLOY.md for the full runbook):
+# PRIMARY INVOKER: GitHub Actions (.github/workflows/test.yml `deploy` job).
+# Every push to `main` that passes the typecheck gate triggers the workflow,
+# which SSHes into the dev server and runs `bash scripts/deploy.sh --yes`.
+# **Do not deploy by hand** for normal pushes to `main` — the workflow does it.
+#
+# Manual fallback (CI down, hotfix, destructive op like --seed):
+#   ssh empcloud-development@163.227.174.141
+#   cd /home/empcloud-development/medcore
+#   bash scripts/deploy.sh [--seed] [--yes]
+# See docs/DEPLOY.md "Manual fallback runbook" for the full walkthrough.
+#
+# Guard rails:
 #   * refuses to run with uncommitted local changes
 #   * shows pending migrations and asks to confirm (skip with --yes)
 #   * verifies migrate status is clean after deploy
