@@ -277,8 +277,17 @@ export default function AIBookingPage() {
 
         setStep("summary");
       }
-    } catch {
-      toast.error("Failed to send message");
+    } catch (err: any) {
+      // Issue #240: surface the actual API error (validation / 5xx /
+      // rate limit) so the user sees the real cause instead of an opaque
+      // "Failed to send message". The fetch helper exposes the parsed
+      // payload on `err.payload` (not axios `err.response`).
+      const msg =
+        err?.payload?.error ||
+        err?.payload?.details?.formErrors?.join(", ") ||
+        err?.message ||
+        "Failed to send message";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

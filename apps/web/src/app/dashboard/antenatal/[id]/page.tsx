@@ -7,6 +7,7 @@ import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
   ArrowLeft,
   Plus,
@@ -269,7 +270,7 @@ export default function AncCaseDetailPage() {
             </p>
           )}
           <p className="mt-2 text-sm">
-            Doctor: <strong>{caseData.doctor.user.name}</strong>
+            Doctor: <strong>{formatDoctorName(caseData.doctor.user.name)}</strong>
           </p>
         </div>
 

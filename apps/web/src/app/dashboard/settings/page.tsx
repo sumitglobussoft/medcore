@@ -7,6 +7,7 @@ import { useThemeStore } from "@/lib/theme";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { extractFieldErrors } from "@/lib/field-errors";
+import { sanitizeUserInput } from "@medcore/shared";
 import { PasswordInput } from "@/components/PasswordInput";
 import {
   User as UserIcon,
@@ -148,7 +149,15 @@ function ProfileTab() {
     // Client-side mirror of `updateProfileSchema` — fail fast so we don't
     // round-trip a 400. The API enforces the same regex.
     const errs: Record<string, string> = {};
-    if (!name.trim()) errs.name = "Name cannot be empty";
+    // Issues #248, #265 (Apr 2026): the profile Full Name field used to
+    // accept raw HTML and `<script>alert("xss")</script>` payloads which
+    // then rendered into the sidebar avatar fallback. Reject XSS vectors
+    // BEFORE the request reaches /auth/me.
+    const nameCheck = sanitizeUserInput(name, {
+      field: "Name",
+      maxLength: 100,
+    });
+    if (!nameCheck.ok) errs.name = nameCheck.error || "Name cannot be empty";
     if (phone.trim() && !/^\+?\d{10,15}$/.test(phone.trim()))
       errs.phone = "Phone must be 10–15 digits, optional leading +";
     setFieldErrors(errs);
@@ -158,7 +167,11 @@ function ProfileTab() {
     }
     setSaving(true);
     try {
-      await api.patch("/auth/me", { name: name.trim(), phone: phone.trim(), photoUrl });
+      await api.patch("/auth/me", {
+        name: nameCheck.value,
+        phone: phone.trim(),
+        photoUrl,
+      });
       toast.success("Profile updated");
       setFieldErrors({});
       await refreshUser();

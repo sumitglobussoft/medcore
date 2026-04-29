@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
+// Issue #348 — shared bed-summary helper so dashboard KPI matches the
+// Wards & Admissions pages exactly.
+import { getBedSummary } from "@/lib/bed-summary";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { formatINR } from "@/lib/currency";
+import { getSocket } from "@/lib/socket";
 import { SkeletonCard } from "@/components/Skeleton";
 import {
   Calendar,
@@ -384,16 +389,10 @@ export default function DashboardPage() {
         0
       );
 
-      const wardStats = (wards.data ?? []).reduce(
-        (acc: any, w: any) => {
-          const total = w.beds?.length || w.totalBeds || 0;
-          const occupied = w.beds?.filter((b: any) => b.status === "OCCUPIED").length ?? w.occupiedBeds ?? 0;
-          acc.total += total;
-          acc.occupied += occupied;
-          return acc;
-        },
-        { total: 0, occupied: 0 }
-      );
+      // Issue #348 — use the shared helper so this KPI matches Wards
+      // and Admissions. Previously each page open-coded the reduce with
+      // slightly different fallback paths and disagreed by 1-2 beds.
+      const wardStats = getBedSummary(wards.data ?? []);
 
       const bloodSummary = bloodInventory.data;
       const bloodAvailable = bloodSummary?.totalAvailable ?? bloodSummary?.total ?? 0;
@@ -435,6 +434,21 @@ export default function DashboardPage() {
       setLoading(false);
     }
     load().catch(() => setLoading(false));
+
+    // Issue #270: the Pending Bills tile was reading a stale cache after a
+    // payment was recorded — the dashboard never re-fetched. Listen for the
+    // billing socket events the API emits on every payment / refund and
+    // re-fire load() so the tile reconciles within ~100ms.
+    const sock = getSocket();
+    const refresh = () => load().catch(() => setLoading(false));
+    sock.on("payment:received", refresh);
+    sock.on("billing:payment-success", refresh);
+    sock.on("billing:invoice-updated", refresh);
+    return () => {
+      sock.off("payment:received", refresh);
+      sock.off("billing:payment-success", refresh);
+      sock.off("billing:invoice-updated", refresh);
+    };
     // Depend on user.role so that once the session hydrates, the load() call
     // re-runs with the correct role-gating for admin-only endpoints (#31).
   }, [user?.role]);
@@ -447,8 +461,8 @@ export default function DashboardPage() {
   const isPatient = role === "PATIENT";
 
   const fmt = (n?: number) => (n ?? 0).toLocaleString("en-IN");
-  const money = (n?: number) =>
-    `Rs. ${(n ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  // Issue #298: canonical INR formatting (₹1,23,456.00) via shared helper.
+  const money = (n?: number) => formatINR(n ?? 0);
 
   return (
     <div>

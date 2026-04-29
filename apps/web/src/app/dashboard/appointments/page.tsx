@@ -1201,6 +1201,7 @@ export default function AppointmentsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setShowBooking(!showBooking)}
+                  data-testid="appt-book-toggle"
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
                 >
                   {t("dashboard.actions.bookAppointment")}
@@ -1299,8 +1300,23 @@ export default function AppointmentsPage() {
 
           {/* Booking form */}
           {showBooking && (
-            <div className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
-              <h2 className="mb-4 font-semibold">{t("dashboard.appointments.book.title")}</h2>
+            <div
+              className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
+              data-testid="appt-book-panel"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-semibold">
+                  {t("dashboard.appointments.book.title")}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowBooking(false)}
+                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                  data-testid="appt-book-close"
+                >
+                  Close
+                </button>
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">
@@ -1384,8 +1400,38 @@ export default function AppointmentsPage() {
                 </div>
               )}
 
+              {/* Issue #350 — earlier the booking form rendered nothing
+                  when no doctor was picked OR when the picked date had
+                  no slots, so the user appeared to hit a dead-end.
+                  Surface explicit guidance + a Cancel escape hatch. */}
+              {!selectedDoctor && (
+                <div
+                  className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                  data-testid="appt-book-pick-doctor"
+                >
+                  Pick a doctor and date above to load available slots.
+                </div>
+              )}
+              {selectedDoctor && slotsWithPast.length === 0 && (
+                <div
+                  className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
+                  data-testid="appt-book-no-slots"
+                >
+                  No slots available for the selected doctor on this date.
+                  Try a different date or use{" "}
+                  <button
+                    type="button"
+                    onClick={findNextAvailable}
+                    className="font-medium underline hover:text-amber-900"
+                  >
+                    Next Available
+                  </button>
+                  .
+                </div>
+              )}
+
               {slotsWithPast.length > 0 && (
-                <div className="mt-4">
+                <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">
                     {isRecurring
                       ? "Pick a start slot (will repeat):"

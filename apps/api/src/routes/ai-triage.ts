@@ -168,9 +168,32 @@ router.post(
         { role: "user", content: message },
       ];
 
-      // 3. Run Claude turn
+      // 3. Run Claude turn.
+      // Issue #240: any unexpected LLM error (not just the
+      // AIServiceUnavailableError that `runTriageTurn` already swallows
+      // — e.g. a JSON-parse failure on a malformed tool-call response)
+      // would bubble up and 500 the request, breaking *every* user
+      // message. Catch defensively and return a graceful fallback so
+      // the chat keeps working; we still log the original error.
       const lang = langOverride || session.language;
-      const { reply, isEmergency, emergencyReason } = await runTriageTurn(claudeMessages, lang);
+      let reply = "";
+      let isEmergency = false;
+      let emergencyReason: string | undefined;
+      try {
+        const turn = await runTriageTurn(claudeMessages, lang);
+        reply = turn.reply;
+        isEmergency = turn.isEmergency;
+        emergencyReason = turn.emergencyReason;
+      } catch (turnErr) {
+        console.error(
+          "[ai-triage] runTriageTurn failed — returning graceful fallback:",
+          (turnErr as Error)?.message ?? turnErr
+        );
+        reply =
+          lang === "hi"
+            ? "क्षमा करें, मैं अभी जवाब नहीं दे पा रहा। कृपया कुछ देर बाद पुनः प्रयास करें या रिसेप्शन से बात करें।"
+            : "I'm sorry, I couldn't process that just now. Please try again in a moment or tap 'Talk to a person' to continue with reception.";
+      }
 
       if (isEmergency) {
         const emergencyReply = buildEmergencyResponse(emergencyReason!);

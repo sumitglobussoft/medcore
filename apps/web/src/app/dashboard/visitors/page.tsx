@@ -93,10 +93,12 @@ export default function VisitorsPage() {
         api.get<{ data: Visitor[] }>(endpoint),
         api.get<{ data: Stats }>("/visitors/stats/daily"),
       ]);
-      setVisitors(listRes.data);
-      setStats(statsRes.data);
+      // Issue #351 — coerce so a single bad payload (e.g. API returning
+      // null) cannot blank the page and lock out the Check In button.
+      setVisitors(Array.isArray(listRes?.data) ? listRes.data : []);
+      setStats(statsRes?.data ?? null);
     } catch {
-      // empty
+      setVisitors([]);
     }
     setLoading(false);
   }
@@ -234,8 +236,16 @@ export default function VisitorsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Visitors</h1>
+        {/* Issue #351 — Check In Visitor button was reported as
+            non-functional. The handler IS wired (it sets showModal=true);
+            the most likely cause was the modal failing to mount because
+            the page crashed on `v.name.charAt(0)` for visitors with a
+            null name (the API allows it). Defensive coercion below stops
+            the page from unmounting and the button is then responsive. */}
         <button
+          type="button"
           onClick={() => setShowModal(true)}
+          data-testid="visitors-check-in-btn"
           className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
           Check In Visitor
@@ -309,7 +319,7 @@ export default function VisitorsPage() {
       <div className="rounded-xl bg-white shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading...</div>
-        ) : visitors.length === 0 ? (
+        ) : (Array.isArray(visitors) ? visitors : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500">No visitors</div>
         ) : (
           <table className="w-full">
@@ -328,34 +338,47 @@ export default function VisitorsPage() {
               </tr>
             </thead>
             <tbody>
-              {visitors.map((v) => (
+              {(Array.isArray(visitors) ? visitors : []).map((v) => {
+                // Issue #351 — `name`/`purpose` are required at the
+                // schema level but legacy rows / partial migrations may
+                // return null, which would crash `.charAt(0)` and
+                // `.replace()` and unmount the page (taking the Check In
+                // button with it). Coerce defensively.
+                const safeName =
+                  typeof v.name === "string" && v.name.length > 0
+                    ? v.name
+                    : "—";
+                const safePurpose =
+                  typeof v.purpose === "string" && v.purpose.length > 0
+                    ? v.purpose.replace(/_/g, " ")
+                    : "—";
+                const initial = safeName.charAt(0).toUpperCase() || "?";
+                return (
                 <tr key={v.id} className="border-b last:border-0">
                   <td className="px-4 py-3">
                     {v.photoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={v.photoUrl}
-                        alt={v.name}
+                        alt={safeName}
                         className="h-10 w-10 rounded-full object-cover"
                       />
                     ) : (
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500">
-                        {v.name.charAt(0).toUpperCase()}
+                        {initial}
                       </div>
                     )}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">
-                    {v.passNumber}
+                    {v.passNumber ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium">{v.name}</td>
+                  <td className="px-4 py-3 text-sm font-medium">{safeName}</td>
                   <td className="px-4 py-3 text-xs text-gray-600">
                     {v.phone || "-"}
                   </td>
-                  <td className="px-4 py-3 text-sm">
-                    {v.purpose.replace(/_/g, " ")}
-                  </td>
+                  <td className="px-4 py-3 text-sm">{safePurpose}</td>
                   <td className="px-4 py-3 text-xs">
-                    {v.patient?.user.name || "-"}
+                    {v.patient?.user?.name || "-"}
                   </td>
                   <td className="px-4 py-3 text-xs">{v.department || "-"}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">
@@ -386,7 +409,8 @@ export default function VisitorsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

@@ -87,6 +87,11 @@ export interface EntityPickerProps {
   initialLabel?: string;
   /** Limit of matches to fetch. */
   limit?: number;
+  /** Minimum characters before triggering a fetch. Defaults to 2; pass 0
+   *  to fetch on focus + on every keystroke (use when the endpoint URL is
+   *  already pre-filtered, e.g. patient + today + active statuses on the
+   *  prescription page — Issue #194). */
+  minQueryLength?: number;
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -109,6 +114,7 @@ export function EntityPicker({
   required,
   initialLabel,
   limit = 10,
+  minQueryLength = 2,
 }: EntityPickerProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -132,8 +138,12 @@ export function EntityPicker({
   // Debounced search — 250ms, identical to the appointments patient picker.
   useEffect(() => {
     if (value) return; // already chosen
+    // Issue #194: when `minQueryLength === 0`, only fetch once the
+    // dropdown is open so we don't fire an unnecessary list query on
+    // mount. With `minQueryLength > 0`, the query string is the gate.
+    if (minQueryLength === 0 && !open) return;
     const q = query.trim();
-    if (q.length < 2) {
+    if (minQueryLength > 0 && q.length < minQueryLength) {
       setResults([]);
       return;
     }
@@ -156,11 +166,11 @@ export function EntityPicker({
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [query, value, endpoint, searchParam, limit]);
+  }, [query, value, endpoint, searchParam, limit, minQueryLength, open]);
 
   const showDropdown = useMemo(
-    () => open && !value && query.trim().length >= 2,
-    [open, value, query]
+    () => open && !value && query.trim().length >= minQueryLength,
+    [open, value, query, minQueryLength]
   );
 
   // ── Chosen state — render a chip + Change button ─────────────────────────

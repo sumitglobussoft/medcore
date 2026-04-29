@@ -925,20 +925,33 @@ export default function ScribePage() {
   const startScribe = async (appointment: any) => {
     setLoading(true);
     try {
+      // Issue #193: `api.post` already returns the parsed JSON envelope
+      // `{ success, data, error }` — the previous `res.data.data.sessionId`
+      // double-walked the envelope and read `undefined`, so the success
+      // branch fell through to the catch and toasted "Failed to start
+      // scribe" even on HTTP 201. The API response shape is
+      // `{ data: { sessionId, patientContext, ... } }`.
       const res = await api.post<any>(
         "/ai/scribe/start",
         { appointmentId: appointment.id, consentObtained: true, audioRetentionDays: 30 },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSessionId(res.data.data.sessionId);
+      const sid: string | undefined = res?.data?.sessionId;
+      if (!sid) {
+        toast.error("Scribe started but no session id was returned");
+        return;
+      }
+      setSessionId(sid);
       setSelectedAppointment(appointment);
       setEditLog([]);
       setPatientPreferredLanguage(
-        res.data.data?.patientContext?.preferredLanguage ?? null
+        res?.data?.patientContext?.preferredLanguage ?? null
       );
       toast.success("Scribe session started");
     } catch (err: any) {
-      toast.error(err?.response?.data?.error || "Failed to start scribe");
+      // Surface the API's actual error message (fetch-style payload, not
+      // axios `response`) so the user sees the real cause.
+      toast.error(err?.payload?.error || err?.message || "Failed to start scribe");
     } finally {
       setLoading(false);
     }

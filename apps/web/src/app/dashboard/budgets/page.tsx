@@ -212,10 +212,14 @@ export default function BudgetsPage() {
               const budgetPct = (r.budget / maxValue) * 100;
               const actualPct = (r.actual / maxValue) * 100;
               const overBudget = r.variance > 0;
-              const variancePct =
-                r.budget > 0
-                  ? Math.round((r.variance / r.budget) * 100)
-                  : 0;
+              // Issue #296: variance % and utilisation % were computed two
+              // different ways here vs server, producing contradictory
+              // numbers per row (e.g. 110% utilisation alongside 8% over).
+              // Single canonical formula: utilisation = actual / budget,
+              // variancePct = utilisation − 100 so the two are consistent.
+              const utilisationPct =
+                r.budget > 0 ? Math.round((r.actual / r.budget) * 100) : 0;
+              const variancePct = utilisationPct - 100;
               return (
                 <div key={r.category} className="">
                   <div className="mb-1 flex items-center justify-between text-sm">
@@ -271,7 +275,10 @@ export default function BudgetsPage() {
                       Actual
                     </span>
                     <span className="ml-auto">
-                      Utilisation: {r.utilisation}%
+                      {/* Issue #296: derive from the same formula as
+                          variancePct above so the two figures cannot
+                          contradict each other. */}
+                      Utilisation: {utilisationPct}%
                     </span>
                   </div>
                 </div>

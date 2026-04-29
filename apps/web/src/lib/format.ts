@@ -9,24 +9,38 @@
 
 const PLACEHOLDER = "—";
 
+const MONTHS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
 /**
- * Safely render a date-ish value as a locale date string.
+ * Safely render a date-ish value as the canonical display form: `27 Apr 2026`.
  *
- * Accepts the full universe of values that might arrive from the API / DB:
- *  - `null` / `undefined`              → placeholder
- *  - `""`                              → placeholder
- *  - `"invalid string"`                → placeholder
- *  - numeric `NaN`                     → placeholder
- *  - ISO strings / `Date` instances    → `Date.toLocaleDateString(locale)`
- *  - millisecond numbers               → `Date.toLocaleDateString(locale)`
+ * Issues #239 / #269 / #299 — date formats were inconsistent across the app
+ * (DD-MM-YYYY vs DD/MM/YYYY vs M/D/YYYY vs locale default). Every UI call
+ * site should now route through this helper which always emits the
+ * India-friendly `DD MMM YYYY` form regardless of the host locale.
+ *
+ * Defensive: never throws. Renders "—" for null / undefined / empty /
+ * unparseable inputs.
  *
  * @param value  Any value that could conceivably represent a date.
- * @param locale Optional locale; defaults to the runtime default.
- * @returns Formatted date string, or "—" for any unparsable input.
+ * @param _locale Accepted for backwards compat; ignored (output is fixed).
  */
 export function formatDate(
   value: string | number | Date | null | undefined,
-  locale?: string
+  _locale?: string
 ): string {
   if (value === null || value === undefined) return PLACEHOLDER;
   if (typeof value === "string" && value.trim() === "") return PLACEHOLDER;
@@ -35,16 +49,18 @@ export function formatDate(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return PLACEHOLDER;
 
-  return d.toLocaleDateString(locale);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = MONTHS_SHORT[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day} ${month} ${year}`;
 }
 
 /**
- * Safely render a date-ish value as a locale date-time string. Same defensive
- * semantics as {@link formatDate}.
+ * Render an ISO date (YYYY-MM-DD) for machine / form-input contexts. Same
+ * defensive semantics as {@link formatDate}.
  */
-export function formatDateTime(
-  value: string | number | Date | null | undefined,
-  locale?: string
+export function formatDateISO(
+  value: string | number | Date | null | undefined
 ): string {
   if (value === null || value === undefined) return PLACEHOLDER;
   if (typeof value === "string" && value.trim() === "") return PLACEHOLDER;
@@ -53,7 +69,33 @@ export function formatDateTime(
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return PLACEHOLDER;
 
-  return d.toLocaleString(locale);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * Safely render a date-ish value as a date-time string in canonical
+ * `27 Apr 2026, 14:30` form. Same defensive semantics as {@link formatDate}.
+ */
+export function formatDateTime(
+  value: string | number | Date | null | undefined,
+  _locale?: string
+): string {
+  if (value === null || value === undefined) return PLACEHOLDER;
+  if (typeof value === "string" && value.trim() === "") return PLACEHOLDER;
+  if (typeof value === "number" && Number.isNaN(value)) return PLACEHOLDER;
+
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return PLACEHOLDER;
+
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = MONTHS_SHORT[d.getMonth()];
+  const year = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day} ${month} ${year}, ${hh}:${mm}`;
 }
 
 /**

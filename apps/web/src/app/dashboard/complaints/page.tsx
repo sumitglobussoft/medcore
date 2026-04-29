@@ -172,7 +172,9 @@ export default function ComplaintsPage() {
         toast.error("Either patient ID or caller name required");
         return;
       }
-      await api.post("/complaints", body);
+      // Issue #377 (2026-04-26): cap the submit at 10s so a slow Prisma
+      // path can't leave the user staring at an indefinite spinner.
+      await api.post("/complaints", body, { timeoutMs: 10_000 });
       setShowModal(false);
       setForm({
         name: "",

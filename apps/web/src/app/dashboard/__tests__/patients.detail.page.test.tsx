@@ -111,7 +111,12 @@ describe("PatientDetailPage", () => {
       });
     }
 
-    it("shows Edit button for DOCTOR", async () => {
+    // Issue #185 (2026-04-29): Edit-Patient is now RECEPTION + ADMIN only.
+    // DOCTOR / NURSE roles intentionally do NOT see the Edit button —
+    // they record clinical data (notes, prescriptions, vitals), not patient
+    // demographic data. The two assertions below are inversions of the
+    // earlier behaviour.
+    it("hides Edit button for DOCTOR (#185)", async () => {
       authMock.mockImplementation((selector: any) => {
         const state = {
           user: { id: "u1", name: "Doc", email: "d@x.com", role: "DOCTOR" },
@@ -121,8 +126,9 @@ describe("PatientDetailPage", () => {
       mockPatientLoad();
       render(<PatientDetailPage />);
       await waitFor(() =>
-        expect(screen.getByTestId("patient-edit-button")).toBeInTheDocument()
+        expect(screen.getAllByText("Aarav Mehta").length).toBeGreaterThan(0),
       );
+      expect(screen.queryByTestId("patient-edit-button")).toBeNull();
     });
 
     it("shows Edit button for ADMIN", async () => {
@@ -139,7 +145,7 @@ describe("PatientDetailPage", () => {
       );
     });
 
-    it("shows Edit button for NURSE", async () => {
+    it("hides Edit button for NURSE (#185)", async () => {
       authMock.mockImplementation((selector: any) => {
         const state = {
           user: { id: "u1", name: "Nurse", email: "n@x.com", role: "NURSE" },
@@ -149,8 +155,9 @@ describe("PatientDetailPage", () => {
       mockPatientLoad();
       render(<PatientDetailPage />);
       await waitFor(() =>
-        expect(screen.getByTestId("patient-edit-button")).toBeInTheDocument()
+        expect(screen.getAllByText("Aarav Mehta").length).toBeGreaterThan(0),
       );
+      expect(screen.queryByTestId("patient-edit-button")).toBeNull();
     });
 
     it("shows Edit button for RECEPTION", async () => {
@@ -195,7 +202,8 @@ describe("PatientDetailPage", () => {
     it("opens modal with read-only MR and submits PATCH preserving MR", async () => {
       authMock.mockImplementation((selector: any) => {
         const state = {
-          user: { id: "u1", name: "Doc", email: "d@x.com", role: "DOCTOR" },
+          // Issue #185: Edit is now RECEPTION/ADMIN only — was DOCTOR before
+          user: { id: "u1", name: "Reception", email: "r@x.com", role: "RECEPTION" },
         };
         return typeof selector === "function" ? selector(state) : state;
       });
@@ -237,7 +245,8 @@ describe("PatientDetailPage", () => {
     it("modal cancel button closes without firing PATCH", async () => {
       authMock.mockImplementation((selector: any) => {
         const state = {
-          user: { id: "u1", name: "Doc", email: "d@x.com", role: "DOCTOR" },
+          // Issue #185: Edit is now RECEPTION/ADMIN only — was DOCTOR before
+          user: { id: "u1", name: "Reception", email: "r@x.com", role: "RECEPTION" },
         };
         return typeof selector === "function" ? selector(state) : state;
       });

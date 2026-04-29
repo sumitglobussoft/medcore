@@ -218,10 +218,15 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
+      // Issue #189: ADMIN bypasses the participant check so the Agent
+      // Console can open every active handoff room (admins triage
+      // everything). Other roles — including RECEPTION — still need an
+      // active participant row.
+      const isAdmin = req.user?.role === "ADMIN";
       const participant = await prisma.chatParticipant.findUnique({
         where: { roomId_userId: { roomId: req.params.id, userId } },
       });
-      if (!participant) {
+      if (!participant && !isAdmin) {
         res
           .status(403)
           .json({ success: false, data: null, error: "Not a participant" });
@@ -278,10 +283,13 @@ router.post(
         return;
       }
 
+      // Issue #189: ADMIN bypasses the participant check (agent-console
+      // triage). Non-admins still need an active participant row.
+      const isAdmin = req.user?.role === "ADMIN";
       const participant = await prisma.chatParticipant.findUnique({
         where: { roomId_userId: { roomId: req.params.id, userId } },
       });
-      if (!participant || participant.leftAt) {
+      if ((!participant || participant.leftAt) && !isAdmin) {
         res
           .status(403)
           .json({ success: false, data: null, error: "Not a participant" });
@@ -472,10 +480,12 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Message not found" });
         return;
       }
+      // Issue #189: ADMIN bypasses the participant check.
+      const isAdmin = req.user?.role === "ADMIN";
       const participant = await prisma.chatParticipant.findUnique({
         where: { roomId_userId: { roomId: msg.roomId, userId } },
       });
-      if (!participant) {
+      if (!participant && !isAdmin) {
         res.status(403).json({ success: false, data: null, error: "Not a participant" });
         return;
       }
@@ -515,10 +525,12 @@ router.patch(
         res.status(404).json({ success: false, data: null, error: "Message not found" });
         return;
       }
+      // Issue #189: ADMIN bypasses the participant check.
+      const isAdmin = req.user?.role === "ADMIN";
       const participant = await prisma.chatParticipant.findUnique({
         where: { roomId_userId: { roomId: msg.roomId, userId } },
       });
-      if (!participant) {
+      if (!participant && !isAdmin) {
         res.status(403).json({ success: false, data: null, error: "Not a participant" });
         return;
       }
@@ -543,10 +555,12 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user!.userId;
+      // Issue #189: ADMIN bypasses the participant check.
+      const isAdmin = req.user?.role === "ADMIN";
       const participant = await prisma.chatParticipant.findUnique({
         where: { roomId_userId: { roomId: req.params.id, userId } },
       });
-      if (!participant) {
+      if (!participant && !isAdmin) {
         res.status(403).json({ success: false, data: null, error: "Not a participant" });
         return;
       }

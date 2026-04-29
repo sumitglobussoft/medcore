@@ -1,3 +1,4 @@
+// Issue #346 / #258: see below for role-clobber defence in refreshUser/loadSession.
 import { create } from "zustand";
 import { api } from "./api";
 
@@ -99,6 +100,32 @@ export const useAuthStore = create<AuthState>((set) => ({
         token,
         skip401Redirect: true,
       });
+      // Issues #346 + #258: role-clobber defence. If a /me response returns
+      // a different role for the same user-id we already have cached,
+      // treat it as a session-integrity failure and force re-auth instead
+      // of silently mutating useAuthStore. This stops a server bug or
+      // misrouted endpoint from quietly elevating a Reception session to
+      // Doctor mid-navigation, or any page from being tricked into ADMIN
+      // by a /me-shaped admin endpoint.
+      const current = (useAuthStore.getState() as AuthState).user;
+      if (
+        current &&
+        res.data &&
+        current.id === res.data.id &&
+        current.role !== res.data.role
+      ) {
+        try {
+          localStorage.removeItem("medcore_token");
+          localStorage.removeItem("medcore_refresh");
+        } catch {
+          // best-effort
+        }
+        set({ user: null, token: null });
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=role_changed");
+        }
+        return;
+      }
       set({ user: res.data });
     } catch {
       // ignore
@@ -127,6 +154,21 @@ export const useAuthStore = create<AuthState>((set) => ({
         token,
         skip401Redirect: true,
       });
+      // Issues #346 + #258: same role-clobber defence on app-boot session
+      // restore. If we have a cached user and the server's role differs,
+      // refuse the silent change.
+      const current = (useAuthStore.getState() as AuthState).user;
+      if (
+        current &&
+        res.data &&
+        current.id === res.data.id &&
+        current.role !== res.data.role
+      ) {
+        localStorage.removeItem("medcore_token");
+        localStorage.removeItem("medcore_refresh");
+        set({ user: null, token: null, isLoading: false });
+        return;
+      }
       set({ user: res.data, token, isLoading: false });
     } catch {
       localStorage.removeItem("medcore_token");

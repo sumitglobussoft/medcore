@@ -563,8 +563,12 @@ router.get(
 
       // Percentile band drop: compare earliest with latest
       const earliest = records[0];
-      const percentileDrop =
+      // Issue #214: round to 1 decimal so the FTT alert never leaks an
+      // IEEE 754 binary-float artifact like "28.800000000000004 points"
+      // back into the UI.
+      const percentileDropRaw =
         (earliest.weightPercentile ?? 50) - (latest.weightPercentile ?? 50);
+      const percentileDrop = Math.round(percentileDropRaw * 10) / 10;
 
       // Velocity check — kg/month in last interval
       let velocityKgPerMonth: number | null = null;

@@ -106,19 +106,44 @@ export const DEFAULT_LEAVE_ENTITLEMENT: Record<string, number> = {
 };
 
 // ─── Holidays ──────────────────────────────────────────
+// Issue #292 (Apr 2026): the prior `z.string().min(1)` allowed
+// `Test Holiday <script>alert(1)</script>` to round-trip. The server's
+// "partial strip" then persisted the orphan `Test Holiday alert(1)` —
+// which looked like a typo, was unlogged, and wedged the holiday calendar.
+// Strict rejection on `<` `>` and known XSS vectors.
+const _noHtmlString = (max: number) =>
+  z
+    .string()
+    .min(1, "Required")
+    .max(max, `Max ${max} characters`)
+    .refine(
+      (v) =>
+        !/<[^>]*>|javascript:|vbscript:|data:\s*text\/html|\bon\w+\s*=/i.test(
+          v
+        ),
+      { message: "Cannot contain HTML or script content" }
+    );
+
 export const createHolidaySchema = z.object({
   date: dateString,
-  name: z.string().min(1),
+  name: _noHtmlString(200),
   type: z.string().default("PUBLIC"),
-  description: z.string().optional(),
+  description: _noHtmlString(500).optional(),
 });
 
 // ─── Payroll (simple calculation) ──────────────────────
+// Issue #283 (2026-04-26): basicSalary was `.nonnegative()`, which let
+// negative values slip through if the user pasted "-50000" into the form
+// (the HTML number input doesn't enforce min on paste). Tighten to
+// `.positive()` so the API rejects both "0" (a clear data-entry slip)
+// and negatives at the validation layer instead of the database.
 export const payrollCalcSchema = z.object({
   userId: z.string().uuid(),
   year: z.number().int().min(2020).max(2100),
   month: z.number().int().min(1).max(12),
-  basicSalary: z.number().nonnegative(),
+  basicSalary: z
+    .number()
+    .positive("Basic salary must be greater than 0"),
   allowances: z.number().nonnegative().default(0),
   deductions: z.number().nonnegative().default(0),
   overtimeRate: z.number().nonnegative().default(0),

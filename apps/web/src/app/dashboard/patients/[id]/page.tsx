@@ -421,6 +421,12 @@ export default function PatientDetailPage() {
   const isNurse = user?.role === "NURSE";
   const isReception = user?.role === "RECEPTION";
   const isAdmin = user?.role === "ADMIN";
+  // Issue #185 (Apr 2026): Edit Patient (demographic data) is RECEPTION +
+  // ADMIN only. A doctor's role is to write clinical notes / orders /
+  // prescriptions — NOT to mutate name / phone / DOB / insurance fields.
+  // Allowing it created an audit gap and was the root cause of #185.
+  const canEditDemographics =
+    user?.role === "ADMIN" || user?.role === "RECEPTION";
 
   const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
     { key: "360", label: "360\u00B0", icon: <TrendingUp size={14} /> },
@@ -524,7 +530,8 @@ export default function PatientDetailPage() {
                   No-shows: {patient.noShowCount}
                 </span>
               )}
-              {canEdit && (
+              {/* Issue #185: demographic Edit is RECEPTION + ADMIN only. */}
+              {canEditDemographics && (
                 <button
                   type="button"
                   onClick={() => setEditOpen(true)}
@@ -539,7 +546,7 @@ export default function PatientDetailPage() {
               <button
                 onClick={() => window.print()}
                 aria-label="Print medical record"
-                className={`no-print ${canEdit ? "" : "ml-auto "}inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
+                className={`no-print ${canEditDemographics ? "" : "ml-auto "}inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2`}
               >
                 <Printer size={13} aria-hidden="true" /> Print Medical Record
               </button>

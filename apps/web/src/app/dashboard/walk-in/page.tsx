@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { sanitizeUserInput } from "@medcore/shared";
 
 interface Doctor {
   id: string;
@@ -31,7 +32,13 @@ export default function WalkInPage() {
     gender: "MALE",
     age: "",
   });
-  const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string }>({});
+  // Issue #354: track age error too now that the walk-in "+ New Patient"
+  // form enforces a sane numeric range.
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    phone?: string;
+    age?: string;
+  }>({});
   const [result, setResult] = useState<{
     tokenNumber: number;
     doctorName: string;
@@ -64,13 +71,38 @@ export default function WalkInPage() {
     }
   }
 
+  // Issue #354 (2026-04-26): align walk-in "+ New Patient" with the canonical
+  // patient name/phone regexes from packages/shared (so digits in names and
+  // letters in phones get rejected here, not just on the patient list page).
+  // Issue #167: age must be at least 1 for adult registration unless the user
+  // also supplies a date of birth.
+  const PATIENT_NAME_REGEX_LOCAL = /^[A-Za-zऀ-ॿ\s.\-']{2,100}$/;
+  const PHONE_REGEX_LOCAL = /^\+?\d{10,15}$/;
+
   function validateNewPatient(): boolean {
-    const errs: { name?: string; phone?: string } = {};
-    if (!newPatient.name.trim()) errs.name = "Name is required";
-    const digits = newPatient.phone.replace(/\D/g, "");
-    if (!newPatient.phone.trim()) errs.phone = "Phone number is required";
-    else if (digits.length < 10 || digits.length > 13)
-      errs.phone = "Enter a valid 10-digit phone";
+    const errs: { name?: string; phone?: string; age?: string } = {};
+    // Issue #260, #284 (Apr 2026): layer the canonical XSS-rejecting
+    // sanitizer on top of the existing PATIENT_NAME_REGEX so the same
+    // payload that XSSed staff fields can't slip through Walk-in either.
+    const sanitized = sanitizeUserInput(newPatient.name, {
+      field: "Name",
+      maxLength: 100,
+    });
+    const trimmedName = sanitized.ok ? sanitized.value! : "";
+    if (!sanitized.ok) errs.name = sanitized.error || "Name is required";
+    else if (!PATIENT_NAME_REGEX_LOCAL.test(trimmedName))
+      errs.name =
+        "Name must be 2–100 characters; letters, spaces, dots, hyphens, apostrophes only";
+    const trimmedPhone = newPatient.phone.trim();
+    if (!trimmedPhone) errs.phone = "Phone number is required";
+    else if (!PHONE_REGEX_LOCAL.test(trimmedPhone))
+      errs.phone = "Phone must be 10–15 digits, optional leading +";
+    if (newPatient.age) {
+      const a = parseInt(newPatient.age, 10);
+      if (Number.isNaN(a) || a < 1 || a > 150) {
+        errs.age = "Age must be between 1 and 150";
+      }
+    }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -253,30 +285,49 @@ export default function WalkInPage() {
                         <input
                           placeholder="Name"
                           value={newPatient.name}
-                          onChange={(e) =>
-                            setNewPatient({ ...newPatient, name: e.target.value })
-                          }
+                          onChange={(e) => {
+                            // Issue #267 (2026-04-26): clear stale "Name is
+                            // required" error the moment the user types.
+                            setNewPatient({ ...newPatient, name: e.target.value });
+                            if (fieldErrors.name)
+                              setFieldErrors((p) => ({ ...p, name: undefined }));
+                          }}
                           className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
                             fieldErrors.name ? "border-red-500" : "border-gray-200 dark:border-gray-600"
                           }`}
+                          data-testid="walkin-newpatient-name"
                         />
                         {fieldErrors.name && (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.name}</p>
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-name"
+                          >
+                            {fieldErrors.name}
+                          </p>
                         )}
                       </div>
                       <div>
                         <input
                           placeholder="Phone"
                           value={newPatient.phone}
-                          onChange={(e) =>
-                            setNewPatient({ ...newPatient, phone: e.target.value })
-                          }
+                          onChange={(e) => {
+                            // Issue #267: same clear-on-edit behavior for phone.
+                            setNewPatient({ ...newPatient, phone: e.target.value });
+                            if (fieldErrors.phone)
+                              setFieldErrors((p) => ({ ...p, phone: undefined }));
+                          }}
                           className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
                             fieldErrors.phone ? "border-red-500" : "border-gray-200 dark:border-gray-600"
                           }`}
+                          data-testid="walkin-newpatient-phone"
                         />
                         {fieldErrors.phone && (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">{fieldErrors.phone}</p>
+                          <p
+                            className="mt-1 text-xs text-red-600 dark:text-red-400"
+                            data-testid="error-phone"
+                          >
+                            {fieldErrors.phone}
+                          </p>
                         )}
                       </div>
                       <select

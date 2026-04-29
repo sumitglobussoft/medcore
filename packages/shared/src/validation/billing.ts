@@ -1,10 +1,15 @@
 import { z } from "zod";
 
+// Issue #368 (2026-04-26): unitPrice was `.min(0)` so a zero-priced line
+// could survive create even though the add-line endpoint rejects zero.
+// Tighten to `.positive()` to keep both create and add-line paths
+// consistent — and surface the field-level error message rather than the
+// generic "Number must be greater than 0".
 const invoiceItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
   category: z.string().min(1, "Category is required"),
-  quantity: z.number().int().min(1).default(1),
-  unitPrice: z.number().min(0),
+  quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
+  unitPrice: z.number().positive("Unit price must be greater than 0"),
 });
 
 export const createInvoiceSchema = z.object({
@@ -63,12 +68,14 @@ export const refundSchema = z.object({
 });
 
 // ─── Add line item to an existing invoice ─────────────────
-
+// Issue #368 (2026-04-26): same-rule alignment with `invoiceItemSchema`
+// above — quantity must be ≥1, unitPrice must be > 0. Zero-priced "free"
+// items belong on a discount, not a line item, so we reject them here.
 export const addInvoiceItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
   category: z.string().min(1, "Category is required"),
-  quantity: z.number().int().min(1).default(1),
-  unitPrice: z.number().min(0),
+  quantity: z.number().int().min(1, "Quantity must be at least 1").default(1),
+  unitPrice: z.number().positive("Unit price must be greater than 0"),
 });
 
 // ─── Apply discount to an invoice ─────────────────────────

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VITALS_RANGES } from "./patient";
 
 export const createWardSchema = z.object({
   name: z.string().min(1),
@@ -94,18 +95,73 @@ export const transferBedSchema = z.object({
   reason: z.string().optional(),
 });
 
-export const recordIpdVitalsSchema = z.object({
-  admissionId: z.string().uuid(),
-  bloodPressureSystolic: z.number().int().optional(),
-  bloodPressureDiastolic: z.number().int().optional(),
-  temperature: z.number().optional(),
-  pulseRate: z.number().int().optional(),
-  respiratoryRate: z.number().int().optional(),
-  spO2: z.number().int().optional(),
-  painScore: z.number().int().min(0).max(10).optional(),
-  bloodSugar: z.number().int().optional(),
-  notes: z.string().optional(),
-});
+// Issue #366 (2026-04-26): IPD vitals previously accepted any integer
+// because the fields were typed `int().optional()` only — so a clerk
+// could record "-50 mmHg" or a 999°F temp. Apply the canonical ranges
+// from `VITALS_RANGES` (#91 / #339) so admissions and OPD agree on what
+// counts as a clinically-impossible value. Temperature is unit-aware.
+export const recordIpdVitalsSchema = z
+  .object({
+    admissionId: z.string().uuid(),
+    bloodPressureSystolic: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.bloodPressureSystolic.min, "Systolic must be at least 60 mmHg")
+      .max(VITALS_RANGES.bloodPressureSystolic.max, "Systolic must be at most 260 mmHg")
+      .optional(),
+    bloodPressureDiastolic: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.bloodPressureDiastolic.min, "Diastolic must be at least 30 mmHg")
+      .max(VITALS_RANGES.bloodPressureDiastolic.max, "Diastolic must be at most 180 mmHg")
+      .optional(),
+    temperature: z.number().optional(),
+    temperatureUnit: z.enum(["F", "C"]).optional(),
+    pulseRate: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.pulseRate.min, "Pulse must be at least 30 bpm")
+      .max(VITALS_RANGES.pulseRate.max, "Pulse must be at most 220 bpm")
+      .optional(),
+    respiratoryRate: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.respiratoryRate.min, "Respiratory rate must be at least 5/min")
+      .max(VITALS_RANGES.respiratoryRate.max, "Respiratory rate must be at most 80/min")
+      .optional(),
+    spO2: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.spO2.min, "SpO2 must be at least 50%")
+      .max(VITALS_RANGES.spO2.max, "SpO2 must be at most 100%")
+      .optional(),
+    painScore: z
+      .number()
+      .int()
+      .min(VITALS_RANGES.painScale.min)
+      .max(VITALS_RANGES.painScale.max)
+      .optional(),
+    bloodSugar: z
+      .number()
+      .int()
+      .min(20, "Blood sugar must be at least 20 mg/dL")
+      .max(900, "Blood sugar must be at most 900 mg/dL")
+      .optional(),
+    notes: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.temperature === undefined) return;
+    const unit = data.temperatureUnit ?? "C";
+    const range =
+      unit === "C" ? VITALS_RANGES.temperatureC : VITALS_RANGES.temperatureF;
+    if (data.temperature < range.min || data.temperature > range.max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["temperature"],
+        message: `Temperature must be between ${range.min} and ${range.max}°${unit}`,
+      });
+    }
+  });
 
 export const medicationOrderSchema = z.object({
   admissionId: z.string().uuid(),

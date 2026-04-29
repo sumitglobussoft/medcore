@@ -7,6 +7,7 @@ import { usePrompt } from "@/lib/use-dialog";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface QueueDoctor {
   doctorId: string;
@@ -157,7 +158,7 @@ export default function QueuePage() {
                   : "border-gray-200 bg-white hover:border-primary/50 dark:border-gray-700 dark:bg-gray-800"
               }`}
             >
-              <p className="font-semibold text-gray-900 dark:text-gray-100">{doc.doctorName}</p>
+              <p className="font-semibold text-gray-900 dark:text-gray-100">{formatDoctorName(doc.doctorName)}</p>
               <p className="text-sm text-gray-700 dark:text-gray-300">{doc.specialization}</p>
               <div className="mt-4 flex items-center justify-between">
                 <div>
@@ -331,7 +332,7 @@ export default function QueuePage() {
                     .filter((d) => d.doctorId !== transferTarget.currentDoctorId)
                     .map((d) => (
                       <option key={d.doctorId} value={d.doctorId}>
-                        {d.doctorName}
+                        {formatDoctorName(d.doctorName)}
                         {d.specialization ? ` — ${d.specialization}` : ""}
                       </option>
                     ))}

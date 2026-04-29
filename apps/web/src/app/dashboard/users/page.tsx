@@ -5,8 +5,35 @@ import { useRouter } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { PasswordInput } from "@/components/PasswordInput";
-import { Plus, Shield, ShieldAlert, Printer } from "lucide-react";
+import {
+  Plus,
+  Shield,
+  ShieldAlert,
+  Printer,
+  Edit2,
+  KeyRound,
+  Power,
+} from "lucide-react";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
+import { Role, sanitizeUserInput } from "@medcore/shared";
+import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
+
+// Issue #190: derive the role list from the shared `Role` enum so adding
+// a new role only happens in one place. PATIENT is excluded — patients
+// self-register; admins create *staff* here. PHARMACIST + LAB_TECH were
+// missing from the prior hardcoded subset which silently blocked those
+// staff types.
+const STAFF_ROLE_OPTIONS = (Object.keys(Role) as Array<keyof typeof Role>)
+  .filter((r) => r !== "PATIENT")
+  .map((r) => ({
+    value: Role[r],
+    // Title-case "LAB_TECH" → "Lab Tech".
+    label: r
+      .split("_")
+      .map((p) => p.charAt(0) + p.slice(1).toLowerCase())
+      .join(" "),
+  }));
 
 interface StaffUser {
   id: string;
@@ -21,6 +48,7 @@ interface StaffUser {
 export default function UsersPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const confirm = useConfirm();
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -34,13 +62,36 @@ export default function UsersPage() {
   const [formError, setFormError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [submitting, setSubmitting] = useState(false);
+  // Issue #286: edit-modal + reset-password state.
+  const [editing, setEditing] = useState<StaffUser | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    phone: "",
+    role: "DOCTOR",
+  });
+  const [editError, setEditError] = useState<FieldErrorMap>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [resetCode, setResetCode] = useState<{
+    email: string;
+    code: string;
+  } | null>(null);
 
   // Issue #67: client-side validation BEFORE the request so users get
   // immediate, field-level feedback for the cases the backend silently
   // rejects (weak passwords, non-numeric phone numbers).
   function validateClient(): FieldErrorMap {
     const errs: FieldErrorMap = {};
-    if (!form.name.trim()) errs.name = "Full name is required";
+    // Issue #284: reject HTML/script tags in the staff Full Name BEFORE the
+    // request reaches /auth/register. The server denylist is also enforced
+    // (see registerSchema's strongPassword + the patch endpoint sanitizer)
+    // — this is the early field-level UX hint.
+    const nameCheck = sanitizeUserInput(form.name, {
+      field: "Full name",
+      maxLength: 100,
+    });
+    if (!nameCheck.ok) {
+      errs.name = nameCheck.error || "Full name is required";
+    }
     if (!form.email.trim()) errs.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = "Enter a valid email address";
@@ -121,14 +172,108 @@ export default function UsersPage() {
     }
   }
 
+  // Issue #286: User Management actions.
+  function openEdit(target: StaffUser) {
+    setEditing(target);
+    setEditForm({
+      name: target.name,
+      phone: target.phone || "",
+      role: target.role,
+    });
+    setEditError({});
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    const errs: FieldErrorMap = {};
+    const nameCheck = sanitizeUserInput(editForm.name, {
+      field: "Full name",
+      maxLength: 100,
+    });
+    if (!nameCheck.ok) errs.name = nameCheck.error || "Name required";
+    if (editForm.phone && !/^\+?\d{10,15}$/.test(editForm.phone.trim())) {
+      errs.phone = "Phone must be 10–15 digits (optional + prefix)";
+    }
+    if (Object.keys(errs).length > 0) {
+      setEditError(errs);
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await api.patch(`/users/${editing.id}`, {
+        name: nameCheck.value,
+        phone: editForm.phone || undefined,
+        role: editForm.role,
+      });
+      toast.success("User updated");
+      setEditing(null);
+      loadUsers();
+    } catch (err) {
+      const fields = extractFieldErrors(err);
+      if (fields) setEditError(fields);
+      else toast.error(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function toggleActive(target: StaffUser) {
+    if (target.id === user?.id) {
+      toast.error("You cannot disable your own account");
+      return;
+    }
+    const willDisable = target.isActive !== false;
+    const ok = await confirm({
+      title: willDisable
+        ? `Disable ${target.name}?`
+        : `Re-enable ${target.name}?`,
+      message: willDisable
+        ? "Disabled accounts cannot log in but their historical records remain intact."
+        : "Re-enables login for this account.",
+      danger: willDisable,
+    });
+    if (!ok) return;
+    try {
+      await api.patch(`/users/${target.id}`, { isActive: !willDisable });
+      toast.success(willDisable ? "User disabled" : "User re-enabled");
+      loadUsers();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    }
+  }
+
+  async function sendResetPassword(target: StaffUser) {
+    const ok = await confirm({
+      title: `Send password-reset code to ${target.name}?`,
+      message: `A 6-digit reset code valid for 30 minutes will be generated for ${target.email}.`,
+    });
+    if (!ok) return;
+    try {
+      const res = await api.post<{
+        data: { code: string; email: string; message: string };
+      }>(`/users/${target.id}/reset-password`);
+      setResetCode({ email: res.data.email, code: res.data.code });
+      toast.success("Reset code generated");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to generate reset"
+      );
+    }
+  }
+
   if (user?.role !== "ADMIN") return null;
 
+  // Issue #190: include the full Role-enum spectrum so PHARMACIST +
+  // LAB_TECH staff don't render as "no badge / grey" in the user list.
   const roleColors: Record<string, string> = {
     ADMIN: "bg-purple-100 text-purple-700",
     DOCTOR: "bg-blue-100 text-blue-700",
     RECEPTION: "bg-green-100 text-green-700",
     NURSE: "bg-amber-100 text-amber-700",
     PATIENT: "bg-gray-100 text-gray-600",
+    PHARMACIST: "bg-teal-100 text-teal-700",
+    LAB_TECH: "bg-rose-100 text-rose-700",
   };
 
   return (
@@ -294,9 +439,17 @@ export default function UsersPage() {
                 className="w-full rounded-lg border px-3 py-2 text-sm"
                 data-testid="staff-role-input"
               >
-                <option value="DOCTOR">Doctor</option>
-                <option value="RECEPTION">Reception</option>
-                <option value="NURSE">Nurse</option>
+                {/* Issue #190: full Role-enum coverage; PHARMACIST +
+                    LAB_TECH were dropped from the prior hardcoded list. */}
+                {STAFF_ROLE_OPTIONS.map((opt) => (
+                  <option
+                    key={opt.value}
+                    value={opt.value}
+                    data-testid={`staff-role-option-${opt.value}`}
+                  >
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -373,15 +526,49 @@ export default function UsersPage() {
                       : "---"}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() =>
-                        openPrintEndpoint(`/users/${u.id}/service-certificate`)
-                      }
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                      title="Service / Experience certificate"
-                    >
-                      <Printer size={12} /> Service Cert
-                    </button>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        onClick={() => openEdit(u)}
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        title="Edit user"
+                        data-testid={`user-edit-${u.id}`}
+                      >
+                        <Edit2 size={12} /> Edit
+                      </button>
+                      <button
+                        onClick={() => sendResetPassword(u)}
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        title="Send password reset"
+                        data-testid={`user-reset-${u.id}`}
+                      >
+                        <KeyRound size={12} /> Reset PW
+                      </button>
+                      <button
+                        onClick={() => toggleActive(u)}
+                        disabled={u.id === user?.id}
+                        className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50 ${
+                          u.isActive !== false ? "text-red-600" : "text-green-600"
+                        }`}
+                        title={
+                          u.isActive !== false
+                            ? "Disable account"
+                            : "Re-enable account"
+                        }
+                        data-testid={`user-toggle-${u.id}`}
+                      >
+                        <Power size={12} />
+                        {u.isActive !== false ? "Disable" : "Enable"}
+                      </button>
+                      <button
+                        onClick={() =>
+                          openPrintEndpoint(`/users/${u.id}/service-certificate`)
+                        }
+                        className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                        title="Service / Experience certificate"
+                      >
+                        <Printer size={12} /> Cert
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -389,6 +576,149 @@ export default function UsersPage() {
           </table>
         )}
       </div>
+
+      {/* Issue #286: Edit modal */}
+      {editing && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          data-testid="user-edit-modal"
+        >
+          <form
+            onSubmit={saveEdit}
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <h3 className="mb-4 text-lg font-semibold">Edit {editing.name}</h3>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="edit-name"
+                  className="mb-1 block text-xs font-medium text-slate-700"
+                >
+                  Full Name
+                </label>
+                <input
+                  id="edit-name"
+                  value={editForm.name}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, name: e.target.value })
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="user-edit-name"
+                  aria-invalid={editError.name ? true : undefined}
+                />
+                {editError.name && (
+                  <p
+                    className="mt-1 text-xs text-danger"
+                    data-testid="user-edit-name-error"
+                  >
+                    {editError.name}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="edit-phone"
+                  className="mb-1 block text-xs font-medium text-slate-700"
+                >
+                  Phone
+                </label>
+                <input
+                  id="edit-phone"
+                  value={editForm.phone}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, phone: e.target.value })
+                  }
+                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="user-edit-phone"
+                  aria-invalid={editError.phone ? true : undefined}
+                />
+                {editError.phone && (
+                  <p className="mt-1 text-xs text-danger">{editError.phone}</p>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="edit-role"
+                  className="mb-1 block text-xs font-medium text-slate-700"
+                >
+                  Role
+                </label>
+                <select
+                  id="edit-role"
+                  value={editForm.role}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, role: e.target.value })
+                  }
+                  disabled={editing.id === user?.id}
+                  className="w-full rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
+                  data-testid="user-edit-role"
+                >
+                  {STAFF_ROLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {editing.id === user?.id && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    You cannot change your own role.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditing(null)}
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={editSaving}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                data-testid="user-edit-save"
+              >
+                {editSaving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Issue #286: Reset-password code reveal */}
+      {resetCode && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          data-testid="reset-code-modal"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="mb-2 text-lg font-semibold">Password Reset Code</h3>
+            <p className="text-sm text-gray-600">
+              Share this 6-digit code with{" "}
+              <span className="font-medium">{resetCode.email}</span>. It
+              expires in 30 minutes and is single-use. The user can redeem it
+              at /reset-password.
+            </p>
+            <p
+              className="my-4 text-center font-mono text-3xl font-bold tracking-widest text-primary"
+              data-testid="reset-code-value"
+            >
+              {resetCode.code}
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setResetCode(null)}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+                data-testid="reset-code-close"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

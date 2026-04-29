@@ -252,7 +252,14 @@ export default function LabPage() {
                       <p className="font-medium">{t.name}</p>
                       {t.normalRange && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Normal: {t.normalRange} {t.unit}
+                          {/* Issue #230: extension of #147 — only append the
+                              unit when the range string doesn't already
+                              contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
+                          Normal: {t.normalRange}
+                          {t.unit &&
+                          !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
+                            ? ` ${t.unit}`
+                            : ""}
                         </p>
                       )}
                       {t.price !== undefined && (

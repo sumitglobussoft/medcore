@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { DollarSign, Receipt, AlertCircle, TrendingUp, History } from "lucide-react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 interface DailyReport {
   totalCollection: number;
@@ -47,6 +48,17 @@ interface ReportRun {
 }
 
 export default function ReportsPage() {
+  // Issue #347 — wrap the body in an ErrorBoundary so a single render-time
+  // TypeError can't take down the whole client. The inner body keeps its
+  // own defensive coercion so happy-path renders are unchanged.
+  return (
+    <ErrorBoundary testId="reports-page-error">
+      <ReportsPageBody />
+    </ErrorBoundary>
+  );
+}
+
+function ReportsPageBody() {
   const { user } = useAuthStore();
   const router = useRouter();
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -197,7 +209,7 @@ export default function ReportsPage() {
             <div className="col-span-2 rounded-xl bg-white shadow-sm">
               {runsLoading ? (
                 <div className="p-8 text-center text-gray-500">Loading...</div>
-              ) : runs.length === 0 ? (
+              ) : (Array.isArray(runs) ? runs : []).length === 0 ? (
                 <div className="p-8 text-center text-gray-500">No report runs yet</div>
               ) : (
                 <table className="w-full">
@@ -210,7 +222,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {runs.map((r) => (
+                    {(Array.isArray(runs) ? runs : []).map((r) => (
                       <tr
                         key={r.id}
                         onClick={() => setSelectedRun(r)}

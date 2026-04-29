@@ -8,6 +8,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { ArrowLeft, FlaskConical, Printer } from "lucide-react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 // Issue #90: RECEPTION must NOT see the lab order detail / result-entry UI.
 const LAB_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "LAB_TECH", "PATIENT"]);
@@ -177,7 +178,7 @@ export default function LabOrderPage({
           {order.doctor && (
             <div>
               <p className="text-xs text-gray-500">Ordering Doctor</p>
-              <p className="font-medium">{order.doctor.user.name}</p>
+              <p className="font-medium">{formatDoctorName(order.doctor.user.name)}</p>
             </div>
           )}
           {order.notes && (
@@ -202,7 +203,12 @@ export default function LabOrderPage({
 
       <div className="space-y-4">
         {order.items.map((item) => (
-          <OrderItemCard key={item.id} item={item} onSaved={load} />
+          <OrderItemCard
+            key={item.id}
+            item={item}
+            onSaved={load}
+            userRole={user?.role ?? null}
+          />
         ))}
       </div>
     </div>
@@ -212,10 +218,22 @@ export default function LabOrderPage({
 function OrderItemCard({
   item,
   onSaved,
+  userRole,
 }: {
   item: LabOrderItem;
   onSaved: () => void;
+  userRole: string | null;
 }) {
+  // Issue #255 (Apr 2026): the Add Result form must NOT render for the
+  // PATIENT role. The backend already 403s the POST, but rendering the
+  // form was confusing — patients would type values, hit Save, and see
+  // a generic "request failed" toast. Hide the form entirely; recorded
+  // results still display read-only above.
+  const canAddResults =
+    userRole === "ADMIN" ||
+    userRole === "DOCTOR" ||
+    userRole === "NURSE" ||
+    userRole === "LAB_TECH";
   const [form, setForm] = useState({
     parameter: "",
     value: "",
@@ -356,7 +374,9 @@ function OrderItemCard({
         </div>
       )}
 
-      <form onSubmit={submit} className="rounded-lg bg-gray-50 p-3">
+      {/* Issue #255: hide Add Result form from PATIENT role. */}
+      {canAddResults ? (
+      <form onSubmit={submit} className="rounded-lg bg-gray-50 p-3" data-testid="lab-add-result-form">
         <p className="mb-2 text-xs font-semibold text-gray-600">Add Result</p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <input
@@ -458,6 +478,7 @@ function OrderItemCard({
           </button>
         </div>
       </form>
+      ) : null}
     </div>
   );
 }
