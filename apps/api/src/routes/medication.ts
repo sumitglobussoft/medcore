@@ -308,14 +308,47 @@ router.get(
 );
 
 // PATCH /api/v1/medication/administrations/:id — record administration
+//
+// Issue #199 — earlier this handler unconditionally `next(err)`'d any
+// Prisma error which the global error middleware turns into an opaque
+// 500 (e.g. when the row was already updated by a sibling tab, or the
+// id is malformed). Pre-flight the row with `findUnique` so we can
+// return a clear 404, and translate the well-known Prisma codes into
+// 4xx responses with messages the user can act on.
 router.patch(
   "/administrations/:id",
   authorize(Role.ADMIN, Role.NURSE, Role.DOCTOR),
   validate(administerMedicationSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const id = req.params.id;
+      const existing = await prisma.medicationAdministration
+        .findUnique({ where: { id } })
+        .catch(() => null);
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Medication administration record not found",
+        });
+        return;
+      }
+
+      // Idempotency / race guard — don't double-record an already-finalized dose.
+      if (
+        existing.status === "ADMINISTERED" &&
+        req.body.status === "ADMINISTERED"
+      ) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "This dose has already been recorded as administered",
+        });
+        return;
+      }
+
       const updated = await prisma.medicationAdministration.update({
-        where: { id: req.params.id },
+        where: { id },
         data: {
           status: req.body.status,
           notes: req.body.notes,
@@ -347,6 +380,25 @@ router.patch(
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
+      // Issue #199 — translate well-known Prisma errors into 4xx so the
+      // UI can show actionable feedback instead of "HTTP 500".
+      const e = err as { code?: string; message?: string };
+      if (e?.code === "P2025") {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Medication administration record not found",
+        });
+        return;
+      }
+      if (e?.code === "P2003" || e?.code === "P2002") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: e.message ?? "Database constraint violation",
+        });
+        return;
+      }
       next(err);
     }
   }

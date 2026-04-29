@@ -58,13 +58,30 @@ interface RequestOptions extends FetchOptions {
    * still works.
    */
   skip401Redirect?: boolean;
+  /**
+   * Issue #377 (2026-04-26): per-call timeout in milliseconds. The
+   * Complaints submit was hanging indefinitely when the API took an
+   * unusually long Prisma path (no client-side time limit). Callers can
+   * pass a custom budget; otherwise we apply a 30s default for any
+   * mutation so the spinner doesn't spin forever on a server-side
+   * stall — the user gets a "Request timed out" toast they can retry.
+   */
+  timeoutMs?: number;
 }
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 async function request<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { token, headers: customHeaders, skip401Redirect, ...rest } = options;
+  const {
+    token,
+    headers: customHeaders,
+    skip401Redirect,
+    timeoutMs,
+    ...rest
+  } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -78,10 +95,39 @@ async function request<T>(
     if (stored) headers["Authorization"] = `Bearer ${stored}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers,
-    ...rest,
-  });
+  // Issue #377 (2026-04-26): bound every request with an AbortController
+  // so a server-side hang surfaces as a "Request timed out" toast instead
+  // of leaving the user staring at an infinite spinner. Allow the caller
+  // to pass an explicit `signal` (we chain ours with it below) without
+  // breaking existing aborts.
+  const limitMs = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), limitMs);
+  const callerSignal = (rest as { signal?: AbortSignal }).signal;
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener("abort", () => controller.abort());
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      headers,
+      ...rest,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if ((err as { name?: string })?.name === "AbortError") {
+      const e = new Error("Request timed out — please try again") as Error & {
+        status?: number;
+      };
+      e.status = 408;
+      throw e;
+    }
+    throw err;
+  }
+  clearTimeout(timer);
 
   let data: any;
   try {

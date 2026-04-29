@@ -28,7 +28,8 @@ describe("registerSchema", () => {
     name: "Alice",
     email: "alice@example.com",
     phone: "9000000000",
-    password: "password123",
+    // Issue #266: `password123` is on the denylist; use a unique strong pw.
+    password: "Br0nzeFalc0n",
     role: "DOCTOR" as const,
   };
   it("accepts a valid register payload", () => {

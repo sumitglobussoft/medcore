@@ -7,6 +7,10 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import {
+  displayStatusForAppointment,
+  formatAppointmentTime,
+} from "@/lib/appointments";
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { Calendar } from "lucide-react";
@@ -626,10 +630,22 @@ export default function AppointmentsPage() {
           );
           break;
         case "past":
-          list = list.filter((a) => a.status === "COMPLETED");
+          // Past tab: explicitly completed OR no-show (event has elapsed
+          // and there was no consult), plus any historical BOOKED rows
+          // whose start time has passed (display-only via
+          // displayStatusForAppointment). Issues #387/#388.
+          list = list.filter(
+            (a) =>
+              a.status === "COMPLETED" ||
+              a.status === "NO_SHOW" ||
+              (a.status === "BOOKED" && a.date.slice(0, 10) < today)
+          );
           break;
         case "cancelled":
-          list = list.filter((a) => ["CANCELLED", "NO_SHOW"].includes(a.status));
+          // Issue #387: NO_SHOW rows must NOT appear here. Strict
+          // CANCELLED-only filter so the user sees exactly what they
+          // cancelled.
+          list = list.filter((a) => a.status === "CANCELLED");
           break;
       }
     }
@@ -1067,10 +1083,18 @@ export default function AppointmentsPage() {
                 <p className="text-gray-500">Status</p>
                 <span
                   className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    STATUS_COLORS[selectedEvent.status] || ""
+                    STATUS_COLORS[
+                      displayStatusForAppointment({
+                        status: selectedEvent.status,
+                        startTime: selectedEvent.startDateTime,
+                      })
+                    ] || ""
                   }`}
                 >
-                  {selectedEvent.status.replace(/_/g, " ")}
+                  {displayStatusForAppointment({
+                    status: selectedEvent.status,
+                    startTime: selectedEvent.startDateTime,
+                  }).replace(/_/g, " ")}
                 </span>
               </div>
               <div>
@@ -1201,6 +1225,7 @@ export default function AppointmentsPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setShowBooking(!showBooking)}
+                  data-testid="appt-book-toggle"
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
                 >
                   {t("dashboard.actions.bookAppointment")}
@@ -1299,8 +1324,23 @@ export default function AppointmentsPage() {
 
           {/* Booking form */}
           {showBooking && (
-            <div className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
-              <h2 className="mb-4 font-semibold">{t("dashboard.appointments.book.title")}</h2>
+            <div
+              className="mb-6 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
+              data-testid="appt-book-panel"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-semibold">
+                  {t("dashboard.appointments.book.title")}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowBooking(false)}
+                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                  data-testid="appt-book-close"
+                >
+                  Close
+                </button>
+              </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                   <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">
@@ -1384,8 +1424,38 @@ export default function AppointmentsPage() {
                 </div>
               )}
 
+              {/* Issue #350 — earlier the booking form rendered nothing
+                  when no doctor was picked OR when the picked date had
+                  no slots, so the user appeared to hit a dead-end.
+                  Surface explicit guidance + a Cancel escape hatch. */}
+              {!selectedDoctor && (
+                <div
+                  className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                  data-testid="appt-book-pick-doctor"
+                >
+                  Pick a doctor and date above to load available slots.
+                </div>
+              )}
+              {selectedDoctor && slotsWithPast.length === 0 && (
+                <div
+                  className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
+                  data-testid="appt-book-no-slots"
+                >
+                  No slots available for the selected doctor on this date.
+                  Try a different date or use{" "}
+                  <button
+                    type="button"
+                    onClick={findNextAvailable}
+                    className="font-medium underline hover:text-amber-900"
+                  >
+                    Next Available
+                  </button>
+                  .
+                </div>
+              )}
+
               {slotsWithPast.length > 0 && (
-                <div className="mt-4">
+                <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">
                     {isRecurring
                       ? "Pick a start slot (will repeat):"
@@ -1538,8 +1608,29 @@ export default function AppointmentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAppointments.map((apt) => (
-                    <tr key={apt.id} className="border-b last:border-0">
+                  {filteredAppointments.map((apt) => {
+                    // Issue #388: a `BOOKED` row whose start time has passed
+                    // must read as `COMPLETED` (display layer only).
+                    // Issue #389: route every time string through the same
+                    // formatter so the calendar tile and this row agree.
+                    const displayStatus = displayStatusForAppointment({
+                      status: apt.status,
+                      slotStart: apt.slotStart,
+                      date: apt.date,
+                    });
+                    const displayTime = apt.slotStart
+                      ? formatAppointmentTime(apt.slotStart, apt.date)
+                      : "";
+                    const rowTestId =
+                      isPatient && patientTab === "cancelled"
+                        ? "my-appt-cancelled-row"
+                        : undefined;
+                    return (
+                    <tr
+                      key={apt.id}
+                      className="border-b last:border-0"
+                      data-testid={rowTestId}
+                    >
                       {!isPatient && (
                         <td className="px-4 py-3">
                           <input
@@ -1560,7 +1651,9 @@ export default function AppointmentsPage() {
                       )}
                       <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
                       <td className="px-4 py-3 text-sm">{apt.date.slice(0, 10)}</td>
-                      <td className="px-4 py-3 text-sm">{apt.slotStart || "Walk-in"}</td>
+                      <td className="px-4 py-3 text-sm">
+                        {displayTime || (apt.slotStart ?? "Walk-in")}
+                      </td>
                       <td className="px-4 py-3">
                         <span
                           className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -1575,10 +1668,10 @@ export default function AppointmentsPage() {
                       <td className="px-4 py-3">
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                            STATUS_COLORS[apt.status] || ""
+                            STATUS_COLORS[displayStatus] || ""
                           }`}
                         >
-                          {apt.status.replace(/_/g, " ")}
+                          {displayStatus.replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -1650,7 +1743,8 @@ export default function AppointmentsPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -1758,13 +1852,23 @@ export default function AppointmentsPage() {
                             const min = parseInt(ev.startDateTime.slice(14, 16), 10) || 0;
                             const topPct = (min / 60) * 100;
                             const hPct = 25; // ~15min block of 60min row = 25%
+                            // Issue #389: route every appointment time through
+                            // the same Asia/Kolkata formatter so the week-grid
+                            // tile and the list row never disagree.
+                            const tileTime = formatAppointmentTime(ev.startDateTime);
+                            // Issue #388: a `BOOKED` past event must read as
+                            // `COMPLETED` on screen.
+                            const tileStatus = displayStatusForAppointment({
+                              status: ev.status,
+                              startTime: ev.startDateTime,
+                            });
                             return (
                               <button
                                 key={ev.id}
                                 onClick={() => setSelectedEvent(ev)}
-                                aria-label={`Token ${ev.tokenNumber}: ${ev.patientName} with ${formatDoctorName(ev.doctorName)} at ${ev.startDateTime.slice(11, 16)} — status ${ev.status.replace(/_/g, " ")}. Open details.`}
+                                aria-label={`Token ${ev.tokenNumber}: ${ev.patientName} with ${formatDoctorName(ev.doctorName)} at ${tileTime} — status ${tileStatus.replace(/_/g, " ")}. Open details.`}
                                 className={`absolute left-1 right-1 overflow-hidden rounded border px-1.5 py-0.5 text-left text-[10px] font-medium text-white shadow-sm ${
-                                  STATUS_BLOCK_COLORS[ev.status] ||
+                                  STATUS_BLOCK_COLORS[tileStatus] ||
                                   "bg-gray-400 border-gray-500"
                                 }`}
                                 style={{
@@ -1772,13 +1876,13 @@ export default function AppointmentsPage() {
                                   height: `${hPct}%`,
                                   minHeight: "20px",
                                 }}
-                                title={`${ev.patientName} — ${ev.doctorName} (${ev.status})`}
+                                title={`${ev.patientName} — ${ev.doctorName} (${tileStatus})`}
                               >
                                 <div className="truncate">
                                   #{ev.tokenNumber} {ev.patientName}
                                 </div>
                                 <div className="truncate opacity-90">
-                                  {ev.startDateTime.slice(11, 16)} · {formatDoctorName(ev.doctorName)}
+                                  {tileTime} · {formatDoctorName(ev.doctorName)}
                                 </div>
                               </button>
                             );

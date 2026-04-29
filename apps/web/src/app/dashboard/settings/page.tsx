@@ -7,6 +7,7 @@ import { useThemeStore } from "@/lib/theme";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { extractFieldErrors } from "@/lib/field-errors";
+import { sanitizeUserInput } from "@medcore/shared";
 import { PasswordInput } from "@/components/PasswordInput";
 import {
   User as UserIcon,
@@ -148,9 +149,23 @@ function ProfileTab() {
     // Client-side mirror of `updateProfileSchema` — fail fast so we don't
     // round-trip a 400. The API enforces the same regex.
     const errs: Record<string, string> = {};
-    if (!name.trim()) errs.name = "Name cannot be empty";
-    if (phone.trim() && !/^\+?\d{10,15}$/.test(phone.trim()))
+    // Issues #248, #265 (Apr 2026): the profile Full Name field used to
+    // accept raw HTML and `<script>alert("xss")</script>` payloads which
+    // then rendered into the sidebar avatar fallback. Reject XSS vectors
+    // BEFORE the request reaches /auth/me.
+    const nameCheck = sanitizeUserInput(name, {
+      field: "Name",
+      maxLength: 100,
+    });
+    if (!nameCheck.ok) errs.name = nameCheck.error || "Name cannot be empty";
+    // Issue #392 (Apr 2026): the phone field used to silently accept empty,
+    // "abcdefg!@#" and 30-digit numbers. Reject anything that doesn't match
+    // the project-wide PHONE_REGEX (10–15 digits, optional leading +).
+    // Empty is also rejected — Profile requires a contact phone.
+    const trimmedPhone = phone.trim();
+    if (!/^\+?\d{10,15}$/.test(trimmedPhone)) {
       errs.phone = "Phone must be 10–15 digits, optional leading +";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
       toast.warning("Please fix the highlighted fields");
@@ -158,7 +173,11 @@ function ProfileTab() {
     }
     setSaving(true);
     try {
-      await api.patch("/auth/me", { name: name.trim(), phone: phone.trim(), photoUrl });
+      await api.patch("/auth/me", {
+        name: nameCheck.value,
+        phone: trimmedPhone,
+        photoUrl,
+      });
       toast.success("Profile updated");
       setFieldErrors({});
       await refreshUser();
@@ -359,6 +378,14 @@ function SecurityTab() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // Issue #394 (Apr 2026): the change-password form used to swallow the
+  // specific zod refine error ("Password must be at least 8 characters",
+  // "Password is too common", etc) under a generic "Validation failed"
+  // toast. Surface the field-level message inline next to the new-password
+  // input so the user knows exactly what to fix.
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>(
+    {}
+  );
 
   const [failedLogins, setFailedLogins] = useState<FailedLogin[]>([]);
 
@@ -379,7 +406,9 @@ function SecurityTab() {
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
+    setPasswordErrors({});
     if (newPassword !== confirmPassword) {
+      setPasswordErrors({ newPassword: "Passwords do not match" });
       toast.error("Passwords do not match");
       return;
     }
@@ -390,7 +419,25 @@ function SecurityTab() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
+      // Issue #394: pull the per-field zod message out of `payload.details`
+      // so we can render the specific reason ("Password must be at least 8
+      // characters", "Password is too common — please choose a less
+      // predictable password", etc) instead of the top-line "Validation
+      // failed". Falls back to the generic Error.message when the API
+      // returned a non-validation failure (e.g. wrong current password).
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setPasswordErrors(fields);
+        toast.error(
+          fields.newPassword ||
+            Object.values(fields)[0] ||
+            "Failed to change password"
+        );
+      } else {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to change password"
+        );
+      }
     }
   }
 
@@ -466,12 +513,30 @@ function SecurityTab() {
           <Field label="New Password">
             <PasswordInput
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                if (passwordErrors.newPassword)
+                  setPasswordErrors((p) => ({ ...p, newPassword: "" }));
+              }}
               required
               minLength={6}
               autoComplete="new-password"
-              className="rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+              aria-invalid={passwordErrors.newPassword ? "true" : undefined}
+              className={
+                "rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                (passwordErrors.newPassword
+                  ? "border-red-500 bg-red-50"
+                  : "border-gray-300 dark:border-gray-600")
+              }
             />
+            {passwordErrors.newPassword && (
+              <p
+                data-testid="error-change-password-newPassword"
+                className="mt-1 text-xs text-red-600"
+              >
+                {passwordErrors.newPassword}
+              </p>
+            )}
           </Field>
           <Field label="Confirm Password">
             <PasswordInput

@@ -140,6 +140,18 @@ router.get(
         if (patient) where.patientId = patient.id;
       }
 
+      // Issue #183 (Apr 2026): Doctors default to seeing only orders THEY
+      // ordered. Previously the lab order list leaked across all doctors —
+      // a Doctor in OPD-3 could see another Doctor's STAT panels in OPD-1,
+      // including the patient name. NURSE / LAB_TECH still see all so the
+      // lab can process; ADMIN sees all for support.
+      if (req.user!.role === "DOCTOR") {
+        const doctor = await prisma.doctor.findUnique({
+          where: { userId: req.user!.userId },
+        });
+        if (doctor) where.doctorId = doctor.id;
+      }
+
       const [orders, total] = await Promise.all([
         prisma.labOrder.findMany({
           where,

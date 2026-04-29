@@ -73,7 +73,11 @@ describe("WalkInPage", () => {
     await user.click(screen.getByRole("button", { name: /\+ new patient/i }));
     await user.click(screen.getByRole("button", { name: /assign token/i }));
     await waitFor(() => {
-      expect(screen.getByText(/name is required/i)).toBeInTheDocument();
+      // Sanitizer (#260/#284) returns "Name cannot be empty" for empty input;
+      // walk-in's own check raises "Phone number is required" for empty phone.
+      expect(
+        screen.getByText(/name (?:cannot be empty|is required)/i),
+      ).toBeInTheDocument();
       expect(screen.getByText(/phone number is required/i)).toBeInTheDocument();
     });
     const nameInput = screen.getByPlaceholderText(/^name$/i);
@@ -90,8 +94,9 @@ describe("WalkInPage", () => {
     await user.type(screen.getByPlaceholderText(/^phone$/i), "12345");
     await user.click(screen.getByRole("button", { name: /assign token/i }));
     await waitFor(() => {
+      // PHONE_REGEX_LOCAL = /^\+?\d{10,15}$/. The form raises this exact copy.
       expect(
-        screen.getByText(/enter a valid 10-digit phone/i)
+        screen.getByText(/phone must be 10[-–]15 digits/i),
       ).toBeInTheDocument();
     });
   });

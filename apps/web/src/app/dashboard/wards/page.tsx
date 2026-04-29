@@ -6,6 +6,10 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { getSocket } from "@/lib/socket";
 import { Plus, Hotel, TrendingUp } from "lucide-react";
+// Issue #348 — shared bed-summary helper so Wards/Admissions/Dashboard
+// all produce identical counts regardless of which `/wards` payload
+// variant they happen to receive.
+import { summarizeBeds, getBedSummary } from "@/lib/bed-summary";
 
 interface Bed {
   id: string;
@@ -98,32 +102,14 @@ export default function WardsPage() {
     setLoading(false);
   }
 
+  // Issue #348 — delegate to the shared helper so every page that
+  // displays bed counts agrees. Locally computing again here would
+  // re-introduce drift the moment a new fallback path is added.
   function computeCounts(ward: Ward) {
-    const beds = ward.beds || [];
-    const total = ward.totalBeds ?? beds.length;
-    const available =
-      ward.availableBeds ?? beds.filter((b) => b.status === "AVAILABLE").length;
-    const occupied =
-      ward.occupiedBeds ?? beds.filter((b) => b.status === "OCCUPIED").length;
-    const cleaning =
-      ward.cleaningBeds ?? beds.filter((b) => b.status === "CLEANING").length;
-    const maintenance =
-      ward.maintenanceBeds ??
-      beds.filter((b) => b.status === "MAINTENANCE").length;
-    return { total, available, occupied, cleaning, maintenance };
+    return summarizeBeds(ward);
   }
 
-  const totals = wards.reduce(
-    (acc, w) => {
-      const c = computeCounts(w);
-      return {
-        total: acc.total + c.total,
-        available: acc.available + c.available,
-        occupied: acc.occupied + c.occupied,
-      };
-    },
-    { total: 0, available: 0, occupied: 0 }
-  );
+  const totals = getBedSummary(wards);
 
   async function createWard(e: React.FormEvent) {
     e.preventDefault();

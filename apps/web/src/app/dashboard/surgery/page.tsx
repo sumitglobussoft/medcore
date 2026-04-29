@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/store";
 import { Autocomplete } from "@/components/Autocomplete";
 import { InfoIcon } from "@/components/Tooltip";
 import { Plus, Scissors } from "lucide-react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface Doctor {
   id: string;
@@ -388,7 +389,7 @@ export default function SurgeryPage() {
                       <p className="font-medium">{s.patient.user.name}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">{s.patient.mrNumber}</p>
                     </td>
-                    <td className="px-4 py-3 text-sm">{s.surgeon.user.name}</td>
+                    <td className="px-4 py-3 text-sm">{formatDoctorName(s.surgeon.user.name)}</td>
                     <td className="px-4 py-3 text-sm">{s.ot.name}</td>
                     <td className="px-4 py-3 text-sm">{s.procedure}</td>
                     <td className="px-4 py-3 text-sm">

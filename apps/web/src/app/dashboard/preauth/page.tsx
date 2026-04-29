@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors } from "@/lib/field-errors";
 import { FileCheck, Plus, X } from "lucide-react";
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
@@ -231,6 +232,15 @@ function NewRequestModal({
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+  // Issue #370 (2026-04-26): per-field error map so the user sees which
+  // mandatory field failed instead of a generic toast.
+  const [fieldErrors, setFieldErrors] = useState<{
+    patientId?: string;
+    insuranceProvider?: string;
+    policyNumber?: string;
+    procedureName?: string;
+    estimatedCost?: string;
+  }>({});
 
   useEffect(() => {
     if (search.length < 2) {
@@ -252,25 +262,42 @@ function NewRequestModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!patient) {
-      toast.error("Select a patient");
+    // Issue #370 (2026-04-26): pre-flight every required field with a
+    // per-field error so the user fixes them all in one pass instead of
+    // playing whack-a-mole with the toast.
+    setFieldErrors({});
+    const errs: typeof fieldErrors = {};
+    if (!patient) errs.patientId = "Select a patient";
+    if (!form.insuranceProvider.trim())
+      errs.insuranceProvider = "Insurance provider is required";
+    if (!form.policyNumber.trim())
+      errs.policyNumber = "Policy number is required";
+    if (!form.procedureName.trim())
+      errs.procedureName = "Procedure name is required";
+    const estimated = parseFloat(form.estimatedCost);
+    if (Number.isNaN(estimated) || estimated <= 0)
+      errs.estimatedCost = "Estimated cost must be greater than 0";
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
       return;
     }
     setSaving(true);
     try {
       await api.post("/preauth", {
-        patientId: patient.id,
+        patientId: patient!.id,
         insuranceProvider: form.insuranceProvider,
         policyNumber: form.policyNumber,
         procedureName: form.procedureName,
-        estimatedCost: parseFloat(form.estimatedCost),
+        estimatedCost: estimated,
         diagnosis: form.diagnosis || undefined,
         notes: form.notes || undefined,
       });
       onSaved();
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      const fields = extractFieldErrors(err);
+      if (fields) setFieldErrors(fields as typeof fieldErrors);
+      else toast.error((err as Error).message);
     }
     setSaving(false);
   }

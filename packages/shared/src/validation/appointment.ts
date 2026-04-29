@@ -71,10 +71,24 @@ export const rescheduleAppointmentSchema = z.object({
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
 });
 
+// Issue #362 (2026-04-26): recurring appointments accepted past-dated
+// startDate values, which let receptionists "back-date" a series and
+// instantly populate the calendar with already-overdue rows. Compare
+// against the user's local YYYY-MM-DD (timezone-agnostic string compare)
+// so a clerk in IST can still book up to today's date.
+function isStartDateNotPast(yyyyMmDd: string): boolean {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return yyyyMmDd >= todayStr;
+}
+
 export const recurringAppointmentSchema = z.object({
   patientId: z.string().uuid(),
   doctorId: z.string().uuid(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .refine(isStartDateNotPast, "Start date cannot be in the past"),
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]),
   occurrences: z.number().int().min(2).max(52),

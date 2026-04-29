@@ -18,6 +18,9 @@ import {
   Plus,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { extractFieldErrors, topLineError } from "@/lib/field-errors";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface Admission {
   id: string;
@@ -47,6 +50,12 @@ interface Admission {
 interface Vital {
   id: string;
   recordedAt: string;
+  // Issue #198 — schema columns are bloodPressureSystolic /
+  // bloodPressureDiastolic / pulseRate. Accept both names on read so
+  // legacy rows render; writes always use the schema-canonical names.
+  bloodPressureSystolic?: number | null;
+  bloodPressureDiastolic?: number | null;
+  pulseRate?: number | null;
   bpSystolic?: number | null;
   bpDiastolic?: number | null;
   temperature?: number | null;
@@ -56,7 +65,7 @@ interface Vital {
   painScore?: number | null;
   bloodSugar?: number | null;
   notes?: string | null;
-  nurse?: { user: { name: string } };
+  nurse?: { user?: { name?: string } } | null;
 }
 
 interface MedicationOrder {
@@ -68,7 +77,12 @@ interface MedicationOrder {
   endDate?: string | null;
   isActive: boolean;
   instructions?: string | null;
-  medicine: { id: string; name: string; genericName?: string | null };
+  // Issue #197 — `medicine` is OPTIONAL relation (medicineId nullable).
+  // The route returns `medicineName` always; `medicine` only exists when
+  // an include path attaches it. Treat both as optional and use
+  // medicineName as primary display name.
+  medicineName?: string | null;
+  medicine?: { id: string; name: string; genericName?: string | null } | null;
   administrations?: Administration[];
 }
 
@@ -82,9 +96,16 @@ interface Administration {
 
 interface NurseRound {
   id: string;
-  roundedAt: string;
+  // Issue #218 — schema column is `performedAt` (not `roundedAt`).
+  performedAt?: string;
+  roundedAt?: string;
   notes: string;
-  nurse?: { user: { name: string } };
+  // Issue #218 — nurse-rounds API returns `nurse: { id, name }` (User row
+  // directly), not `nurse: { user: { name } }`. Accept both shapes.
+  nurse?:
+    | { id?: string; name?: string }
+    | { user?: { name?: string } }
+    | null;
 }
 
 interface LabOrder {
@@ -241,26 +262,47 @@ export default function AdmissionDetailPage({
         </button>
       </div>
 
+      {/* Issues #197 / #218 — wrap each tab in an ErrorBoundary so a
+          single render-time TypeError in Medications or Rounds cannot
+          take down the whole admission detail page. */}
       {tab === "overview" && (
-        <OverviewTab admission={admission} onUpdate={loadAdmission} />
+        <ErrorBoundary testId="admission-overview-error">
+          <OverviewTab admission={admission} onUpdate={loadAdmission} />
+        </ErrorBoundary>
       )}
       {tab === "vitals" && (
-        <VitalsTab admissionId={id} canRecord={user?.role === "NURSE" || user?.role === "DOCTOR"} />
+        <ErrorBoundary testId="admission-vitals-error">
+          <VitalsTab
+            admissionId={id}
+            canRecord={user?.role === "NURSE" || user?.role === "DOCTOR"}
+          />
+        </ErrorBoundary>
       )}
       {tab === "medications" && (
-        <MedicationsTab admissionId={id} canOrder={user?.role === "DOCTOR"} />
+        <ErrorBoundary testId="admission-medications-error">
+          <MedicationsTab admissionId={id} canOrder={user?.role === "DOCTOR"} />
+        </ErrorBoundary>
       )}
       {tab === "rounds" && (
-        <RoundsTab admissionId={id} canAdd={user?.role === "NURSE"} />
+        <ErrorBoundary testId="admission-rounds-error">
+          <RoundsTab admissionId={id} canAdd={user?.role === "NURSE"} />
+        </ErrorBoundary>
       )}
       {tab === "labs" && (
-        <LabsTab
-          admission={admission}
-          canOrder={user?.role === "DOCTOR"}
-        />
+        <ErrorBoundary testId="admission-labs-error">
+          <LabsTab admission={admission} canOrder={user?.role === "DOCTOR"} />
+        </ErrorBoundary>
       )}
-      {tab === "mar" && <MarTab admissionId={id} />}
-      {tab === "io" && <IntakeOutputTab admissionId={id} />}
+      {tab === "mar" && (
+        <ErrorBoundary testId="admission-mar-error">
+          <MarTab admissionId={id} />
+        </ErrorBoundary>
+      )}
+      {tab === "io" && (
+        <ErrorBoundary testId="admission-io-error">
+          <IntakeOutputTab admissionId={id} />
+        </ErrorBoundary>
+      )}
     </div>
   );
 }
@@ -372,7 +414,7 @@ function OverviewTab({
             label="Admitted"
             value={new Date(admission.admittedAt).toLocaleString()}
           />
-          <Field label="Doctor" value={admission.doctor.user.name} />
+          <Field label="Doctor" value={formatDoctorName(admission.doctor.user.name)} />
           <Field
             label="Bed"
             value={`${admission.bed.ward.name} / ${admission.bed.bedNumber}`}
@@ -671,6 +713,8 @@ function VitalsTab({
 }) {
   const [vitals, setVitals] = useState<Vital[]>([]);
   const [loading, setLoading] = useState(true);
+  // Issue #198 — surface backend zod field errors next to each input.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     bpSystolic: "",
     bpDiastolic: "",
@@ -687,36 +731,58 @@ function VitalsTab({
     load();
   }, [admissionId]);
 
+  // Issue #198 — surface backend zod field errors below each input. The
+  // previous version showed a generic "HTTP 400" toast with no clue
+  // which field was wrong, so users couldn't recover.
+  // (state declared at the top of VitalsTab in the closure below)
+
   async function load() {
     setLoading(true);
     try {
       const res = await api.get<{ data: Vital[] }>(
         `/admissions/${admissionId}/vitals`
       );
-      setVitals(res.data);
+      // Defensive: API may return null/undefined if the admission has no
+      // vitals yet. Coerce so .map / .length never crash the page.
+      setVitals(Array.isArray(res?.data) ? res.data : []);
     } catch {
-      // empty
+      setVitals([]);
     }
     setLoading(false);
   }
 
+  // Issue #198 — recordIpdVitalsSchema in @medcore/shared uses the
+  // schema-canonical column names (bloodPressureSystolic / pulseRate).
+  // Earlier the form posted the short variants and the backend silently
+  // dropped them. Map UI form keys → canonical API keys here.
+  const FORM_TO_API_KEY: Record<string, string> = {
+    bpSystolic: "bloodPressureSystolic",
+    bpDiastolic: "bloodPressureDiastolic",
+    pulse: "pulseRate",
+    temperature: "temperature",
+    respiratoryRate: "respiratoryRate",
+    spO2: "spO2",
+    painScore: "painScore",
+    bloodSugar: "bloodSugar",
+  };
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setFieldErrors({});
     try {
-      const payload: Record<string, unknown> = { notes: form.notes || undefined };
-      const numKeys = [
-        "bpSystolic",
-        "bpDiastolic",
-        "temperature",
-        "pulse",
-        "respiratoryRate",
-        "spO2",
-        "painScore",
-        "bloodSugar",
-      ];
-      for (const k of numKeys) {
-        const v = (form as unknown as Record<string, string>)[k];
-        if (v !== "") payload[k] = parseFloat(v);
+      // Route is POST /admissions/:id/vitals so the URL carries the
+      // admissionId. The shared schema also lists `admissionId` in body —
+      // include it explicitly so zod doesn't 400 on a missing field.
+      const payload: Record<string, unknown> = {
+        admissionId,
+        notes: form.notes || undefined,
+      };
+      for (const [formKey, apiKey] of Object.entries(FORM_TO_API_KEY)) {
+        const raw = (form as unknown as Record<string, string>)[formKey];
+        if (raw !== "" && raw != null) {
+          const n = parseFloat(raw);
+          if (Number.isFinite(n)) payload[apiKey] = n;
+        }
       }
       await api.post(`/admissions/${admissionId}/vitals`, payload);
       setForm({
@@ -731,8 +797,24 @@ function VitalsTab({
         notes: "",
       });
       load();
+      toast.success("Vitals saved");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save vitals");
+      // Issue #198 — surface field-level zod errors via the existing
+      // helper so the user knows which field is wrong, instead of a
+      // silent "HTTP 400". Map canonical API key → form key so the
+      // error renders next to the right input.
+      const apiErrors = extractFieldErrors(err);
+      if (apiErrors) {
+        const apiToForm: Record<string, string> = Object.fromEntries(
+          Object.entries(FORM_TO_API_KEY).map(([f, a]) => [a, f])
+        );
+        const remapped: Record<string, string> = {};
+        for (const [k, v] of Object.entries(apiErrors)) {
+          remapped[apiToForm[k] ?? k] = v;
+        }
+        setFieldErrors(remapped);
+      }
+      toast.error(topLineError(err, "Failed to save vitals"));
     }
   }
 
@@ -749,41 +831,57 @@ function VitalsTab({
               label="BP Systolic"
               value={form.bpSystolic}
               onChange={(v) => setForm({ ...form, bpSystolic: v })}
+              error={fieldErrors.bpSystolic}
+              testId="vitals-bpSystolic"
             />
             <Input
               label="BP Diastolic"
               value={form.bpDiastolic}
               onChange={(v) => setForm({ ...form, bpDiastolic: v })}
+              error={fieldErrors.bpDiastolic}
+              testId="vitals-bpDiastolic"
             />
             <Input
               label="Temp (°C)"
               value={form.temperature}
               onChange={(v) => setForm({ ...form, temperature: v })}
+              error={fieldErrors.temperature}
+              testId="vitals-temperature"
             />
             <Input
               label="Pulse"
               value={form.pulse}
               onChange={(v) => setForm({ ...form, pulse: v })}
+              error={fieldErrors.pulse}
+              testId="vitals-pulse"
             />
             <Input
               label="Resp Rate"
               value={form.respiratoryRate}
               onChange={(v) => setForm({ ...form, respiratoryRate: v })}
+              error={fieldErrors.respiratoryRate}
+              testId="vitals-respiratoryRate"
             />
             <Input
               label="SpO2 %"
               value={form.spO2}
               onChange={(v) => setForm({ ...form, spO2: v })}
+              error={fieldErrors.spO2}
+              testId="vitals-spO2"
             />
             <Input
               label="Pain (0-10)"
               value={form.painScore}
               onChange={(v) => setForm({ ...form, painScore: v })}
+              error={fieldErrors.painScore}
+              testId="vitals-painScore"
             />
             <Input
               label="Blood Sugar"
               value={form.bloodSugar}
               onChange={(v) => setForm({ ...form, bloodSugar: v })}
+              error={fieldErrors.bloodSugar}
+              testId="vitals-bloodSugar"
             />
           </div>
           <textarea
@@ -796,6 +894,7 @@ function VitalsTab({
           <div className="mt-3 flex justify-end">
             <button
               type="submit"
+              data-testid="vitals-save"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
               Save Vitals
@@ -807,7 +906,7 @@ function VitalsTab({
       <div className="rounded-xl bg-white shadow-sm">
         {loading ? (
           <div className="p-8 text-center text-gray-500">Loading...</div>
-        ) : vitals.length === 0 ? (
+        ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             No vitals recorded yet.
           </div>
@@ -827,27 +926,32 @@ function VitalsTab({
               </tr>
             </thead>
             <tbody>
-              {vitals.map((v) => (
-                <tr key={v.id} className="border-b last:border-0">
-                  <td className="px-3 py-2 text-xs">
-                    {new Date(v.recordedAt).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2">
-                    {v.bpSystolic && v.bpDiastolic
-                      ? `${v.bpSystolic}/${v.bpDiastolic}`
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2">{v.temperature ?? "—"}</td>
-                  <td className="px-3 py-2">{v.pulse ?? "—"}</td>
-                  <td className="px-3 py-2">{v.respiratoryRate ?? "—"}</td>
-                  <td className="px-3 py-2">{v.spO2 ?? "—"}</td>
-                  <td className="px-3 py-2">{v.painScore ?? "—"}</td>
-                  <td className="px-3 py-2">{v.bloodSugar ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-gray-600">
-                    {v.notes || "—"}
-                  </td>
-                </tr>
-              ))}
+              {(Array.isArray(vitals) ? vitals : []).map((v) => {
+                // Issue #198 — schema columns are bloodPressureSystolic /
+                // pulseRate; legacy short names accepted for read.
+                const sys = v.bloodPressureSystolic ?? v.bpSystolic;
+                const dia = v.bloodPressureDiastolic ?? v.bpDiastolic;
+                const pulse = v.pulseRate ?? v.pulse;
+                return (
+                  <tr key={v.id} className="border-b last:border-0">
+                    <td className="px-3 py-2 text-xs">
+                      {new Date(v.recordedAt).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2">
+                      {sys && dia ? `${sys}/${dia}` : "—"}
+                    </td>
+                    <td className="px-3 py-2">{v.temperature ?? "—"}</td>
+                    <td className="px-3 py-2">{pulse ?? "—"}</td>
+                    <td className="px-3 py-2">{v.respiratoryRate ?? "—"}</td>
+                    <td className="px-3 py-2">{v.spO2 ?? "—"}</td>
+                    <td className="px-3 py-2">{v.painScore ?? "—"}</td>
+                    <td className="px-3 py-2">{v.bloodSugar ?? "—"}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600">
+                      {v.notes || "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -860,10 +964,15 @@ function Input({
   label,
   value,
   onChange,
+  error,
+  testId,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  // Issue #198 — optional per-field error rendered below the input.
+  error?: string;
+  testId?: string;
 }) {
   return (
     <div>
@@ -873,8 +982,21 @@ function Input({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border px-2 py-1.5 text-sm"
+        data-testid={testId}
+        aria-invalid={error ? "true" : undefined}
+        className={
+          "w-full rounded-lg border px-2 py-1.5 text-sm " +
+          (error ? "border-red-400 bg-red-50" : "")
+        }
       />
+      {error && (
+        <p
+          data-testid={testId ? `${testId}-error` : undefined}
+          className="mt-1 text-[11px] text-red-600"
+        >
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -929,9 +1051,10 @@ function MedicationsTab({
       const res = await api.get<{ data: MedicationOrder[] }>(
         `/medication/orders?admissionId=${admissionId}`
       );
-      setOrders(res.data);
+      // Issue #197 — coerce so a single bad row can never blank the tab.
+      setOrders(Array.isArray(res?.data) ? res.data : []);
     } catch {
-      // empty
+      setOrders([]);
     }
     setLoading(false);
   }
@@ -1149,12 +1272,21 @@ function MedicationsTab({
         </div>
       ) : (
         <div className="space-y-3">
-          {orders.map((o) => (
+          {(Array.isArray(orders) ? orders : []).map((o) => (
             <div key={o.id} className="rounded-xl bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between">
                 <div>
-                  <h4 className="font-semibold">{o.medicine.name}</h4>
-                  {o.medicine.genericName && (
+                  {/* Issue #197 — `medicine` is an OPTIONAL relation
+                      (medicineId is nullable). The route returns
+                      `medicineName` always; only fall back to the
+                      relation when it's been included. */}
+                  <h4
+                    className="font-semibold"
+                    data-testid="medication-order-name"
+                  >
+                    {o.medicineName ?? o.medicine?.name ?? "—"}
+                  </h4>
+                  {o.medicine?.genericName && (
                     <p className="text-xs text-gray-500">
                       {o.medicine.genericName}
                     </p>
@@ -1244,9 +1376,11 @@ function RoundsTab({
       const res = await api.get<{ data: NurseRound[] }>(
         `/nurse-rounds?admissionId=${admissionId}`
       );
-      setRounds(res.data);
+      // Issue #218 — coerce so a single bad payload can't crash the
+      // tab on first paint.
+      setRounds(Array.isArray(res?.data) ? res.data : []);
     } catch {
-      // empty
+      setRounds([]);
     }
     setLoading(false);
   }
@@ -1315,15 +1449,36 @@ function RoundsTab({
         </div>
       ) : (
         <div className="space-y-2">
-          {rounds.map((r) => (
-            <div key={r.id} className="rounded-xl bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>{new Date(r.roundedAt).toLocaleString()}</span>
-                {r.nurse && <span>By: {r.nurse.user.name}</span>}
+          {(Array.isArray(rounds) ? rounds : []).map((r) => {
+            // Issue #218 — schema column is `performedAt`; legacy code
+            // used `roundedAt`. Accept either.
+            const when = r.performedAt ?? r.roundedAt;
+            // The /nurse-rounds API selects `nurse: { id, name }` (User
+            // row directly), but older callers expected
+            // `nurse.user.name`. Accept both shapes — the previous code
+            // would throw `Cannot read properties of undefined
+            // (reading 'name')`.
+            const nurseName =
+              (r.nurse as { name?: string } | null | undefined)?.name ??
+              (r.nurse as { user?: { name?: string } } | null | undefined)
+                ?.user?.name ??
+              null;
+            return (
+              <div
+                key={r.id}
+                className="rounded-xl bg-white p-4 shadow-sm"
+                data-testid="nurse-round-row"
+              >
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{when ? new Date(when).toLocaleString() : "—"}</span>
+                  {nurseName && <span>By: {nurseName}</span>}
+                </div>
+                <p className="mt-2 text-sm whitespace-pre-wrap">
+                  {r.notes ?? "—"}
+                </p>
               </div>
-              <p className="mt-2 text-sm whitespace-pre-wrap">{r.notes}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

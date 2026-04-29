@@ -289,6 +289,27 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       if (patient) where.patientId = patient.id;
     }
 
+    // Issue #194: free-text `?search=` filter so the prescription page's
+    // EntityPicker can narrow same-day appointments by token number, slot
+    // time prefix, or doctor name. The list endpoint quietly accepted (and
+    // ignored) `search=` previously, which is why typing in the picker
+    // produced "No matches" while the unfiltered list contained the row.
+    const searchRaw = req.query.search;
+    if (typeof searchRaw === "string" && searchRaw.trim().length > 0) {
+      const q = searchRaw.trim();
+      const tokenN = Number.parseInt(q, 10);
+      const orClauses: Record<string, unknown>[] = [
+        { slotStart: { contains: q } },
+        {
+          doctor: {
+            user: { name: { contains: q, mode: "insensitive" } },
+          },
+        },
+      ];
+      if (Number.isFinite(tokenN)) orClauses.push({ tokenNumber: tokenN });
+      where.OR = orClauses;
+    }
+
     const [appointments, total] = await Promise.all([
       prisma.appointment.findMany({
         where,

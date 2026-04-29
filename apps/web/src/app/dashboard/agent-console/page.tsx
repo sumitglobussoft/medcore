@@ -24,6 +24,7 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
 import { usePrompt } from "@/lib/use-dialog";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface HandoffSummary {
   chatRoomId: string;
@@ -267,7 +268,7 @@ export default function AgentConsolePage() {
     // and also ping the backend template endpoint so audit trail captures
     // the suggestion regardless of whether the agent edits the text.
     const lines = [
-      `Suggested doctor: Dr. ${doctor.name}`,
+      `Suggested doctor: ${formatDoctorName(doctor.name)}`,
       `Specialty: ${doctor.specialty}`,
       doctor.consultationFee
         ? `Consultation fee: ₹${doctor.consultationFee}`
@@ -701,7 +702,7 @@ export default function AgentConsolePage() {
                           key={d.doctorId}
                           className="rounded-lg border p-2 text-xs"
                         >
-                          <p className="font-semibold">Dr. {d.name}</p>
+                          <p className="font-semibold">{formatDoctorName(d.name)}</p>
                           <p className="text-gray-500">
                             {d.specialty}
                             {d.subSpecialty ? ` · ${d.subSpecialty}` : ""}

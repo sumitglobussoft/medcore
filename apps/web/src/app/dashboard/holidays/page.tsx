@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractFieldErrors } from "@/lib/field-errors";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { sanitizeUserInput } from "@medcore/shared";
 
 interface Holiday {
   id: string;
@@ -86,15 +88,36 @@ export default function HolidaysPage() {
     if (user?.role === "ADMIN") load();
   }, [load, user]);
 
+  // Issue #293 (2026-04-26): replace the generic "Validation failed" toast
+  // with field-level errors. Use `extractFieldErrors` so the user sees
+  // "Date must be YYYY-MM-DD" / "Name is required" next to the offending
+  // input rather than a flat surface-level message.
+  const [holidayFieldErrors, setHolidayFieldErrors] = useState<{
+    date?: string;
+    name?: string;
+    type?: string;
+  }>({});
+
   async function createHoliday() {
-    if (!form.date || !form.name) {
-      toast.error("Date and name required");
+    setHolidayFieldErrors({});
+    const errs: typeof holidayFieldErrors = {};
+    if (!form.date) errs.date = "Date is required";
+    // Issue #292 (Apr 2026): the previous server-side "partial strip" let
+    // `Test Holiday <script>alert(1)</script>` persist as the very weird
+    // `Test Holiday alert(1)`. Reject XSS vectors outright instead.
+    const nameCheck = sanitizeUserInput(form.name, {
+      field: "Name",
+      maxLength: 200,
+    });
+    if (!nameCheck.ok) errs.name = nameCheck.error || "Name is required";
+    if (Object.keys(errs).length > 0) {
+      setHolidayFieldErrors(errs);
       return;
     }
     try {
       await api.post("/hr-ops/holidays", {
         date: form.date,
-        name: form.name,
+        name: nameCheck.value,
         type: form.type,
         description: form.description || undefined,
       });
@@ -102,7 +125,12 @@ export default function HolidaysPage() {
       setForm({ date: "", name: "", type: "PUBLIC", description: "" });
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setHolidayFieldErrors(fields as typeof holidayFieldErrors);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Failed");
+      }
     }
   }
 
@@ -251,9 +279,22 @@ export default function HolidaysPage() {
                 <input
                   type="date"
                   value={form.date}
-                  onChange={(e) => setForm({ ...form, date: e.target.value })}
+                  onChange={(e) => {
+                    setForm({ ...form, date: e.target.value });
+                    if (holidayFieldErrors.date)
+                      setHolidayFieldErrors((p) => ({ ...p, date: undefined }));
+                  }}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="holiday-date"
                 />
+                {holidayFieldErrors.date && (
+                  <p
+                    className="mt-1 text-xs text-red-600"
+                    data-testid="error-date"
+                  >
+                    {holidayFieldErrors.date}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600">
@@ -261,9 +302,22 @@ export default function HolidaysPage() {
                 </label>
                 <input
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => {
+                    setForm({ ...form, name: e.target.value });
+                    if (holidayFieldErrors.name)
+                      setHolidayFieldErrors((p) => ({ ...p, name: undefined }));
+                  }}
                   className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="holiday-name"
                 />
+                {holidayFieldErrors.name && (
+                  <p
+                    className="mt-1 text-xs text-red-600"
+                    data-testid="error-name"
+                  >
+                    {holidayFieldErrors.name}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600">

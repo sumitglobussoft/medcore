@@ -102,4 +102,73 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(window.localStorage.getItem("medcore_token")).toBeNull();
   });
+
+  // Issues #346 + #258: role-clobber defence — refuse to silently mutate
+  // a cached user's role to a different role from /auth/me.
+  it("refreshUser refuses to elevate role mid-session (Issues #346, #258)", async () => {
+    window.localStorage.setItem("medcore_token", "acc-1");
+    useAuthStore.setState({
+      user: { ...USER, role: "RECEPTION" } as any,
+      token: "acc-1",
+      isLoading: false,
+    });
+    // Stub the window.location object — jsdom won't let us redefine
+    // .replace on the existing one without a `delete` first.
+    const original = window.location;
+    delete (window as any).location;
+    (window as any).location = {
+      ...original,
+      replace: vi.fn(),
+      pathname: "/dashboard",
+      search: "",
+    };
+    try {
+      mockedGet.mockResolvedValueOnce({
+        success: true,
+        data: { ...USER, role: "DOCTOR" }, // server "elevation"
+      });
+      await useAuthStore.getState().refreshUser();
+      // Role-clobber guard: state should be cleared and token wiped.
+      expect(useAuthStore.getState().user).toBeNull();
+      expect(useAuthStore.getState().token).toBeNull();
+      expect(window.localStorage.getItem("medcore_token")).toBeNull();
+    } finally {
+      (window as any).location = original;
+    }
+  });
+
+  it("loadSession refuses to elevate role on app boot (Issues #346, #258)", async () => {
+    window.localStorage.setItem("medcore_token", "acc-1");
+    // Pre-seed a cached RECEPTION session (e.g. from a previous tab).
+    useAuthStore.setState({
+      user: { ...USER, role: "RECEPTION" } as any,
+      token: "acc-1",
+      isLoading: true,
+    });
+    mockedGet.mockResolvedValueOnce({
+      success: true,
+      data: { ...USER, role: "ADMIN" }, // attempted clobber to ADMIN
+    });
+    await useAuthStore.getState().loadSession();
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().isLoading).toBe(false);
+    expect(window.localStorage.getItem("medcore_token")).toBeNull();
+  });
+
+  it("refreshUser still updates non-role fields when role matches", async () => {
+    window.localStorage.setItem("medcore_token", "acc-1");
+    useAuthStore.setState({
+      user: { ...USER, name: "Old Name" } as any,
+      token: "acc-1",
+      isLoading: false,
+    });
+    mockedGet.mockResolvedValueOnce({
+      success: true,
+      data: { ...USER, name: "New Name", role: "DOCTOR" },
+    });
+    await useAuthStore.getState().refreshUser();
+    expect(useAuthStore.getState().user?.name).toBe("New Name");
+    expect(useAuthStore.getState().user?.role).toBe("DOCTOR");
+  });
 });

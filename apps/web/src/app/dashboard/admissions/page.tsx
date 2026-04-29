@@ -8,6 +8,9 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { Plus, BedDouble } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+// Issue #348 — shared bed-summary helper so the "no beds" guard agrees
+// with Wards/Dashboard counts.
+import { getBedSummary } from "@/lib/bed-summary";
 
 interface Admission {
   id: string;
@@ -101,10 +104,13 @@ export default function AdmissionsPage() {
   // Issue #16: pre-load bed availability so the "Admit Patient" button can be
   // disabled with an explanatory tooltip when no beds are free, instead of
   // opening a modal with an empty dropdown.
-  const availableBedCount = wards.reduce(
-    (sum, w) => sum + (w.beds || []).filter((b) => b.status === "AVAILABLE").length,
-    0
-  );
+  // Issue #348 — use the shared `getBedSummary` so this number ALWAYS
+  // matches the Wards page totals; the previous open-coded reduce
+  // ignored the `availableBeds` fallback and disagreed with the wards
+  // summary whenever the API returned aggregate fields without a beds
+  // array.
+  const bedSummary = getBedSummary(wards);
+  const availableBedCount = bedSummary.available;
   const hasBedCensus = wards.length > 0;
   const bedsUnavailable = hasBedCensus && availableBedCount === 0;
 
@@ -521,13 +527,18 @@ export default function AdmissionsPage() {
                     required
                     value={form.bedId}
                     onChange={(e) => setForm({ ...form, bedId: e.target.value })}
+                    data-testid="admit-bed-select"
                     className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                   >
                     <option value="">Select Bed</option>
-                    {wards.map((w) => (
+                    {/* Issue #349 — defensive coercion of `wards` and
+                        `beds` so a single malformed payload can't blank
+                        the dropdown. The canonical AVAILABLE filter is
+                        the same shape the seed produces. */}
+                    {(Array.isArray(wards) ? wards : []).map((w) => (
                       <optgroup key={w.id} label={w.name}>
-                        {(w.beds || [])
-                          .filter((b) => b.status === "AVAILABLE")
+                        {(Array.isArray(w.beds) ? w.beds : [])
+                          .filter((b) => b?.status === "AVAILABLE")
                           .map((b) => (
                             <option key={b.id} value={b.id}>
                               {w.name} / Bed {b.bedNumber}

@@ -12,6 +12,36 @@ import { Autocomplete } from "@/components/Autocomplete";
 import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
 import { FileText } from "lucide-react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
+
+// Issue #398: render the prescription's actual issue date with explicit
+// en-IN locale and Asia/Kolkata TZ, so a server in UTC doesn't shift the
+// displayed date by one calendar day for late-evening prescriptions.
+const RX_DATE_FMT = new Intl.DateTimeFormat("en-IN", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "Asia/Kolkata",
+});
+
+function formatRxIssuedDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return RX_DATE_FMT.format(d);
+}
+
+// Issue #399: a follow-up date in the past is meaningless to the patient
+// (the visit either happened or was missed). Suppress it from the detail
+// pane so the row stops looking actionable. We compare in local time using
+// midnight-of-today as the cutoff so "today" is still shown.
+function isFollowUpPast(value: string): boolean {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
+}
 
 // Issue #90: RECEPTION must NOT see prescriptions / clinical diagnoses.
 // PHARMACIST + NURSE keep read access (dispensing + admin); PATIENT keeps
@@ -455,15 +485,21 @@ export default function PrescriptionsPage() {
               <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                 Appointment
               </label>
-              {/* Issue #120: appointment search is scoped to the selected
-                  patient. We can't search until a patient is chosen, so
-                  the picker shows a hint in that state. */}
+              {/* Issue #194: scope the appointment picker to *today*, the
+                  selected patient, and only "live" statuses
+                  (BOOKED / CHECKED_IN / IN_PROGRESS) so the doctor sees the
+                  active visit instead of a stale "No matches" because of an
+                  off-by-one date or a CANCELLED row. The placeholder drops
+                  the "Paste UUID" wording — patients shouldn't see
+                  database concepts in clinical UI. */}
               {form.patientId ? (
                 <EntityPicker
-                  endpoint={`/appointments?patientId=${form.patientId}`}
+                  endpoint={`/appointments?patientId=${form.patientId}&date=${
+                    new Date().toISOString().split("T")[0]
+                  }&status=BOOKED,CHECKED_IN,IN_PROGRESS`}
                   searchParam="search"
-                  labelField="date"
-                  subtitleField="slotStart"
+                  labelField="slotStart"
+                  subtitleField="doctor.user.name"
                   hintField="tokenNumber"
                   value={form.appointmentId}
                   onChange={(id) => {
@@ -471,8 +507,11 @@ export default function PrescriptionsPage() {
                     if (formErrors.appointmentId)
                       setFormErrors((p) => ({ ...p, appointmentId: "" }));
                   }}
-                  searchPlaceholder="Search appointments (date, token)..."
+                  searchPlaceholder="Search by token / time"
                   testIdPrefix="rx-appointment-picker"
+                  // Issue #194: pre-filtered URL → show today's list on
+                  // focus instead of forcing 2+ chars of typing.
+                  minQueryLength={0}
                   required
                 />
               ) : (
@@ -729,10 +768,13 @@ export default function PrescriptionsPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">
-                      {rx.doctor.user.name}
+                      {formatDoctorName(rx.doctor.user.name)}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(rx.createdAt).toLocaleDateString("en-IN")}
+                    <p
+                      className="text-xs text-gray-500 dark:text-gray-400"
+                      data-testid={`rx-issued-${rx.id}`}
+                    >
+                      Issued: {formatRxIssuedDate(rx.createdAt)}
                     </p>
                   </div>
                 </div>
@@ -771,10 +813,10 @@ export default function PrescriptionsPage() {
                       <span className="font-medium">Advice:</span> {rx.advice}
                     </p>
                   )}
-                  {rx.followUpDate && (
+                  {rx.followUpDate && !isFollowUpPast(rx.followUpDate) && (
                     <p className="mt-1 text-sm">
                       <span className="font-medium">Follow-up:</span>{" "}
-                      {new Date(rx.followUpDate).toLocaleDateString("en-IN")}
+                      {formatRxIssuedDate(rx.followUpDate)}
                     </p>
                   )}
                   <div className="mt-4 flex flex-wrap gap-2">

@@ -60,10 +60,13 @@ describe("rescheduleAppointmentSchema", () => {
 });
 
 describe("recurringAppointmentSchema", () => {
+  // Issue #362 (2026-04-26): startDate must not be in the past, so the
+  // fixture uses a far-future YYYY-MM-DD that's safely valid no matter
+  // when the test runs.
   const valid = {
     patientId: UUID,
     doctorId: UUID,
-    startDate: "2026-04-20",
+    startDate: "2099-04-20",
     slotStart: "09:00",
     frequency: "WEEKLY" as const,
     occurrences: 4,

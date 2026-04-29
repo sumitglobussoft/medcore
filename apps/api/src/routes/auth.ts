@@ -10,6 +10,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   updateProfileSchema,
+  sanitizeUserInput,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
@@ -270,6 +271,28 @@ router.post(
           update: { value: String(mrSeq + 1) },
           create: { key: "next_mr_number", value: String(mrSeq + 1) },
         });
+      }
+
+      // Issue #205: when an admin creates a DOCTOR via the staff form,
+      // a corresponding Doctor row was never created — which meant the
+      // new user was missing from every doctor picker (Walk-in,
+      // Appointment, AI Booking). We create one with sensible defaults
+      // that the admin can edit later from the doctor profile page.
+      if (role === "DOCTOR") {
+        // Idempotent: guard against re-runs / partial migrations.
+        const existing = await prisma.doctor.findUnique({
+          where: { userId: user.id },
+        });
+        if (!existing) {
+          await prisma.doctor.create({
+            data: {
+              userId: user.id,
+              specialization: "General Medicine",
+              qualification: "MBBS",
+              tenantId,
+            },
+          });
+        }
       }
 
       const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
@@ -765,7 +788,24 @@ router.patch(
       };
 
       const data: Record<string, unknown> = {};
-      if (typeof name === "string") data.name = name.trim();
+      // Issues #248, #265 (Apr 2026): sanitize the profile Full Name on the
+      // API edge — even if the form is bypassed, no payload with `<script>`
+      // reaches the DB and renders into the sidebar.
+      if (typeof name === "string") {
+        const sanitized = sanitizeUserInput(name, {
+          field: "Name",
+          maxLength: 100,
+        });
+        if (!sanitized.ok) {
+          res.status(400).json({
+            success: false,
+            error: sanitized.error || "Invalid name",
+            details: [{ field: "name", message: sanitized.error }],
+          });
+          return;
+        }
+        data.name = sanitized.value;
+      }
       if (typeof phone === "string") data.phone = phone.trim();
       if (photoUrl !== undefined) data.photoUrl = photoUrl;
       if (preferredLanguage !== undefined) data.preferredLanguage = preferredLanguage;

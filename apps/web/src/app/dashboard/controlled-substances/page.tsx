@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface CsEntry {
   id: string;
@@ -344,7 +345,7 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
                   "—"
                 )}
               </td>
-              <td className="p-2">{e.doctor?.user.name ?? "—"}</td>
+              <td className="p-2">{e.doctor?.user.name ? formatDoctorName(e.doctor.user.name) : "—"}</td>
               <td className="p-2">{e.user.name}</td>
             </tr>
           ))}

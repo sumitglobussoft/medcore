@@ -354,7 +354,18 @@ router.get(
     try {
       const users = await prisma.user.findMany({
         where: {
-          role: { in: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },
+          // Issue #190: include PHARMACIST + LAB_TECH so newly-created
+          // staff in those roles show up in the User Management table.
+          role: {
+            in: [
+              Role.ADMIN,
+              Role.DOCTOR,
+              Role.NURSE,
+              Role.RECEPTION,
+              Role.PHARMACIST,
+              Role.LAB_TECH,
+            ],
+          },
         },
         select: {
           id: true,
@@ -368,6 +379,175 @@ router.get(
         orderBy: [{ role: "asc" }, { name: "asc" }],
       });
       res.json({ success: true, data: users, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Issue #286: User Management actions (Edit / Disable / Reset PW) ─
+//
+// The Users page previously had no row-level actions. ADMINs can now:
+//   1. PATCH /users/:id           — edit name/phone/role/isActive
+//   2. POST  /users/:id/reset-password — generate a 6-digit reset code
+//
+// Disabling sets isActive=false (no hard delete — preserves audit trail
+// and references on prescriptions/orders).
+router.patch(
+  "/users/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { name, phone, role, isActive } = req.body as {
+        name?: string;
+        phone?: string;
+        role?: string;
+        isActive?: boolean;
+      };
+
+      const data: Record<string, unknown> = {};
+      // Issue #284: sanitize the staff name on the API edge — even if the
+      // form is patched, no payload with `<script>` reaches the DB.
+      if (typeof name === "string") {
+        const cleaned = name.replace(/\s+/g, " ").trim();
+        if (cleaned.length === 0 || cleaned.length > 100) {
+          res.status(400).json({
+            success: false,
+            error: "Name must be 1–100 characters",
+            details: [{ field: "name", message: "Name must be 1–100 characters" }],
+          });
+          return;
+        }
+        if (/<[^>]*>|javascript:|vbscript:|\bon\w+\s*=/i.test(cleaned)) {
+          res.status(400).json({
+            success: false,
+            error: "Name contains characters that aren't allowed",
+            details: [
+              { field: "name", message: "Name cannot contain HTML or scripts" },
+            ],
+          });
+          return;
+        }
+        data.name = cleaned;
+      }
+      if (typeof phone === "string") {
+        const trimmed = phone.trim();
+        if (!/^\+?\d{10,15}$/.test(trimmed)) {
+          res.status(400).json({
+            success: false,
+            error: "Phone must be 10–15 digits, optional leading +",
+            details: [{ field: "phone", message: "Phone must be 10–15 digits" }],
+          });
+          return;
+        }
+        data.phone = trimmed;
+      }
+      if (typeof role === "string") {
+        const validRoles = [
+          "ADMIN",
+          "DOCTOR",
+          "NURSE",
+          "RECEPTION",
+          "PHARMACIST",
+          "LAB_TECH",
+        ];
+        if (!validRoles.includes(role)) {
+          res.status(400).json({
+            success: false,
+            error: "Invalid role",
+            details: [{ field: "role", message: "Invalid role" }],
+          });
+          return;
+        }
+        // Self-demotion guard.
+        if (req.user!.userId === id && role !== "ADMIN") {
+          res.status(400).json({
+            success: false,
+            error: "You cannot change your own role",
+          });
+          return;
+        }
+        data.role = role;
+      }
+      if (typeof isActive === "boolean") {
+        // Self-disable guard.
+        if (req.user!.userId === id && isActive === false) {
+          res.status(400).json({
+            success: false,
+            error: "You cannot disable your own account",
+          });
+          return;
+        }
+        data.isActive = isActive;
+      }
+
+      if (Object.keys(data).length === 0) {
+        res.status(400).json({ success: false, error: "Nothing to update" });
+        return;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+      auditLog(req, "USER_UPDATED", "user", id, data).catch(console.error);
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  "/users/:id/reset-password",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const target = await prisma.user.findUnique({
+        where: { id },
+        select: { id: true, email: true, name: true },
+      });
+      if (!target) {
+        res.status(404).json({ success: false, error: "User not found" });
+        return;
+      }
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      // Mirror the /auth/forgot-password flow: invalidate prior unused
+      // codes and persist a fresh one.
+      await (prisma as any).passwordResetCode.deleteMany({
+        where: { userId: target.id, usedAt: null },
+      });
+      await (prisma as any).passwordResetCode.create({
+        data: {
+          userId: target.id,
+          code,
+          expiresAt,
+        },
+      });
+      auditLog(req, "USER_PASSWORD_RESET_INITIATED", "user", target.id).catch(
+        console.error
+      );
+      res.json({
+        success: true,
+        data: {
+          message: `Password reset code generated. Expires in 30 min.`,
+          code,
+          email: target.email,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
+import { formatINR } from "@/lib/currency";
 import { Plus, FlaskConical } from "lucide-react";
 
 // Issue #90: RECEPTION must NOT see lab orders / results / result-entry form.
@@ -252,11 +253,20 @@ export default function LabPage() {
                       <p className="font-medium">{t.name}</p>
                       {t.normalRange && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Normal: {t.normalRange} {t.unit}
+                          {/* Issue #230: extension of #147 — only append the
+                              unit when the range string doesn't already
+                              contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
+                          Normal: {t.normalRange}
+                          {t.unit &&
+                          !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
+                            ? ` ${t.unit}`
+                            : ""}
                         </p>
                       )}
                       {t.price !== undefined && (
-                        <p className="mt-1 text-xs">₹{t.price}</p>
+                        // Issue #403: canonical INR format ("₹1,200.00") via
+                        // shared formatINR — was bare "₹1200" before.
+                        <p className="mt-1 text-xs">{formatINR(t.price)}</p>
                       )}
                     </div>
                   ))}

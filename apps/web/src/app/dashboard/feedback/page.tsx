@@ -1,7 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/store";
+import { toast } from "@/lib/toast";
+
+// Issue #207 (Apr 2026): Patient Feedback Analytics is staff-only. The
+// previous version routed PATIENT here too, exposing per-doctor NPS and
+// negative-theme drivers. Patients now redirect back to the dashboard.
+const FEEDBACK_ANALYTICS_ALLOWED = new Set([
+  "ADMIN",
+  "DOCTOR",
+  "NURSE",
+  "RECEPTION",
+]);
 
 interface Feedback {
   id: string;
@@ -86,6 +99,8 @@ function StarDisplay({ rating }: { rating: number }) {
 }
 
 export default function FeedbackPage() {
+  const { user, isLoading } = useAuthStore();
+  const router = useRouter();
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [npsDrivers, setNpsDrivers] = useState<NpsDriversSummary | null>(null);
@@ -94,13 +109,27 @@ export default function FeedbackPage() {
   const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Issue #207: keep patients out of the staff-side analytics dashboard.
   useEffect(() => {
+    if (!isLoading && user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) {
+      toast.error(
+        "The feedback analytics dashboard is for staff. Use 'Submit Feedback' instead.",
+        5000
+      );
+      router.replace("/dashboard");
+    }
+  }, [user, isLoading, router]);
+
+  useEffect(() => {
+    if (user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, from, to]);
+  }, [category, from, to, user]);
 
   useEffect(() => {
     // Load AI NPS-drivers widget once on mount. Never blocks the main list.
+    // Issue #207: skip for non-staff (we'll be redirecting them).
+    if (user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) return;
     api
       .get<{ data: NpsDriversSummary }>("/ai/sentiment/nps-drivers?days=30")
       .then((r) => {
@@ -117,7 +146,7 @@ export default function FeedbackPage() {
         }
       })
       .catch(() => setNpsDrivers(null));
-  }, []);
+  }, [user]);
 
   async function load() {
     setLoading(true);
@@ -141,6 +170,10 @@ export default function FeedbackPage() {
     }
     setLoading(false);
   }
+
+  // Issue #207: guard render path for the brief moment between role-check
+  // and router.replace firing.
+  if (user && !FEEDBACK_ANALYTICS_ALLOWED.has(user.role)) return null;
 
   const nps = summary?.npsScore ?? 0;
   const npsColor =

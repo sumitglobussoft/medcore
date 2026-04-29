@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { usePrompt } from "@/lib/use-dialog";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import {
   ArrowLeft,
   Scissors,
@@ -271,7 +272,7 @@ export default function SurgeryDetailPage() {
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
             <Stethoscope size={16} /> Surgeon
           </div>
-          <p className="font-medium">{surgery.surgeon.user.name}</p>
+          <p className="font-medium">{formatDoctorName(surgery.surgeon.user.name)}</p>
           {surgery.surgeon.specialization && (
             <p className="text-xs text-gray-500">
               {surgery.surgeon.specialization}

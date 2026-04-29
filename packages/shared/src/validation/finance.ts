@@ -35,10 +35,24 @@ export function isValidGstin(value: string | null | undefined): boolean {
   return GSTIN_REGEX.test(value);
 }
 
+// Issues #310 / #294 (2026-04-26): suppliers historically accepted any
+// string for phone (incl. "asdf") and any malformed GSTIN — the only
+// validation was on email. Reuse the same E.164-ish phone regex as
+// patient.ts (10–15 digits, optional leading +) and surface a clear
+// per-field message via the standard zod path so `extractFieldErrors`
+// renders it next to the input.
+const SUPPLIER_PHONE_REGEX = /^\+?\d{10,15}$/;
+
 export const createSupplierSchema = z.object({
   name: z.string().min(1, "Name is required"),
   contactPerson: z.string().optional(),
-  phone: z.string().optional(),
+  phone: z
+    .string()
+    .optional()
+    .refine(
+      (v) => v === undefined || v === "" || SUPPLIER_PHONE_REGEX.test(v),
+      "Phone must be 10–15 digits, optional leading +"
+    ),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
   // Allow empty string for "not provided"; otherwise enforce canonical format.
@@ -401,11 +415,14 @@ export const approveExpenseSchema = z.object({
   rejectionReason: z.string().optional(),
 });
 
+// Issue #297 (2026-04-26): the previous `.nonnegative()` accepted 0 and
+// negative values would slip past the UI on a second submit. Tighten to
+// `.positive()` so a budget always represents real allocated spend.
 export const expenseBudgetSchema = z.object({
   category: expenseCategoryEnum,
   year: z.number().int().min(2020).max(2100),
   month: z.number().int().min(1).max(12),
-  amount: z.number().nonnegative(),
+  amount: z.number().positive("Budget amount must be greater than 0"),
   notes: z.string().optional(),
 });
 

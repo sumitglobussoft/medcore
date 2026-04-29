@@ -1,7 +1,27 @@
 import { z } from "zod";
+import { validatePasswordStrength } from "./security";
+
+// Issues #266 + #285 (Apr 2026): the standalone strong-password Zod check.
+// The previous "min 6" rule was both too short and missing a denylist —
+// `123456` and `password1` both passed. We now require:
+//   - >= 8 characters
+//   - >= 1 letter AND >= 1 digit
+//   - NOT in the curated top-100 common-password list
+const strongPassword = z.string().superRefine((pw, ctx) => {
+  const r = validatePasswordStrength(pw);
+  if (!r.ok) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: r.error || "Password is too weak",
+    });
+  }
+});
 
 export const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
+  // Login accepts the legacy-min-6 password so users with pre-#266 accounts
+  // can still log in to change their password. The strong-password rule
+  // applies only to register / change / reset.
   password: z.string().min(6, "Password must be at least 6 characters"),
   // Issue #1: when true, the server mints a refresh token that lasts 30 days
   // instead of the default 7. Optional so existing callers (older web builds,
@@ -13,13 +33,25 @@ export const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["ADMIN", "DOCTOR", "RECEPTION", "NURSE", "PATIENT"]),
+  password: strongPassword,
+  // Issue #190: keep this list in lockstep with the Role enum in
+  // packages/shared/src/types/roles.ts. PHARMACIST + LAB_TECH were
+  // missing here, which silently rejected admin-created staff in
+  // those roles with a confusing "Validation failed" toast.
+  role: z.enum([
+    "ADMIN",
+    "DOCTOR",
+    "RECEPTION",
+    "NURSE",
+    "PATIENT",
+    "PHARMACIST",
+    "LAB_TECH",
+  ]),
 });
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: strongPassword,
 });
 
 export const forgotPasswordSchema = z.object({
@@ -29,7 +61,7 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
   code: z.string().length(6, "Reset code must be 6 digits"),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: strongPassword,
 });
 
 // Issue #138 (Apr 2026): PATCH /api/v1/auth/me previously accepted an empty
@@ -43,6 +75,12 @@ export const resetPasswordSchema = z.object({
 // - phone: optional E.164-ish: 10–15 digits, optional leading "+".
 // - photoUrl / preferredLanguage / defaultLandingPage: tolerated but
 //   cleaned of stray whitespace.
+//
+// Issues #392, #393 (Apr 2026): when the keys are present on the patch
+// body (the Settings → Profile form always sends both), reject empty
+// strings outright with the field-specific message. `.optional()` still
+// allows the key to be omitted entirely (used by Preferences tab which
+// only sends preferredLanguage / defaultLandingPage).
 export const updateProfileSchema = z
   .object({
     name: z

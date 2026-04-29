@@ -277,8 +277,17 @@ export default function AIBookingPage() {
 
         setStep("summary");
       }
-    } catch {
-      toast.error("Failed to send message");
+    } catch (err: any) {
+      // Issue #240: surface the actual API error (validation / 5xx /
+      // rate limit) so the user sees the real cause instead of an opaque
+      // "Failed to send message". The fetch helper exposes the parsed
+      // payload on `err.payload` (not axios `err.response`).
+      const msg =
+        err?.payload?.error ||
+        err?.payload?.details?.formErrors?.join(", ") ||
+        err?.message ||
+        "Failed to send message";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -937,6 +946,38 @@ export default function AIBookingPage() {
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Issue #409: sticky bottom Confirm Booking CTA ─────────────────
+          The booking flow's confirm button used to live tucked at the bottom
+          of the right-side slot panel — easy to miss on mobile and below
+          the fold on smaller laptop screens. Render a high-visibility CTA
+          docked to the viewport bottom so the patient always knows what
+          to do next. Disabled until both doctor + slot are selected. */}
+      {step === "booking" && selectedDoctor && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-end gap-3 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.04)] backdrop-blur md:px-8 dark:border-gray-700 dark:bg-gray-900/95"
+        >
+          <p className="hidden flex-1 truncate text-sm text-gray-600 sm:block dark:text-gray-300">
+            {selectedDoctor.name}
+            {selectedDate ? ` · ${selectedDate}` : ""}
+            {selectedSlot?.startTime ? ` · ${selectedSlot.startTime}` : ""}
+          </p>
+          <button
+            type="button"
+            data-testid="book-appt-confirm"
+            onClick={handleBook}
+            disabled={!selectedSlot || !selectedDate || loading}
+            className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle className="h-4 w-4" />
+            )}
+            {language === "hi" ? "अपॉइंटमेंट पक्का करें" : "Confirm Booking"}
+          </button>
         </div>
       )}
 
