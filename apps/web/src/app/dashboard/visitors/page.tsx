@@ -268,7 +268,7 @@ export default function VisitorsPage() {
           <p className="mb-2 text-xs text-gray-500">By Purpose (Today)</p>
           <div className="space-y-1">
             {PURPOSES.map((p) => {
-              const count = stats?.byPurpose[p] || 0;
+              const count = stats?.byPurpose?.[p] ?? 0;
               const pct = total > 0 ? (count / total) * 100 : 0;
               return (
                 <div key={p} className="flex items-center gap-2">

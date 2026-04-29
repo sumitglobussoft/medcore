@@ -1970,31 +1970,31 @@ export default function AppointmentsPage() {
             <>
               {/* Summary cards */}
               <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <StatCard label="Total" value={stats.totalCount} color="bg-blue-50 text-blue-700" />
+                <StatCard label="Total" value={stats?.totalCount ?? 0} color="bg-blue-50 text-blue-700" />
                 <StatCard
                   label="Completed"
-                  value={stats.completedCount}
+                  value={stats?.completedCount ?? 0}
                   color="bg-green-50 text-green-700"
                 />
                 <StatCard
                   label="Cancelled"
-                  value={stats.cancelledCount}
+                  value={stats?.cancelledCount ?? 0}
                   color="bg-red-50 text-red-700"
                 />
                 <StatCard
                   label="No-Show"
-                  value={stats.noShowCount}
+                  value={stats?.noShowCount ?? 0}
                   color="bg-slate-50 text-slate-700"
                 />
                 <StatCard
                   label="Avg Consult (min)"
-                  value={stats.avgConsultationTimeMin}
+                  value={stats?.avgConsultationTimeMin ?? 0}
                   color="bg-indigo-50 text-indigo-700"
                 />
                 <StatCard
                   label="Peak Hour"
                   value={
-                    stats.peakHour !== null
+                    stats?.peakHour != null
                       ? `${String(stats.peakHour).padStart(2, "0")}:00`
                       : "—"
                   }
@@ -2008,7 +2008,7 @@ export default function AppointmentsPage() {
                   <DonutChart
                     segments={ALL_STATUSES.map((s) => ({
                       label: s.replace(/_/g, " "),
-                      value: stats.byStatus[s] || 0,
+                      value: stats?.byStatus?.[s] ?? 0,
                       color: STATUS_HEX[s],
                     })).filter((s) => s.value > 0)}
                   />

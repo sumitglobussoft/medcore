@@ -288,11 +288,11 @@ export default function BloodBankPage() {
         <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
           <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
             <p className="text-xs text-gray-500 dark:text-gray-400">Available Units</p>
-            <p className="text-2xl font-bold">{summary.totalAvailable}</p>
+            <p className="text-2xl font-bold">{summary?.totalAvailable ?? 0}</p>
           </div>
           <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
             <p className="text-xs text-gray-500 dark:text-gray-400">Expiring in 7 days</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{summary.expiringSoon}</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{summary?.expiringSoon ?? 0}</p>
           </div>
           <div className="rounded-lg bg-white p-4 text-gray-900 shadow dark:bg-gray-800 dark:text-gray-100">
             <p className="text-xs text-gray-500 dark:text-gray-400">Open Requests</p>
@@ -331,7 +331,7 @@ export default function BloodBankPage() {
           {tab === "inventory" && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               {BLOOD_GROUPS.map((g) => {
-                const counts = summary?.byBloodGroup[g] || {};
+                const counts = summary?.byBloodGroup?.[g] ?? {};
                 const total = Object.values(counts).reduce((a, b) => a + b, 0);
                 // Issue #49: read expiring count from the summary (single
                 // source of truth) instead of re-filtering the paginated
