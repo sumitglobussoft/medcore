@@ -680,29 +680,24 @@ export async function ingestMedicationRequest(
   const frequency = parts[1] ?? timingText ?? "As needed";
   const duration = parts[2] ?? "As needed";
 
-  // Forward mapper (resources.ts prescriptionToMedicationRequests) emits
-  // MedicationRequest.id as `${prescription.id}-${item.id ?? idx}` where
-  // prescription.id is a UUID (5 dash-segments). On round-trip we recover the
-  // source prescription.id by taking the first 5 segments back. This restores
-  // idempotency when the original prescription is not attached to the most
-  // recent appointment for the patient/doctor pair (issue #415, ChronicCare).
+  // Forward mapper (resources.ts prescriptionToMedicationRequests) tags every
+  // MedicationRequest with `groupIdentifier.value = prescription.id`. On
+  // round-trip we recover the source prescription via that tag, which is
+  // independent of resource.id encoding. This restores idempotency when the
+  // original prescription is not attached to the most recent appointment for
+  // the patient/doctor pair (issue #415, ChronicCare).
   let prescription: { id: string; appointmentId: string } | null = null;
-  if (resource.id) {
-    const segments = resource.id.split("-");
-    if (segments.length >= 5) {
-      const candidatePrescriptionId = segments.slice(0, 5).join("-");
-      prescription = await tx.prescription.findUnique({
-        where: { id: candidatePrescriptionId },
-      });
-    }
+  const groupId = resource.groupIdentifier?.value;
+  if (groupId) {
+    prescription = await tx.prescription.findUnique({ where: { id: groupId } });
   }
 
   let action: IngestAction = "update";
   if (!prescription) {
-    // Fallback for non-round-tripped bundles (external systems whose
-    // MedicationRequest.id doesn't carry our prescription-id prefix). Match
-    // the most recent appointment for this patient/doctor pair, reusing an
-    // existing prescription if one is attached, else creating a new one.
+    // Fallback for bundles that don't carry our groupIdentifier (external
+    // systems, hand-crafted unit-test bundles). Match the most recent
+    // appointment for this patient/doctor pair, reusing an existing
+    // prescription if one is attached, else creating a new one.
     const appointment = await tx.appointment.findFirst({
       where: { patientId, doctorId },
       orderBy: { date: "desc" },
