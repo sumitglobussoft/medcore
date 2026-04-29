@@ -110,6 +110,38 @@ describe("BillingPage", () => {
     });
   });
 
+  it("derives a partial status when the API marks an outstanding invoice paid", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/billing/invoices"))
+        return Promise.resolve({
+          data: [
+            {
+              ...sampleInvoices[1],
+              id: "inv-mismatch",
+              invoiceNumber: "INV000228",
+              totalAmount: 2500,
+              paymentStatus: "PAID",
+              payments: [
+                {
+                  id: "pay1",
+                  amount: 1000,
+                  mode: "CASH",
+                  paidAt: new Date().toISOString(),
+                },
+              ],
+            },
+          ],
+        });
+      return Promise.resolve(defaultGet(url));
+    });
+
+    render(<BillingPage />);
+
+    await waitFor(() => expect(screen.getByText("INV000228")).toBeInTheDocument());
+    expect(screen.getByText("PARTIAL")).toBeInTheDocument();
+    expect(screen.queryByText("PAID")).not.toBeInTheDocument();
+  });
+
   it("calls /billing/reports/outstanding when Outstanding tab is active", async () => {
     const user = userEvent.setup();
     render(<BillingPage />);

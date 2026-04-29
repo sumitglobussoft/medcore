@@ -95,6 +95,19 @@ function fmtMoney(n: number) {
   })}`;
 }
 
+function derivePaymentStatus(
+  paymentStatus: string,
+  totalAmount: number,
+  netPaid: number
+) {
+  if (paymentStatus === "REFUNDED") return paymentStatus;
+
+  const balance = Math.max(0, totalAmount - netPaid);
+  if (balance <= 0) return "PAID";
+  if (netPaid > 0) return "PARTIAL";
+  return paymentStatus === "PAID" ? "PENDING" : paymentStatus;
+}
+
 export default function InvoiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
@@ -324,6 +337,11 @@ export default function InvoiceDetailPage() {
   const totalRefunded = refunds.reduce((s, p) => s + Math.abs(p.amount), 0);
   const netPaid = grossPaid - totalRefunded;
   const balance = Math.max(0, invoice.totalAmount - netPaid);
+  const displayStatus = derivePaymentStatus(
+    invoice.paymentStatus,
+    invoice.totalAmount,
+    netPaid
+  );
 
   // Compute per-line GST at render time via the shared helper. We do NOT
   // persist these columns in this pass — flagged as a follow-up to add
@@ -352,7 +370,7 @@ export default function InvoiceDetailPage() {
     (a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()
   );
 
-  const isPending = invoice.paymentStatus === "PENDING";
+  const isPending = displayStatus === "PENDING";
 
   return (
     <>
@@ -387,8 +405,8 @@ export default function InvoiceDetailPage() {
           <ArrowLeft size={16} /> Back to Billing
         </Link>
         <div className="flex flex-wrap items-center gap-2">
-          {invoice.paymentStatus !== "PAID" &&
-            invoice.paymentStatus !== "REFUNDED" && (
+          {displayStatus !== "PAID" &&
+            displayStatus !== "REFUNDED" && (
               <button
                 onClick={() => setDiscOpen(true)}
                 className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -461,14 +479,14 @@ export default function InvoiceDetailPage() {
         className="relative mx-auto max-w-3xl overflow-hidden rounded-xl bg-white p-8 shadow-sm"
       >
         {/* Watermark overlays */}
-        {invoice.paymentStatus === "CANCELLED" && (
+        {displayStatus === "CANCELLED" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-red-500/20">
               CANCELLED
             </span>
           </div>
         )}
-        {invoice.paymentStatus === "PAID" && (
+        {displayStatus === "PAID" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-green-500/15">
               PAID
@@ -521,9 +539,9 @@ export default function InvoiceDetailPage() {
                 })}
               </p>
               <span
-                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[invoice.paymentStatus] || ""}`}
+                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[displayStatus] || ""}`}
               >
-                {invoice.paymentStatus}
+                {displayStatus}
               </span>
             </div>
           </div>

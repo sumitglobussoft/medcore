@@ -101,6 +101,37 @@ describe("InvoiceDetailPage", () => {
     expect(screen.getAllByText(/consultation/i).length).toBeGreaterThan(0);
   });
 
+  it("derives invoice status from payments when the API status is stale", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/billing/invoices/test-id"))
+        return Promise.resolve({
+          data: {
+            ...sampleInvoice,
+            invoiceNumber: "INV000228",
+            paymentStatus: "PAID",
+            totalAmount: 1180,
+            payments: [
+              {
+                id: "pay1",
+                amount: 500,
+                mode: "CASH",
+                paidAt: new Date().toISOString(),
+                transactionId: null,
+              },
+            ],
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
+
+    render(<InvoiceDetailPage />);
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/INV000228/).length).toBeGreaterThan(0)
+    );
+    expect(screen.getByText("PARTIAL")).toBeInTheDocument();
+  });
+
   it("opens Record Payment modal when button clicked", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.includes("/billing/invoices/test-id"))
