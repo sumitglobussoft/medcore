@@ -88,6 +88,26 @@ export async function getAuthToken(role: TestRole = "ADMIN"): Promise<string> {
       },
     });
   }
+  // For PATIENT role, ensure a linked Patient row exists. Several routes
+  // (e.g. /ai/triage/start) call `prisma.patient.findFirst({ where: { userId } })`
+  // and 400 "Please complete your patient profile" when no row matches.
+  // Tests would otherwise need to scaffold this manually for every patient
+  // case; centralising it here matches what `getAuthToken("ADMIN")` already
+  // implies — that the returned token is *usable*.
+  if (role === "PATIENT") {
+    const existing = await prisma.patient.findFirst({ where: { userId: user.id } });
+    if (!existing) {
+      const count = await prisma.patient.count();
+      await prisma.patient.create({
+        data: {
+          userId: user.id,
+          mrNumber: `MR-TEST-${count + 1}`,
+          dateOfBirth: new Date("1990-01-01"),
+          gender: "MALE" as any,
+        },
+      });
+    }
+  }
   return jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
     process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
