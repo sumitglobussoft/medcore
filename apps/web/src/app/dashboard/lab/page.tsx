@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Fragment } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -79,15 +79,19 @@ const FLAG_COLORS: Record<string, string> = {
 export default function LabPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
   // Issue #90: redirect RECEPTION away — clinical-data exposure.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
       toast.error("Lab orders & results are restricted to clinical staff.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/lab")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
   const [tab, setTab] = useState<Tab>("orders");
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);

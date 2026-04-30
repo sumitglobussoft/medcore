@@ -10,7 +10,9 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import {
   categorizeService,
+  computeInvoiceTotals,
   computeLineItemTax,
+  derivePaymentStatus,
 } from "@medcore/shared";
 import {
   Printer,
@@ -323,7 +325,6 @@ export default function InvoiceDetailPage() {
   const grossPaid = positivePayments.reduce((s, p) => s + p.amount, 0);
   const totalRefunded = refunds.reduce((s, p) => s + Math.abs(p.amount), 0);
   const netPaid = grossPaid - totalRefunded;
-  const balance = Math.max(0, invoice.totalAmount - netPaid);
 
   // Compute per-line GST at render time via the shared helper. We do NOT
   // persist these columns in this pass — flagged as a follow-up to add
@@ -332,13 +333,29 @@ export default function InvoiceDetailPage() {
     ...it,
     tax: computeLineItemTax(it.amount, it.category),
   }));
-  const computedCgst = itemsWithTax.reduce((s, it) => s + it.tax.cgst, 0);
-  const computedSgst = itemsWithTax.reduce((s, it) => s + it.tax.sgst, 0);
-  // Prefer the stored invoice taxAmount (canonical) when present; otherwise
-  // use the per-line computation so the old invoices still render correctly.
-  const displayCgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedCgst;
-  const displaySgst = invoice.taxAmount > 0 ? invoice.taxAmount / 2 : computedSgst;
-  const displayTotalTax = displayCgst + displaySgst;
+
+  // Single source of truth for the totals block (#202, #236). When the
+  // persisted `invoice.totalAmount` was stored without GST (legacy seed
+  // path), `computeInvoiceTotals` returns the corrected total derived
+  // from per-line GST; otherwise it returns the persisted figure. The
+  // footer Total + Running Balance use this in preference to the raw
+  // `invoice.totalAmount`, which guarantees Total = Subtotal + GST.
+  const totals = computeInvoiceTotals(invoice.items || [], {
+    subtotal: invoice.subtotal,
+    taxAmount: invoice.taxAmount,
+    discountAmount: invoice.discountAmount,
+    totalAmount: invoice.totalAmount,
+  });
+  const displayCgst = totals.cgstAmount;
+  const displaySgst = totals.sgstAmount;
+  const displayTotalTax = totals.taxAmount;
+  const displayTotal = totals.totalAmount;
+  const balance = Math.max(0, displayTotal - netPaid);
+  // Issue #235: never trust a persisted `paymentStatus` that disagrees
+  // with the maths (e.g. `PAID` while balance > 0). The shared helper
+  // returns the displayed status so the watermark, badge, and totals
+  // block stay self-consistent.
+  const displayStatus = derivePaymentStatus(invoice.paymentStatus, displayTotal, netPaid);
 
   const statusColors: Record<string, string> = {
     PENDING: "bg-red-100 text-red-700",
@@ -352,7 +369,7 @@ export default function InvoiceDetailPage() {
     (a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime()
   );
 
-  const isPending = invoice.paymentStatus === "PENDING";
+  const isPending = displayStatus === "PENDING";
 
   return (
     <>
@@ -387,8 +404,8 @@ export default function InvoiceDetailPage() {
           <ArrowLeft size={16} /> Back to Billing
         </Link>
         <div className="flex flex-wrap items-center gap-2">
-          {invoice.paymentStatus !== "PAID" &&
-            invoice.paymentStatus !== "REFUNDED" && (
+          {displayStatus !== "PAID" &&
+            displayStatus !== "REFUNDED" && (
               <button
                 onClick={() => setDiscOpen(true)}
                 className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -461,14 +478,14 @@ export default function InvoiceDetailPage() {
         className="relative mx-auto max-w-3xl overflow-hidden rounded-xl bg-white p-8 shadow-sm"
       >
         {/* Watermark overlays */}
-        {invoice.paymentStatus === "CANCELLED" && (
+        {displayStatus === "CANCELLED" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-red-500/20">
               CANCELLED
             </span>
           </div>
         )}
-        {invoice.paymentStatus === "PAID" && (
+        {displayStatus === "PAID" && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
             <span className="select-none rotate-[-30deg] text-[8rem] font-black text-green-500/15">
               PAID
@@ -521,9 +538,10 @@ export default function InvoiceDetailPage() {
                 })}
               </p>
               <span
-                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[invoice.paymentStatus] || ""}`}
+                className={`mt-2 inline-block rounded-full px-3 py-0.5 text-xs font-medium ${statusColors[displayStatus] || ""}`}
+                data-testid="invoice-status-badge"
               >
-                {invoice.paymentStatus}
+                {displayStatus}
               </span>
             </div>
           </div>
@@ -733,7 +751,7 @@ export default function InvoiceDetailPage() {
               <span className="text-gray-500">
                 {t("dashboard.billing.subtotal", "Subtotal")}
               </span>
-              <span>{fmtMoney(invoice.subtotal)}</span>
+              <span data-testid="totals-subtotal">{fmtMoney(totals.subtotal)}</span>
             </div>
             {displayTotalTax > 0 && (
               <>
@@ -767,7 +785,7 @@ export default function InvoiceDetailPage() {
             )}
             <div className="flex justify-between border-t pt-2 font-semibold">
               <span>Total</span>
-              <span>{fmtMoney(invoice.totalAmount)}</span>
+              <span data-testid="totals-total">{fmtMoney(displayTotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Payments</span>
@@ -791,7 +809,7 @@ export default function InvoiceDetailPage() {
               }`}
             >
               <span>Running Balance</span>
-              <span>{fmtMoney(balance)}</span>
+              <span data-testid="totals-balance">{fmtMoney(balance)}</span>
             </div>
           </div>
         </div>

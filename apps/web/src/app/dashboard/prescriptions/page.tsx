@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -87,15 +87,19 @@ interface Template {
 export default function PrescriptionsPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
   // Issue #90: redirect RECEPTION (and any non-clinical role) away.
+  // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !RX_ALLOWED.has(user.role)) {
       toast.error("Prescriptions are restricted to clinical staff.");
-      router.replace("/dashboard");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/prescriptions")}`,
+      );
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, pathname]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
