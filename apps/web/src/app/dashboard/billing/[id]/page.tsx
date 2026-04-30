@@ -8,6 +8,7 @@ import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
+import { extractFieldErrors } from "@/lib/field-errors";
 import {
   categorizeService,
   computeInvoiceTotals,
@@ -128,6 +129,10 @@ export default function InvoiceDetailPage() {
   const [payAmount, setPayAmount] = useState("");
   const [payMode, setPayMode] = useState("CASH");
   const [paySubmitting, setPaySubmitting] = useState(false);
+  // Issue #223: per-field server validation messages for the payment modal.
+  const [payFieldErrors, setPayFieldErrors] = useState<
+    Record<string, string>
+  >({});
 
   // Refund
   const [refundOpen, setRefundOpen] = useState(false);
@@ -266,6 +271,7 @@ export default function InvoiceDetailPage() {
 
   async function submitPayment() {
     setPaySubmitting(true);
+    setPayFieldErrors({});
     try {
       await api.post("/billing/payments", {
         invoiceId: id,
@@ -277,7 +283,17 @@ export default function InvoiceDetailPage() {
       setPayMode("CASH");
       loadInvoice();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Payment failed");
+      // Issue #223: surface per-field zod messages instead of just a
+      // generic toast — the user needs to know whether it's `amount`
+      // (e.g. exceeds outstanding balance) or `mode` that the API
+      // rejected.
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setPayFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Please fix the highlighted fields");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Payment failed");
+      }
     }
     setPaySubmitting(false);
   }
@@ -990,17 +1006,41 @@ export default function InvoiceDetailPage() {
                   min="0.01"
                   step="0.01"
                   value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  onChange={(e) => {
+                    setPayAmount(e.target.value);
+                    if (payFieldErrors.amount)
+                      setPayFieldErrors((p) => {
+                        const n = { ...p };
+                        delete n.amount;
+                        return n;
+                      });
+                  }}
+                  data-testid="payment-amount"
+                  aria-invalid={!!payFieldErrors.amount}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    payFieldErrors.amount ? "border-red-500 bg-red-50" : ""
+                  }`}
                   autoFocus
                 />
+                {payFieldErrors.amount && (
+                  <p
+                    data-testid="error-payment-amount"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {payFieldErrors.amount}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="mb-1 block text-xs text-gray-500">Mode</label>
                 <select
                   value={payMode}
                   onChange={(e) => setPayMode(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  data-testid="payment-mode"
+                  aria-invalid={!!payFieldErrors.mode}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
+                    payFieldErrors.mode ? "border-red-500 bg-red-50" : ""
+                  }`}
                 >
                   {["CASH", "CARD", "UPI", "ONLINE", "INSURANCE"].map((m) => (
                     <option key={m} value={m}>
@@ -1008,6 +1048,14 @@ export default function InvoiceDetailPage() {
                     </option>
                   ))}
                 </select>
+                {payFieldErrors.mode && (
+                  <p
+                    data-testid="error-payment-mode"
+                    className="mt-1 text-xs text-red-600"
+                  >
+                    {payFieldErrors.mode}
+                  </p>
+                )}
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
