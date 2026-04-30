@@ -13,6 +13,7 @@ import {
 } from "@/lib/appointments";
 import { SkeletonTable } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
+import { EntityPicker } from "@/components/EntityPicker";
 import { Calendar } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
@@ -931,10 +932,10 @@ export default function AppointmentsPage() {
               id="patient-id-prompt-title"
               className="text-lg font-semibold text-gray-800"
             >
-              Enter Patient ID
+              Select Patient
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              Paste the Patient ID (MRN or UUID) for this booking.
+              Search by name, phone, or MR number.
             </p>
             <form
               onSubmit={(e) => {
@@ -943,16 +944,19 @@ export default function AppointmentsPage() {
               }}
               className="mt-4 space-y-4"
             >
-              <input
-                autoFocus
-                type="text"
+              {/* Issue #204: replaced raw text input ("Paste the Patient ID
+                  MRN or UUID") with the shared EntityPicker. The previous
+                  flow asked reception to paste an MRN/UUID and silently
+                  did nothing on most inputs. */}
+              <EntityPicker
+                endpoint="/patients"
+                labelField="user.name"
+                subtitleField="user.phone"
+                hintField="mrNumber"
                 value={patientIdInput}
-                onChange={(e) => setPatientIdInput(e.target.value)}
-                placeholder="e.g. MR-2026-00123"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-                data-testid="patient-id-prompt-input"
-                aria-label="Patient ID"
-                disabled={bookingInFlight}
+                onChange={(id) => setPatientIdInput(id)}
+                searchPlaceholder="Search patient by name, phone, MR..."
+                testIdPrefix="patient-id-prompt"
               />
               <div className="flex justify-end gap-2">
                 <button
