@@ -119,10 +119,14 @@ router.get(
   }
 );
 
-// POST /api/v1/expenses — creates; auto-PENDING if > threshold
+// POST /api/v1/expenses — creates; auto-PENDING if > threshold for non-admin.
+// The handler's auto-PENDING / auto-APPROVED logic explicitly accounts for
+// non-admin creators (line 129+) — the prior `authorize(ADMIN)` was a
+// hardening overshoot that left no role path to actually create a PENDING
+// expense.
 router.post(
   "/",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.RECEPTION),
   validate(createExpenseSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

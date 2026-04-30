@@ -256,12 +256,14 @@ export async function createMedicineFixture(overrides: Partial<any> = {}) {
         overrides.name ||
         `Med-${faker.science.chemicalElement().name}-${Date.now() % 100000}`,
       genericName: overrides.genericName || "Generic",
+      brand: overrides.brand,
       form: overrides.form || "tablet",
       strength: overrides.strength || "500mg",
       category: overrides.category || "analgesic",
       isNarcotic: overrides.isNarcotic ?? false,
       requiresRegister: overrides.requiresRegister ?? false,
       scheduleClass: overrides.scheduleClass,
+      prescriptionRequired: overrides.prescriptionRequired,
     },
   });
 }
